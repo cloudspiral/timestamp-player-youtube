@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Timestamp Player for YouTube",
+  "version": "0.3.0",
+  "description": "A browser extension that gives you track-based playback controls for YouTube videos with timestamped tracks.",
+  "icons": {
+    "16": "icons/timestamp-player-youtube-16.png",
+    "32": "icons/timestamp-player-youtube-32.png",
+    "48": "icons/timestamp-player-youtube-48.png",
+    "128": "icons/timestamp-player-youtube-128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/watch*",
+        "https://music.youtube.com/watch*"
+      ],
+      "js": [
+        "src/content.js"
+      ],
+      "css": [
+        "src/content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

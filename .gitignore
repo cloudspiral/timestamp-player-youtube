@@ -1,0 +1,22 @@
+.DS_Store
+.*.swp
+
+# Local editor/project settings
+.idea/
+.vscode/
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+
+# Browser extension packaging artifacts
+web-ext-artifacts/
+*.crx
+*.pem
+*.zip
+
+# Local environment and logs
+.env
+.env.*
+*.log
