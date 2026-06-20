@@ -4,6 +4,8 @@
   const SCAN_DELAY_MS = 600;
   const DESCRIPTION_EXPAND_FALLBACK_DELAY_MS = 2500;
   const TRACKLIST_ANCHOR_SECONDS = 120;
+  const COMMENT_MIN_TRACKS = 3;
+  const REGULAR_COMMENT_SCAN_LIMIT = 30;
   const DRAG_VIEWPORT_PADDING = 8;
   const PLAYER_MIN_WIDTH = 260;
   const PLAYER_MIN_HEIGHT = 148;
@@ -24,6 +26,16 @@
   const PANEL_MODES = {
     ANCHORED: "anchored",
     FLOATING: "floating",
+  };
+  const COMMENT_SOURCE_TYPES = {
+    PINNED: "pinned",
+    UPLOADER: "uploader",
+    REGULAR: "regular",
+  };
+  const COMMENT_SOURCE_PRIORITY = {
+    [COMMENT_SOURCE_TYPES.PINNED]: 0,
+    [COMMENT_SOURCE_TYPES.UPLOADER]: 1,
+    [COMMENT_SOURCE_TYPES.REGULAR]: 2,
   };
 
   const state = {
@@ -161,7 +173,7 @@
 
     const quietDescriptionReadable = canReadQuietDescription();
     const candidates = getTimestampCandidates(videoId);
-    const tracks = getTracksForVideo(videoId, video.duration, candidates);
+    let tracks = getTracksForVideo(videoId, video.duration, candidates);
     if (tracks.length < 2 && candidates.length < 2 && !quietDescriptionReadable && shouldWaitForQuietDescriptionScan()) {
       scheduleScan();
       updateUi();
@@ -171,6 +183,10 @@
     if (tracks.length < 2 && candidates.length < 2 && !quietDescriptionReadable && expandDescriptionIfAvailable(videoId)) {
       updateUi("Reading description...");
       return;
+    }
+
+    if (tracks.length < 2) {
+      tracks = getCommentTracksForVideo(videoId, video.duration);
     }
 
     if (tracksChanged(state.tracks, tracks)) {
@@ -403,13 +419,13 @@
     }
   }
 
-  function findTracks(videoId, duration, candidates = getTimestampCandidates(videoId)) {
-    if (candidates.length < 2 || !Number.isFinite(duration) || duration <= 0) {
+  function findTracks(videoId, duration, candidates = getTimestampCandidates(videoId), minTrackCount = 2) {
+    if (candidates.length < minTrackCount || !Number.isFinite(duration) || duration <= 0) {
       return [];
     }
 
     const bestRun = pickBestIncreasingCandidateRun(getFirstCandidatePerLine(candidates));
-    if (bestRun.length < 2) {
+    if (bestRun.length < minTrackCount) {
       return [];
     }
 
@@ -510,6 +526,227 @@
     ];
 
     return getUniqueElements(selectors);
+  }
+
+  function getCommentTracksForVideo(videoId, duration) {
+    const bestSource = getBestCommentTrackSource(videoId, duration);
+    if (!bestSource) {
+      return [];
+    }
+
+    const cachedTracks = state.trackCache.get(videoId);
+    const mergedTracks = mergeCachedTrackTitles(bestSource.tracks, cachedTracks);
+    const bestTracks = chooseBetterTrackSet(mergedTracks, cachedTracks);
+    state.trackCache.set(videoId, bestTracks);
+    return bestTracks;
+  }
+
+  function getBestCommentTrackSource(videoId, duration) {
+    const validSources = getCommentTimestampSources().map((source) => {
+      return {
+        ...source,
+        tracks: findTracks(videoId, duration, source.candidates, COMMENT_MIN_TRACKS),
+      };
+    }).filter((source) => source.tracks.length >= COMMENT_MIN_TRACKS);
+
+    return validSources.sort(compareCommentTrackSources)[0] || null;
+  }
+
+  function getCommentTimestampSources() {
+    const sources = [];
+    let regularCommentCount = 0;
+
+    for (const [order, root] of getCommentRoots().entries()) {
+      const sourceType = getCommentSourceType(root);
+      if (sourceType === COMMENT_SOURCE_TYPES.REGULAR) {
+        regularCommentCount += 1;
+        if (regularCommentCount > REGULAR_COMMENT_SCAN_LIMIT) {
+          continue;
+        }
+      }
+
+      const candidates = getTextTimestampCandidates(getCommentBodyText(root), `comment:${order}`);
+      if (candidates.length >= COMMENT_MIN_TRACKS) {
+        sources.push({
+          sourceType,
+          order,
+          candidates,
+        });
+      }
+    }
+
+    return sources;
+  }
+
+  function compareCommentTrackSources(left, right) {
+    const leftPriority = COMMENT_SOURCE_PRIORITY[left.sourceType];
+    const rightPriority = COMMENT_SOURCE_PRIORITY[right.sourceType];
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+
+    if (left.tracks.length !== right.tracks.length) {
+      return right.tracks.length - left.tracks.length;
+    }
+
+    const leftTitleScore = trackTitleScore(left.tracks);
+    const rightTitleScore = trackTitleScore(right.tracks);
+    if (leftTitleScore !== rightTitleScore) {
+      return rightTitleScore - leftTitleScore;
+    }
+
+    return left.order - right.order;
+  }
+
+  function getCommentRoots() {
+    const roots = [];
+    for (const thread of document.querySelectorAll("ytd-comment-thread-renderer")) {
+      addUniqueElement(roots, thread.querySelector("ytd-comment-view-model, ytd-comment-renderer") || thread);
+    }
+
+    for (const comment of document.querySelectorAll("ytd-comment-view-model, ytd-comment-renderer")) {
+      if (!comment.closest("ytd-comment-thread-renderer")) {
+        addUniqueElement(roots, comment);
+      }
+    }
+
+    return roots.filter(isVisible);
+  }
+
+  function addUniqueElement(elements, element) {
+    if (element && !elements.includes(element)) {
+      elements.push(element);
+    }
+  }
+
+  function getCommentSourceType(root) {
+    if (isPinnedComment(root)) {
+      return COMMENT_SOURCE_TYPES.PINNED;
+    }
+
+    if (isUploaderComment(root)) {
+      return COMMENT_SOURCE_TYPES.UPLOADER;
+    }
+
+    return COMMENT_SOURCE_TYPES.REGULAR;
+  }
+
+  function isPinnedComment(root) {
+    if (root.querySelector("ytd-pinned-comment-badge-renderer, #pinned-comment-badge, [id*='pinned-comment']")) {
+      return true;
+    }
+
+    return normalizeTitleText(root.textContent).toLowerCase().includes("pinned by");
+  }
+
+  function isUploaderComment(root) {
+    const authorBadge = root.querySelector("ytd-author-comment-badge-renderer, #author-comment-badge, [id*='author-comment-badge']");
+    if (authorBadge && isVisible(authorBadge)) {
+      return true;
+    }
+
+    const ownerName = normalizeChannelName(getVideoOwnerName());
+    const authorName = normalizeChannelName(getCommentAuthorName(root));
+    return Boolean(ownerName && authorName && ownerName === authorName);
+  }
+
+  function getVideoOwnerName() {
+    const selectors = [
+      "ytd-watch-metadata ytd-video-owner-renderer #channel-name #text",
+      "ytd-watch-metadata ytd-video-owner-renderer #channel-name a",
+      "ytd-watch-metadata #owner #channel-name #text",
+      "ytd-watch-metadata #owner a.yt-simple-endpoint",
+      "#upload-info #channel-name #text",
+      "#upload-info #channel-name a",
+    ];
+
+    return getFirstVisibleText(selectors);
+  }
+
+  function getCommentAuthorName(root) {
+    const selectors = [
+      "#author-text",
+      "#author-text span",
+      "a#author-text",
+      "h3 a",
+      "a[href^='/@']",
+      "a[href*='/channel/']",
+    ];
+
+    for (const selector of selectors) {
+      const element = root.querySelector(selector);
+      if (element && isVisible(element)) {
+        const text = normalizeTitleText(element.textContent);
+        if (text) {
+          return text;
+        }
+      }
+    }
+
+    return "";
+  }
+
+  function getFirstVisibleText(selectors) {
+    for (const selector of selectors) {
+      const element = document.querySelector(selector);
+      if (element && isVisible(element)) {
+        const text = normalizeTitleText(element.textContent);
+        if (text) {
+          return text;
+        }
+      }
+    }
+
+    return "";
+  }
+
+  function normalizeChannelName(text) {
+    return normalizeTitleText(text)
+      .replace(/^@/, "")
+      .toLowerCase();
+  }
+
+  function getCommentBodyText(root) {
+    const bodySelectors = [
+      "#content-text",
+      "yt-attributed-string#content-text",
+      "yt-formatted-string#content-text",
+    ];
+
+    for (const selector of bodySelectors) {
+      const element = root.querySelector(selector);
+      if (element && isVisible(element)) {
+        const text = element.innerText || element.textContent || "";
+        if (normalizeTitleText(text)) {
+          return text;
+        }
+      }
+    }
+
+    return root.innerText || root.textContent || "";
+  }
+
+  function getTextTimestampCandidates(text, sourceKey) {
+    const candidates = [];
+    const lines = (text || "").split(/\r?\n/);
+    for (const [lineIndex, line] of lines.entries()) {
+      for (const match of line.matchAll(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g)) {
+        const timestampText = match[0];
+        const start = parseTimestampText(timestampText);
+        if (!Number.isFinite(start)) {
+          continue;
+        }
+
+        candidates.push({
+          start,
+          timestampText,
+          title: cleanTrackTitle(titleFromLineFragment(line, timestampText)),
+          lineKey: `${sourceKey}:${lineIndex}:${normalizeTitleText(line)}`,
+        });
+      }
+    }
+
+    return candidates;
   }
 
   function canReadQuietDescription() {
@@ -1493,9 +1730,12 @@
       return;
     }
 
-    const centeredTop = item.offsetTop - (listEl.clientHeight - item.offsetHeight) / 2;
+    const listRect = listEl.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    const targetTop = listEl.scrollTop + itemRect.top - listRect.top;
+
     listEl.scrollTo({
-      top: Math.max(0, centeredTop),
+      top: Math.max(0, targetTop),
       behavior: "smooth",
     });
   }

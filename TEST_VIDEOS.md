@@ -34,6 +34,16 @@ Use this list for manual testing while developing Timestamp Player for YouTube.
   - Exposes YouTube chapters in the playback bar.
   - Unknown whether the chapters are manual or automatic.
 
+## Timestamps in Comments
+
+- https://www.youtube.com/watch?v=QHQj04YEn7c
+  - Timestamps in pinned comment. Description only has tracknames.
+- https://www.youtube.com/watch?v=1d5L3sVOICw
+  - Timestamps in random comment about 12 comments down. 75 upvotes, top 5
+    upvoted.
+- https://www.youtube.com/watch?v=RY7FpB9BZH4
+  - Timestamps in pinned comment. Across multiple albums in 5 hour video.
+
 ## Messy Timestamp Formats
 
 - https://www.youtube.com/watch?v=a3uLaA5CMoU
