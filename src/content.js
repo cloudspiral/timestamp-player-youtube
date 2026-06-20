@@ -21,12 +21,17 @@
     REMAINING: "remaining",
     DURATION: "duration",
   };
+  const PANEL_MODES = {
+    ANCHORED: "anchored",
+    FLOATING: "floating",
+  };
 
   const state = {
     shuffleEnabled: false,
     repeatMode: REPEAT_MODES.OFF,
     progressTimeMode: PROGRESS_TIME_MODES.REMAINING,
     panelOpen: false,
+    panelMode: PANEL_MODES.ANCHORED,
     tracks: [],
     currentTrackIndex: -1,
     history: [],
@@ -48,6 +53,7 @@
   let launcherButton;
   let dragHandle;
   let resizeHandle;
+  let popoutButton;
   let closeButton;
   let trackEl;
   let countEl;
@@ -90,13 +96,16 @@
     document.addEventListener("play", handlePlaybackStateChange, true);
     document.addEventListener("pause", handlePlaybackStateChange, true);
     window.addEventListener("resize", schedulePlayerClamp);
+    window.addEventListener("scroll", schedulePlayerClamp, { capture: true, passive: true });
     window.visualViewport?.addEventListener("resize", schedulePlayerClamp);
+    window.visualViewport?.addEventListener("scroll", schedulePlayerClamp);
   }
 
   function handleNavigation() {
     state.shuffleEnabled = false;
     state.repeatMode = REPEAT_MODES.OFF;
     state.panelOpen = false;
+    state.panelMode = PANEL_MODES.ANCHORED;
     state.tracks = [];
     state.currentVideoId = getCurrentVideoId();
     state.currentTrackIndex = -1;
@@ -742,6 +751,18 @@
     root.innerHTML = `
       <div class="ts-drag-handle" aria-hidden="true"></div>
       <div class="ts-resize-handle" aria-hidden="true"></div>
+      <button class="ts-popout" type="button" aria-label="Pop out player" title="Pop out player">
+        <svg class="ts-icon ts-stroke-icon ts-popout-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"></path>
+          <path d="M14 4h6v6"></path>
+          <path d="M20 4 11 13"></path>
+        </svg>
+        <svg class="ts-icon ts-stroke-icon ts-dock-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"></path>
+          <path d="M8 9h8"></path>
+          <path d="M8 13h5"></path>
+        </svg>
+      </button>
       <button class="ts-close" type="button" aria-label="Close player" title="Close player">
         <svg class="ts-icon ts-stroke-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M6 6l12 12"></path>
@@ -808,6 +829,7 @@
 
     dragHandle = root.querySelector(".ts-drag-handle");
     resizeHandle = root.querySelector(".ts-resize-handle");
+    popoutButton = root.querySelector(".ts-popout");
     closeButton = root.querySelector(".ts-close");
     trackEl = root.querySelector(".ts-track");
     countEl = root.querySelector(".ts-count");
@@ -823,6 +845,7 @@
 
     dragHandle.addEventListener("pointerdown", handleDragPointerDown);
     resizeHandle.addEventListener("pointerdown", handleResizePointerDown);
+    popoutButton.addEventListener("click", togglePanelMode);
     closeButton.addEventListener("click", closePlayer);
     trackEl.addEventListener("click", scrollCurrentTrackIntoView);
     previousButton.addEventListener("click", playPreviousTrack);
@@ -838,15 +861,42 @@
 
   function closePlayer() {
     state.panelOpen = false;
+    state.panelMode = PANEL_MODES.ANCHORED;
     updateUi();
   }
 
   function togglePlayerOpen() {
-    state.panelOpen = !state.panelOpen;
+    if (state.panelOpen) {
+      closePlayer();
+      return;
+    }
+
+    state.panelOpen = true;
+    state.panelMode = PANEL_MODES.ANCHORED;
+    updateUi();
+  }
+
+  function togglePanelMode() {
+    if (!state.panelOpen) {
+      return;
+    }
+
+    if (state.panelMode === PANEL_MODES.ANCHORED) {
+      const rect = root.getBoundingClientRect();
+      state.panelMode = PANEL_MODES.FLOATING;
+      state.playerPosition = clampPlayerPosition(rect.left, rect.top, rect.width, rect.height);
+    } else {
+      state.panelMode = PANEL_MODES.ANCHORED;
+    }
+
     updateUi();
   }
 
   function handleDragPointerDown(event) {
+    if (state.panelMode !== PANEL_MODES.FLOATING) {
+      return;
+    }
+
     if (event.button !== undefined && event.button !== 0) {
       return;
     }
@@ -894,32 +944,83 @@
   }
 
   function schedulePlayerClamp() {
-    if ((!state.playerPosition && !state.playerSize) || state.viewportClampFrame) {
+    if (!state.panelOpen || !root?.classList.contains("is-visible") || state.viewportClampFrame) {
       return;
     }
 
     state.viewportClampFrame = requestAnimationFrame(() => {
       state.viewportClampFrame = null;
-      clampPlayerToViewport();
+      layoutPlayer();
     });
   }
 
-  function clampPlayerToViewport() {
+  function layoutPlayer() {
     if (!root?.classList.contains("is-visible")) {
       return;
     }
 
+    if (state.panelMode === PANEL_MODES.ANCHORED) {
+      positionAnchoredPlayer();
+      return;
+    }
+
+    positionFloatingPlayer();
+  }
+
+  function positionFloatingPlayer() {
     if (state.playerSize) {
       applyPlayerSize(clampPlayerSize(state.playerSize.width, state.playerSize.height));
+    } else {
+      clearPlayerSize();
     }
 
     if (state.playerPosition) {
       positionPlayer(state.playerPosition.left, state.playerPosition.top);
+      return;
     }
+
+    const rect = root.getBoundingClientRect();
+    const viewport = getViewportSize();
+    const position = clampPlayerPosition(
+      viewport.width - rect.width - 18,
+      viewport.height - rect.height - 88,
+      rect.width,
+      rect.height
+    );
+    applyPlayerPosition(position);
+  }
+
+  function positionAnchoredPlayer() {
+    clearPlayerSize();
+
+    const anchorRect = launcherButton?.isConnected ? launcherButton.getBoundingClientRect() : null;
+    const rect = root.getBoundingClientRect();
+    const viewport = getViewportSize();
+    const gutter = DRAG_VIEWPORT_PADDING;
+    const fallbackLeft = viewport.width - rect.width - 18;
+    const fallbackTop = viewport.height - rect.height - 88;
+
+    const topInset = getAnchoredTopInset();
+
+    if (!anchorRect || anchorRect.width <= 0 || anchorRect.height <= 0) {
+      applyRootPosition(clampPlayerPosition(fallbackLeft, fallbackTop, rect.width, rect.height, { topInset }));
+      return;
+    }
+
+    const belowTop = anchorRect.bottom + gutter;
+    const aboveTop = anchorRect.top - rect.height - gutter;
+    const top = belowTop + rect.height <= viewport.height - gutter ? belowTop : aboveTop;
+    const left = anchorRect.right - rect.width;
+
+    applyRootPosition(clampPlayerPosition(left, top, rect.width, rect.height, { topInset }));
   }
 
   function applyPlayerPosition(position) {
     state.playerPosition = position;
+    applyRootPosition(position);
+  }
+
+  function applyRootPosition(position) {
     root.style.left = `${position.left}px`;
     root.style.top = `${position.top}px`;
     root.style.right = "auto";
@@ -933,15 +1034,39 @@
     root.style.height = `${size.height}px`;
   }
 
-  function clampPlayerPosition(left, top, width, height) {
+  function clearPlayerSize() {
+    root.classList.remove("has-custom-size");
+    root.style.width = "";
+    root.style.height = "";
+  }
+
+  function clampPlayerPosition(left, top, width, height, options = {}) {
     const viewport = getViewportSize();
+    const minTop = Math.max(DRAG_VIEWPORT_PADDING, options.topInset ?? DRAG_VIEWPORT_PADDING);
     const maxLeft = Math.max(DRAG_VIEWPORT_PADDING, viewport.width - width - DRAG_VIEWPORT_PADDING);
-    const maxTop = Math.max(DRAG_VIEWPORT_PADDING, viewport.height - height - DRAG_VIEWPORT_PADDING);
+    const maxTop = Math.max(minTop, viewport.height - height - DRAG_VIEWPORT_PADDING);
 
     return {
       left: clamp(left, DRAG_VIEWPORT_PADDING, maxLeft),
-      top: clamp(top, DRAG_VIEWPORT_PADDING, maxTop),
+      top: clamp(top, minTop, maxTop),
     };
+  }
+
+  function getAnchoredTopInset() {
+    const masthead = [
+      "ytd-masthead",
+      "#masthead-container",
+      "#masthead",
+    ]
+      .map((selector) => document.querySelector(selector))
+      .find(isVisible);
+
+    if (!masthead) {
+      return DRAG_VIEWPORT_PADDING;
+    }
+
+    const rect = masthead.getBoundingClientRect();
+    return Math.max(DRAG_VIEWPORT_PADDING, rect.bottom + DRAG_VIEWPORT_PADDING);
   }
 
   function clampPlayerSize(width, height, anchorPosition = null) {
@@ -971,6 +1096,10 @@
   }
 
   function handleResizePointerDown(event) {
+    if (state.panelMode !== PANEL_MODES.FLOATING) {
+      return;
+    }
+
     if (event.button !== undefined && event.button !== 0) {
       return;
     }
@@ -1013,7 +1142,7 @@
         }
       )
     );
-    clampPlayerToViewport();
+    layoutPlayer();
   }
 
   function handleResizePointerEnd(event) {
@@ -1438,11 +1567,15 @@
     const video = getVideo();
     const tracksAvailable = state.tracks.length >= 2;
     const isPlaying = Boolean(video && !video.paused);
+    const isFloating = state.panelMode === PANEL_MODES.FLOATING;
+    const isVisible = tracksAvailable && state.panelOpen;
     root.classList.toggle("is-shuffle-enabled", state.shuffleEnabled);
     root.classList.toggle("is-repeat-enabled", state.repeatMode === REPEAT_MODES.ONE);
     root.classList.toggle("is-playing", isPlaying);
     root.classList.toggle("has-tracks", tracksAvailable);
-    root.classList.toggle("is-visible", tracksAvailable && state.panelOpen);
+    root.classList.toggle("is-visible", isVisible);
+    root.classList.toggle("is-anchored", state.panelMode === PANEL_MODES.ANCHORED);
+    root.classList.toggle("is-floating", isFloating);
     syncLauncher(tracksAvailable);
     previousButton.disabled = !tracksAvailable;
     playPauseButton.disabled = !tracksAvailable;
@@ -1456,6 +1589,8 @@
     repeatButton.setAttribute("aria-label", state.repeatMode === REPEAT_MODES.ONE ? "Turn repeat off" : "Turn repeat on");
     repeatButton.title = state.repeatMode === REPEAT_MODES.ONE ? "Repeat on" : "Repeat current track";
     nextButton.disabled = !tracksAvailable;
+    popoutButton.setAttribute("aria-label", isFloating ? "Dock player" : "Pop out player");
+    popoutButton.title = isFloating ? "Dock player" : "Pop out player";
 
     const track = state.tracks[state.currentTrackIndex];
     const trackLabel = track ? formatTrackLabel(track) : "No track selected";
@@ -1464,8 +1599,8 @@
     countEl.textContent = track ? `${track.index + 1} / ${state.tracks.length}` : "";
     updateProgress(video);
     renderTrackList();
-    if (tracksAvailable && state.panelOpen) {
-      schedulePlayerClamp();
+    if (isVisible) {
+      layoutPlayer();
     }
   }
 
