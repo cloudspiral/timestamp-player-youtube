@@ -36,6 +36,11 @@
   overflow: hidden;
 }
 
+#timestamp-player-root.is-anchored .ts-drag-handle,
+#timestamp-player-root.is-anchored .ts-resize-handle {
+  display: none;
+}
+
 #timestamp-player-root,
 #timestamp-player-root * {
   letter-spacing: 0;
@@ -70,7 +75,7 @@
   justify-content: space-between;
   gap: 10px;
   min-width: 0;
-  padding-right: 26px;
+  padding-right: 56px;
 }
 
 #timestamp-player-root .ts-track {
@@ -323,10 +328,10 @@
   border-color: rgba(255, 255, 255, 0.5);
 }
 
+#timestamp-player-root .ts-popout,
 #timestamp-player-root .ts-close {
   position: absolute;
   top: 6px;
-  right: 6px;
   display: grid;
   place-items: center;
   width: 24px;
@@ -338,14 +343,33 @@
   color: #b7b7b7;
 }
 
+#timestamp-player-root .ts-popout {
+  right: 34px;
+}
+
+#timestamp-player-root .ts-close {
+  right: 6px;
+}
+
+#timestamp-player-root .ts-popout:hover:not(:disabled),
 #timestamp-player-root .ts-close:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
 }
 
+#timestamp-player-root .ts-popout .ts-icon,
 #timestamp-player-root .ts-close .ts-icon {
   width: 15px;
   height: 15px;
+}
+
+#timestamp-player-root .ts-dock-icon,
+#timestamp-player-root.is-floating .ts-popout-icon {
+  display: none;
+}
+
+#timestamp-player-root.is-floating .ts-dock-icon {
+  display: block;
 }
 
 #timestamp-player-root .ts-icon-button {
@@ -403,6 +427,11 @@
 
 #timestamp-player-root button:hover:not(:disabled) {
   background: #3f7dff;
+}
+
+#timestamp-player-root .ts-popout:hover:not(:disabled),
+#timestamp-player-root .ts-close:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 #timestamp-player-root .ts-list-item:hover:not(:disabled) {
