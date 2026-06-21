@@ -464,6 +464,10 @@
   right: 62px;
 }
 
+#timestamp-player-root.is-anchored .ts-compact-toggle {
+  right: 6px;
+}
+
 #timestamp-player-root.is-inline-compact .ts-compact-toggle {
   grid-area: compact;
 }
@@ -474,6 +478,10 @@
 
 #timestamp-player-root .ts-close {
   right: 6px;
+}
+
+#timestamp-player-root.is-anchored .ts-close {
+  display: none;
 }
 
 #timestamp-player-root.is-inline-compact .ts-popout,
@@ -571,7 +579,9 @@
 
 #timestamp-player-root .ts-toggle,
 #timestamp-player-root .ts-repeat {
-  background: rgba(255, 255, 255, 0.08);
+  border-color: transparent;
+  background: transparent;
+  color: #b7b7b7;
 }
 
 #timestamp-player-root .ts-toggle {
@@ -582,8 +592,6 @@
   width: 22px;
   min-width: 22px;
   margin-right: 3px;
-  border-color: transparent;
-  background: transparent;
 }
 
 #timestamp-player-root .ts-repeat {
@@ -594,12 +602,21 @@
   width: 22px;
   min-width: 22px;
   margin-left: 3px;
-  border-color: transparent;
-  background: transparent;
 }
 
 #timestamp-player-root button:hover:not(:disabled) {
-  background: #3f7dff;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+#timestamp-player-root .ts-toggle:hover:not(:disabled),
+#timestamp-player-root .ts-repeat:hover:not(:disabled) {
+  background: transparent;
+  color: #b7b7b7;
+}
+
+#timestamp-player-root.is-shuffle-enabled .ts-toggle:hover:not(:disabled),
+#timestamp-player-root.is-repeat-enabled .ts-repeat:hover:not(:disabled) {
+  color: #32c982;
 }
 
 #timestamp-player-root .ts-popout:hover:not(:disabled),
@@ -622,8 +639,9 @@
 
 #timestamp-player-root.is-shuffle-enabled .ts-toggle,
 #timestamp-player-root.is-repeat-enabled .ts-repeat {
-  border-color: rgba(61, 220, 151, 0.45);
-  background: #18865c;
+  border-color: transparent;
+  background: transparent;
+  color: #32c982;
 }
 
 #timestamp-player-launcher {

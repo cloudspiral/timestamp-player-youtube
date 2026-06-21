@@ -1325,6 +1325,7 @@
     clearPlayerSize();
 
     const anchorRect = launcherButton?.isConnected ? launcherButton.getBoundingClientRect() : null;
+    const alignmentRect = findCompactActionAnchor()?.getBoundingClientRect() || anchorRect;
     const rect = root.getBoundingClientRect();
     const viewport = getViewportSize();
     const fallbackLeft = viewport.width - rect.width - 18;
@@ -1338,7 +1339,7 @@
     const scrollOffset = getViewportScrollOffset();
     applyRootPosition(
       {
-        left: anchorRect.right + scrollOffset.left - rect.width,
+        left: alignmentRect.right + scrollOffset.left - rect.width,
         top: anchorRect.top + scrollOffset.top - rect.height - DRAG_VIEWPORT_PADDING,
       },
       "absolute"
