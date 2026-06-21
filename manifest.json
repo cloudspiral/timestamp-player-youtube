@@ -16,6 +16,7 @@
         "https://music.youtube.com/watch*"
       ],
       "js": [
+        "src/timestamps.js",
         "src/comment-scoring.js",
         "src/content.js"
       ],

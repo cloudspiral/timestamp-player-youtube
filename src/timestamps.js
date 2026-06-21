@@ -1,0 +1,247 @@
+(() => {
+  const TRACKLIST_ANCHOR_SECONDS = 120;
+
+  function findTracks(duration, candidates, minTrackCount = 2) {
+    if (candidates.length < minTrackCount || !Number.isFinite(duration) || duration <= 0) {
+      return [];
+    }
+
+    const bestRun = pickBestIncreasingCandidateRun(getFirstCandidatePerLine(candidates));
+    if (bestRun.length < minTrackCount) {
+      return [];
+    }
+
+    return bestRun.map((candidate, index) => {
+      const next = bestRun[index + 1];
+      return {
+        index,
+        start: candidate.start,
+        end: next ? Math.max(candidate.start, next.start - 0.2) : duration,
+        title: candidate.title,
+      };
+    });
+  }
+
+  function getFirstCandidatePerLine(candidates) {
+    const deduped = [];
+    const seenLines = new Set();
+    const seenStarts = new Set();
+    for (const [sourceOrder, candidate] of candidates.entries()) {
+      const lineKey = candidate.lineKey || `${sourceOrder}:${candidate.timestampText}`;
+      if (seenLines.has(lineKey) || seenStarts.has(candidate.start)) {
+        continue;
+      }
+
+      seenLines.add(lineKey);
+      seenStarts.add(candidate.start);
+      deduped.push({ ...candidate, sourceOrder });
+    }
+
+    return deduped;
+  }
+
+  function pickBestIncreasingCandidateRun(candidates) {
+    const runs = [];
+    let currentRun = [];
+
+    for (const candidate of candidates) {
+      const previous = currentRun[currentRun.length - 1];
+      if (!previous || candidate.start > previous.start) {
+        currentRun.push(candidate);
+      } else {
+        runs.push(currentRun);
+        currentRun = [candidate];
+      }
+    }
+
+    runs.push(currentRun);
+
+    const viableRuns = runs.filter((run) => run.length >= 2);
+    const anchoredRuns = viableRuns.filter((run) => run[0].start <= TRACKLIST_ANCHOR_SECONDS);
+    if (anchoredRuns.length) {
+      return anchoredRuns.sort(compareCandidateRuns)[0];
+    }
+
+    if (viableRuns.length === 1 && viableRuns[0].length === candidates.length) {
+      return viableRuns[0];
+    }
+
+    return [];
+  }
+
+  function compareCandidateRuns(left, right) {
+    if (left.length !== right.length) {
+      return right.length - left.length;
+    }
+
+    if (left[0].start !== right[0].start) {
+      return left[0].start - right[0].start;
+    }
+
+    return left[0].sourceOrder - right[0].sourceOrder;
+  }
+
+  function getTextTimestampCandidates(text, sourceKey) {
+    const candidates = [];
+    const lines = (text || "").split(/\r?\n/);
+    for (const [lineIndex, line] of lines.entries()) {
+      for (const match of line.matchAll(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g)) {
+        const timestampText = match[0];
+        const start = parseTimestampText(timestampText);
+        if (!Number.isFinite(start)) {
+          continue;
+        }
+
+        candidates.push({
+          start,
+          timestampText,
+          title: cleanTrackTitle(titleFromLineFragment(line, timestampText)),
+          lineKey: `${sourceKey}:${lineIndex}:${normalizeTitleText(line)}`,
+        });
+      }
+    }
+
+    return candidates;
+  }
+
+  function parseTimeParam(value) {
+    if (!value) {
+      return NaN;
+    }
+
+    const compact = value.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s?)?$/);
+    if (compact) {
+      const hours = parseFloat(compact[1] || "0");
+      const minutes = parseFloat(compact[2] || "0");
+      const seconds = parseFloat(compact[3] || "0");
+      return hours * 3600 + minutes * 60 + seconds;
+    }
+
+    const seconds = parseFloat(value);
+    return Number.isFinite(seconds) ? seconds : NaN;
+  }
+
+  function parseTimestampText(value) {
+    const text = (value || "").trim();
+    if (!/^\d{1,2}:\d{2}(?::\d{2})?$/.test(text)) {
+      return NaN;
+    }
+
+    const parts = text.split(":").map((part) => parseInt(part, 10));
+    if (parts.length === 2) {
+      return parts[0] * 60 + parts[1];
+    }
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+
+  function lineContainingTimestamp(text, timestamp) {
+    const lines = text.split(/\r?\n/);
+    return lines.find((entry) => entry.includes(timestamp)) || "";
+  }
+
+  function titleFromLineFragment(line, timestamp) {
+    const normalizedLine = normalizeTitleText(line);
+    const timestampIndex = normalizedLine.indexOf(timestamp);
+    if (timestampIndex === -1) {
+      return "";
+    }
+
+    const beforeTimestamp = normalizedLine.slice(0, timestampIndex);
+    const afterTimestamp = normalizedLine.slice(timestampIndex + timestamp.length);
+    const beforeTitle = stripTimestampAdjacency(beforeTimestamp, "before");
+    const afterTitle = stripTimestampAdjacency(afterTimestamp, "after");
+
+    if (beforeTitle && afterTitle) {
+      return beforeTitle.length >= afterTitle.length ? beforeTitle : afterTitle;
+    }
+
+    return beforeTitle || trimAfterEmbeddedTimestamp(afterTitle);
+  }
+
+  function stripTimestampAdjacency(text, side) {
+    let cleaned = normalizeTitleText(text);
+
+    if (side === "before") {
+      cleaned = cleaned
+        .replace(/[\s([{\-–—:|/]*$/g, "")
+        .replace(/\s+\d{1,2}:\d{2}(?::\d{2})?.*$/g, "");
+    } else {
+      cleaned = cleaned.replace(/^[\s)\]}.,;:\-–—|/]+/g, "");
+    }
+
+    return cleaned.trim();
+  }
+
+  function cleanTrackTitle(title) {
+    const cleaned = normalizeTitleText(title)
+      .replace(/\s+\/\s*(?:original|vocal|lyrics|arrange|arrangement|source)\b.*$/i, "")
+      .replace(/^\s*(?:track\s*)?\d{1,3}[\s.)\]-]+/i, "")
+      .trim();
+
+    return isTimestampOnlyText(cleaned) ? "" : cleaned;
+  }
+
+  function isTimestampOnlyText(text) {
+    if (!text) {
+      return false;
+    }
+
+    return text
+      .replace(/\d{1,2}:\d{2}(?::\d{2})?/g, "")
+      .replace(/[\s()[\]{}.,;:\-–—|/]+/g, "")
+      .trim() === "";
+  }
+
+  function normalizeTitleText(text) {
+    return (text || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\u3000/g, " ")
+      .replace(/[ \t]+/g, " ")
+      .trim();
+  }
+
+  function trimAfterEmbeddedTimestamp(text) {
+    return normalizeTitleText(text)
+      .replace(/\s+\d{1,2}:\d{2}(?::\d{2})?.*$/, "")
+      .trim();
+  }
+
+  function formatTrackLabel(track) {
+    return track.title || `Track ${track.index + 1}`;
+  }
+
+  function formatTimestamp(seconds) {
+    const totalSeconds = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const remainingSeconds = totalSeconds % 60;
+    const paddedSeconds = String(remainingSeconds).padStart(2, "0");
+
+    if (hours > 0) {
+      return `${hours}:${String(minutes).padStart(2, "0")}:${paddedSeconds}`;
+    }
+
+    return `${minutes}:${paddedSeconds}`;
+  }
+
+  function trackTitleScore(tracks) {
+    return tracks.reduce((score, track) => {
+      const title = (track.title || "").trim();
+      return score + (title ? 1 : 0);
+    }, 0);
+  }
+
+  globalThis.TimestampPlayerTimestamps = {
+    cleanTrackTitle,
+    findTracks,
+    formatTimestamp,
+    formatTrackLabel,
+    getTextTimestampCandidates,
+    lineContainingTimestamp,
+    normalizeTitleText,
+    parseTimeParam,
+    parseTimestampText,
+    titleFromLineFragment,
+    trackTitleScore,
+  };
+})();
