@@ -397,6 +397,7 @@
       </svg>
       <span>Tracklist</span>
     `;
+    launcherButton.addEventListener("mousedown", preventMouseButtonFocus);
     launcherButton.addEventListener("click", togglePlayerOpen);
   }
 
@@ -1134,6 +1135,7 @@
     repeatButton = root.querySelector(".ts-repeat");
     nextButton = root.querySelector(".ts-next");
 
+    root.addEventListener("mousedown", preventMouseButtonFocus);
     dragHandle.addEventListener("pointerdown", handleDragPointerDown);
     resizeHandle.addEventListener("pointerdown", handleResizePointerDown);
     compactButton.addEventListener("click", toggleAnchoredCompact);
@@ -1149,6 +1151,19 @@
     progressRemainingEl.addEventListener("pointerdown", (event) => event.preventDefault());
     progressRemainingEl.addEventListener("click", toggleProgressTimeMode);
     listEl.addEventListener("click", handleTrackListClick);
+  }
+
+  function preventMouseButtonFocus(event) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    const button = event.target.closest?.("button");
+    if (!button || !event.currentTarget.contains(button)) {
+      return;
+    }
+
+    event.preventDefault();
   }
 
   function closePlayer() {
