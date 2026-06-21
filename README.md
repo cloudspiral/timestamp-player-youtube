@@ -1,14 +1,18 @@
 # Timestamp Player for YouTube
 
-A browser extension that gives you track-based playback controls for YouTube
-videos with timestamped tracks. Useful for albums, compilations, mixes, etc.
+YouTube has lots of videos with timestamps, but it doesn't have playback controls that make full use of them. This extension fixes that.
 
-When a YouTube video has a timestamped tracklist, Timestamp Player adds a
-Tracklist button below the video. The button opens a small adjustable player for
-jumping between tracks, seeking within the current track, and toggling shuffle or
-repeat.
+Timestamp Player makes it easy to navigate tracks, seek within the current track, and even repeat and shuffle through tracks in any video that has timestamps.
+
+It checks for timestamps in both the video description and top comments, and intelligently chooses the best set that it can find.
+
+You can open and close the player by clicking the new "Tracklist" button located next to the Share button.
+
+You can also use the player's corner controls to switch to compact view or pop out the player into a floating resizable panel.
 
 [Install from the Chrome Web Store](https://chromewebstore.google.com/detail/apdohlkmddbfpmhkoeibajlhpnhilocb)
+
+![Timestamp Player for YouTube compact player](store-assets/screenshots/abbey-road-compact-1280x800.png)
 
 ## Running Locally
 
