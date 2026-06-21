@@ -1,6 +1,7 @@
 (() => {
   const ROOT_ID = "timestamp-player-root";
   const LAUNCHER_ID = "timestamp-player-launcher";
+  const COMPACT_HOST_ID = "timestamp-player-compact-host";
   const SCAN_DELAY_MS = 600;
   const DESCRIPTION_EXPAND_FALLBACK_DELAY_MS = 2500;
   const TRACKLIST_ANCHOR_SECONDS = 120;
@@ -8,7 +9,7 @@
   const REGULAR_COMMENT_SCAN_LIMIT = 30;
   const DRAG_VIEWPORT_PADDING = 8;
   const PLAYER_MIN_WIDTH = 260;
-  const PLAYER_MIN_HEIGHT = 148;
+  const PLAYER_MIN_HEIGHT = 128;
   const PLAYER_MIN_VISIBLE_WIDTH = 180;
   const PLAYER_MIN_VISIBLE_HEIGHT = 100;
   const TRACK_END_GRACE_SECONDS = 0.35;
@@ -44,6 +45,7 @@
     progressTimeMode: PROGRESS_TIME_MODES.REMAINING,
     panelOpen: false,
     panelMode: PANEL_MODES.ANCHORED,
+    anchoredCompact: false,
     tracks: [],
     currentTrackIndex: -1,
     history: [],
@@ -57,14 +59,16 @@
     scanTimer: null,
     playerPosition: null,
     playerSize: null,
-    viewportClampFrame: null,
+    playerLayoutFrame: null,
     lastUrl: location.href,
   };
 
   let root;
   let launcherButton;
+  let compactHost;
   let dragHandle;
   let resizeHandle;
+  let compactButton;
   let popoutButton;
   let closeButton;
   let trackEl;
@@ -107,10 +111,8 @@
     document.addEventListener("timeupdate", handleTimeUpdate, true);
     document.addEventListener("play", handlePlaybackStateChange, true);
     document.addEventListener("pause", handlePlaybackStateChange, true);
-    window.addEventListener("resize", schedulePlayerClamp);
-    window.addEventListener("scroll", schedulePlayerClamp, { capture: true, passive: true });
-    window.visualViewport?.addEventListener("resize", schedulePlayerClamp);
-    window.visualViewport?.addEventListener("scroll", schedulePlayerClamp);
+    window.addEventListener("resize", schedulePlayerLayout);
+    window.visualViewport?.addEventListener("resize", schedulePlayerLayout);
   }
 
   function handleNavigation() {
@@ -118,6 +120,7 @@
     state.repeatMode = REPEAT_MODES.OFF;
     state.panelOpen = false;
     state.panelMode = PANEL_MODES.ANCHORED;
+    state.anchoredCompact = false;
     state.tracks = [];
     state.currentVideoId = getCurrentVideoId();
     state.currentTrackIndex = -1;
@@ -132,7 +135,9 @@
 
   function handlePageMutations(mutations) {
     const onlyExtensionMutations = mutations.every((mutation) => {
-      return root?.contains(mutation.target) || launcherButton?.contains(mutation.target);
+      return root?.contains(mutation.target)
+        || launcherButton?.contains(mutation.target)
+        || compactHost?.contains(mutation.target);
     });
     if (onlyExtensionMutations) {
       return;
@@ -350,7 +355,9 @@
 
   function syncLauncher(tracksAvailable) {
     if (!tracksAvailable) {
+      movePlayerToOverlayRoot();
       launcherButton?.remove();
+      compactHost?.remove();
       return;
     }
 
@@ -407,6 +414,25 @@
     return candidates.find(isVisible) || null;
   }
 
+  function findCompactActionAnchor() {
+    const actionRow = findActionRow();
+    const candidates = [
+      actionRow?.closest("#actions"),
+      actionRow?.closest("ytd-menu-renderer"),
+      actionRow?.parentElement,
+      ...document.querySelectorAll(
+        [
+          "ytd-watch-metadata #actions",
+          "ytd-watch-metadata ytd-menu-renderer",
+          "#above-the-fold #actions",
+        ].join(",")
+      ),
+      actionRow,
+    ].filter(Boolean);
+
+    return candidates.find(isVisible) || null;
+  }
+
   function insertLauncherButton(actionRow) {
     const shareButton = [...actionRow.children].find((element) => {
       return normalizeTitleText(element.textContent).toLowerCase().includes("share");
@@ -417,6 +443,25 @@
     } else {
       actionRow.append(launcherButton);
     }
+  }
+
+  function ensureCompactHost(actionRow) {
+    if (!compactHost) {
+      compactHost = document.createElement("div");
+      compactHost.id = COMPACT_HOST_ID;
+    }
+
+    if (compactHost.parentElement === actionRow && launcherButton.nextSibling === compactHost) {
+      return compactHost;
+    }
+
+    if (launcherButton?.nextSibling) {
+      actionRow.insertBefore(compactHost, launcherButton.nextSibling);
+    } else {
+      actionRow.append(compactHost);
+    }
+
+    return compactHost;
   }
 
   function findTracks(videoId, duration, candidates = getTimestampCandidates(videoId), minTrackCount = 2) {
@@ -988,6 +1033,14 @@
     root.innerHTML = `
       <div class="ts-drag-handle" aria-hidden="true"></div>
       <div class="ts-resize-handle" aria-hidden="true"></div>
+      <button class="ts-compact-toggle" type="button" aria-label="Compact player" title="Compact player">
+        <svg class="ts-icon ts-stroke-icon ts-compact-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 9l6 6 6-6"></path>
+        </svg>
+        <svg class="ts-icon ts-stroke-icon ts-expand-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 15l6-6 6 6"></path>
+        </svg>
+      </button>
       <button class="ts-popout" type="button" aria-label="Pop out player" title="Pop out player">
         <svg class="ts-icon ts-stroke-icon ts-popout-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M8 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"></path>
@@ -1008,8 +1061,8 @@
       </button>
       <div class="ts-body">
         <div class="ts-now-playing">
-          <div class="ts-track">No track selected</div>
           <div class="ts-count"></div>
+          <div class="ts-track">No track selected</div>
         </div>
         <div class="ts-progress">
           <div class="ts-progress-times">
@@ -1066,6 +1119,7 @@
 
     dragHandle = root.querySelector(".ts-drag-handle");
     resizeHandle = root.querySelector(".ts-resize-handle");
+    compactButton = root.querySelector(".ts-compact-toggle");
     popoutButton = root.querySelector(".ts-popout");
     closeButton = root.querySelector(".ts-close");
     trackEl = root.querySelector(".ts-track");
@@ -1082,6 +1136,7 @@
 
     dragHandle.addEventListener("pointerdown", handleDragPointerDown);
     resizeHandle.addEventListener("pointerdown", handleResizePointerDown);
+    compactButton.addEventListener("click", toggleAnchoredCompact);
     popoutButton.addEventListener("click", togglePanelMode);
     closeButton.addEventListener("click", closePlayer);
     trackEl.addEventListener("click", scrollCurrentTrackIntoView);
@@ -1098,7 +1153,6 @@
 
   function closePlayer() {
     state.panelOpen = false;
-    state.panelMode = PANEL_MODES.ANCHORED;
     updateUi();
   }
 
@@ -1109,7 +1163,6 @@
     }
 
     state.panelOpen = true;
-    state.panelMode = PANEL_MODES.ANCHORED;
     updateUi();
   }
 
@@ -1127,6 +1180,40 @@
     }
 
     updateUi();
+  }
+
+  function toggleAnchoredCompact() {
+    if (!state.panelOpen || state.panelMode !== PANEL_MODES.ANCHORED) {
+      return;
+    }
+
+    state.anchoredCompact = !state.anchoredCompact;
+    updateUi();
+  }
+
+  function mountPlayerForMode(inlineCompact) {
+    if (inlineCompact) {
+      movePlayerToOverlayRoot();
+      removeEmptyCompactHost();
+      clearPlayerSize();
+      clearRootPosition();
+      return true;
+    }
+
+    movePlayerToOverlayRoot();
+    return false;
+  }
+
+  function movePlayerToOverlayRoot() {
+    if (root && root.parentElement !== document.documentElement) {
+      document.documentElement.append(root);
+    }
+  }
+
+  function removeEmptyCompactHost() {
+    if (compactHost?.isConnected && !compactHost.contains(root)) {
+      compactHost.remove();
+    }
   }
 
   function handleDragPointerDown(event) {
@@ -1180,19 +1267,26 @@
     applyPlayerPosition(nextPosition);
   }
 
-  function schedulePlayerClamp() {
-    if (!state.panelOpen || !root?.classList.contains("is-visible") || state.viewportClampFrame) {
+  function schedulePlayerLayout() {
+    if (!state.panelOpen || !root?.classList.contains("is-visible") || state.playerLayoutFrame) {
       return;
     }
 
-    state.viewportClampFrame = requestAnimationFrame(() => {
-      state.viewportClampFrame = null;
+    state.playerLayoutFrame = requestAnimationFrame(() => {
+      state.playerLayoutFrame = null;
       layoutPlayer();
     });
   }
 
   function layoutPlayer() {
     if (!root?.classList.contains("is-visible")) {
+      return;
+    }
+
+    if (root.classList.contains("is-inline-compact")) {
+      if (!positionCompactPlayer() && !mountCompactFallback()) {
+        positionAnchoredPlayer();
+      }
       return;
     }
 
@@ -1233,23 +1327,67 @@
     const anchorRect = launcherButton?.isConnected ? launcherButton.getBoundingClientRect() : null;
     const rect = root.getBoundingClientRect();
     const viewport = getViewportSize();
-    const gutter = DRAG_VIEWPORT_PADDING;
     const fallbackLeft = viewport.width - rect.width - 18;
     const fallbackTop = viewport.height - rect.height - 88;
 
-    const topInset = getAnchoredTopInset();
-
     if (!anchorRect || anchorRect.width <= 0 || anchorRect.height <= 0) {
-      applyRootPosition(clampPlayerPosition(fallbackLeft, fallbackTop, rect.width, rect.height, { topInset }));
+      applyRootPosition(clampPlayerPosition(fallbackLeft, fallbackTop, rect.width, rect.height));
       return;
     }
 
-    const belowTop = anchorRect.bottom + gutter;
-    const aboveTop = anchorRect.top - rect.height - gutter;
-    const top = belowTop + rect.height <= viewport.height - gutter ? belowTop : aboveTop;
-    const left = anchorRect.right - rect.width;
+    const scrollOffset = getViewportScrollOffset();
+    applyRootPosition(
+      {
+        left: anchorRect.right + scrollOffset.left - rect.width,
+        top: anchorRect.top + scrollOffset.top - rect.height - DRAG_VIEWPORT_PADDING,
+      },
+      "absolute"
+    );
+  }
 
-    applyRootPosition(clampPlayerPosition(left, top, rect.width, rect.height, { topInset }));
+  function positionCompactPlayer() {
+    movePlayerToOverlayRoot();
+    removeEmptyCompactHost();
+    clearPlayerSize();
+
+    const actionAnchor = findCompactActionAnchor();
+    const actionRect = actionAnchor?.getBoundingClientRect();
+    const rect = root.getBoundingClientRect();
+
+    if (!actionRect || actionRect.width <= 0 || actionRect.height <= 0 || rect.width <= 0 || rect.height <= 0) {
+      clearRootPosition();
+      return false;
+    }
+
+    const scrollOffset = getViewportScrollOffset();
+    const viewport = getViewportSize();
+    const minLeft = DRAG_VIEWPORT_PADDING;
+    const maxLeft = Math.max(minLeft, viewport.width - rect.width - DRAG_VIEWPORT_PADDING);
+    const left = clamp(actionRect.right - rect.width, minLeft, maxLeft) + scrollOffset.left;
+    const top = Math.max(0, actionRect.top + scrollOffset.top - rect.height - 6);
+
+    applyRootPosition({ left, top }, "absolute");
+    return true;
+  }
+
+  function mountCompactFallback() {
+    const actionRow = findActionRow();
+    if (!actionRow) {
+      return false;
+    }
+
+    ensureCompactHost(actionRow);
+    if (!compactHost?.isConnected) {
+      return false;
+    }
+
+    if (root.parentElement !== compactHost) {
+      compactHost.append(root);
+    }
+
+    clearPlayerSize();
+    clearRootPosition();
+    return true;
   }
 
   function applyPlayerPosition(position) {
@@ -1257,11 +1395,20 @@
     applyRootPosition(position);
   }
 
-  function applyRootPosition(position) {
+  function applyRootPosition(position, positionMode = "fixed") {
+    root.style.position = positionMode;
     root.style.left = `${position.left}px`;
     root.style.top = `${position.top}px`;
     root.style.right = "auto";
     root.style.bottom = "auto";
+  }
+
+  function clearRootPosition() {
+    root.style.position = "";
+    root.style.left = "";
+    root.style.top = "";
+    root.style.right = "";
+    root.style.bottom = "";
   }
 
   function applyPlayerSize(size) {
@@ -1277,33 +1424,15 @@
     root.style.height = "";
   }
 
-  function clampPlayerPosition(left, top, width, height, options = {}) {
+  function clampPlayerPosition(left, top, width, height) {
     const viewport = getViewportSize();
-    const minTop = Math.max(DRAG_VIEWPORT_PADDING, options.topInset ?? DRAG_VIEWPORT_PADDING);
     const maxLeft = Math.max(DRAG_VIEWPORT_PADDING, viewport.width - width - DRAG_VIEWPORT_PADDING);
-    const maxTop = Math.max(minTop, viewport.height - height - DRAG_VIEWPORT_PADDING);
+    const maxTop = Math.max(DRAG_VIEWPORT_PADDING, viewport.height - height - DRAG_VIEWPORT_PADDING);
 
     return {
       left: clamp(left, DRAG_VIEWPORT_PADDING, maxLeft),
-      top: clamp(top, minTop, maxTop),
+      top: clamp(top, DRAG_VIEWPORT_PADDING, maxTop),
     };
-  }
-
-  function getAnchoredTopInset() {
-    const masthead = [
-      "ytd-masthead",
-      "#masthead-container",
-      "#masthead",
-    ]
-      .map((selector) => document.querySelector(selector))
-      .find(isVisible);
-
-    if (!masthead) {
-      return DRAG_VIEWPORT_PADDING;
-    }
-
-    const rect = masthead.getBoundingClientRect();
-    return Math.max(DRAG_VIEWPORT_PADDING, rect.bottom + DRAG_VIEWPORT_PADDING);
   }
 
   function clampPlayerSize(width, height, anchorPosition = null) {
@@ -1329,6 +1458,13 @@
     return {
       width: window.visualViewport?.width ?? window.innerWidth,
       height: window.visualViewport?.height ?? window.innerHeight,
+    };
+  }
+
+  function getViewportScrollOffset() {
+    return {
+      left: window.scrollX || window.pageXOffset || 0,
+      top: window.scrollY || window.pageYOffset || 0,
     };
   }
 
@@ -1725,6 +1861,11 @@
       return;
     }
 
+    if (state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact) {
+      state.anchoredCompact = false;
+      updateUi();
+    }
+
     const item = listEl.querySelector(`[data-index="${currentIndex}"]`);
     if (!item) {
       return;
@@ -1808,15 +1949,20 @@
     const tracksAvailable = state.tracks.length >= 2;
     const isPlaying = Boolean(video && !video.paused);
     const isFloating = state.panelMode === PANEL_MODES.FLOATING;
+    const isAnchoredCompact = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;
     const isVisible = tracksAvailable && state.panelOpen;
+    const isInlineCompact = isVisible && isAnchoredCompact;
+    syncLauncher(tracksAvailable);
+    const mountedInlineCompact = mountPlayerForMode(isInlineCompact);
     root.classList.toggle("is-shuffle-enabled", state.shuffleEnabled);
     root.classList.toggle("is-repeat-enabled", state.repeatMode === REPEAT_MODES.ONE);
     root.classList.toggle("is-playing", isPlaying);
     root.classList.toggle("has-tracks", tracksAvailable);
     root.classList.toggle("is-visible", isVisible);
     root.classList.toggle("is-anchored", state.panelMode === PANEL_MODES.ANCHORED);
+    root.classList.toggle("is-anchored-compact", isAnchoredCompact);
+    root.classList.toggle("is-inline-compact", mountedInlineCompact);
     root.classList.toggle("is-floating", isFloating);
-    syncLauncher(tracksAvailable);
     previousButton.disabled = !tracksAvailable;
     playPauseButton.disabled = !tracksAvailable;
     playPauseButton.setAttribute("aria-label", isPlaying ? "Pause" : "Play");
@@ -1829,6 +1975,10 @@
     repeatButton.setAttribute("aria-label", state.repeatMode === REPEAT_MODES.ONE ? "Turn repeat off" : "Turn repeat on");
     repeatButton.title = state.repeatMode === REPEAT_MODES.ONE ? "Repeat on" : "Repeat current track";
     nextButton.disabled = !tracksAvailable;
+    compactButton.disabled = !tracksAvailable || isFloating;
+    compactButton.setAttribute("aria-pressed", String(isAnchoredCompact));
+    compactButton.setAttribute("aria-label", isAnchoredCompact ? "Expand player" : "Compact player");
+    compactButton.title = isAnchoredCompact ? "Expand player" : "Compact player";
     popoutButton.setAttribute("aria-label", isFloating ? "Dock player" : "Pop out player");
     popoutButton.title = isFloating ? "Dock player" : "Pop out player";
 
