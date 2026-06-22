@@ -33,11 +33,10 @@
     UPLOADER: "uploader",
     REGULAR: "regular",
   };
-  const COMMENT_SOURCE_PRIORITY = {
-    [COMMENT_SOURCE_TYPES.PINNED]: 0,
-    [COMMENT_SOURCE_TYPES.UPLOADER]: 1,
-    [COMMENT_SOURCE_TYPES.REGULAR]: 2,
-  };
+  const {
+    compareCommentTrackSources,
+    parseCommentLikeCount,
+  } = globalThis.TimestampPlayerCommentScoring;
 
   const state = {
     shuffleEnabled: false,
@@ -591,6 +590,7 @@
     const validSources = getCommentTimestampSources().map((source) => {
       return {
         ...source,
+        duration,
         tracks: findTracks(videoId, duration, source.candidates, COMMENT_MIN_TRACKS),
       };
     }).filter((source) => source.tracks.length >= COMMENT_MIN_TRACKS);
@@ -616,32 +616,13 @@
         sources.push({
           sourceType,
           order,
+          likeCount: getCommentLikeCount(root),
           candidates,
         });
       }
     }
 
     return sources;
-  }
-
-  function compareCommentTrackSources(left, right) {
-    const leftPriority = COMMENT_SOURCE_PRIORITY[left.sourceType];
-    const rightPriority = COMMENT_SOURCE_PRIORITY[right.sourceType];
-    if (leftPriority !== rightPriority) {
-      return leftPriority - rightPriority;
-    }
-
-    if (left.tracks.length !== right.tracks.length) {
-      return right.tracks.length - left.tracks.length;
-    }
-
-    const leftTitleScore = trackTitleScore(left.tracks);
-    const rightTitleScore = trackTitleScore(right.tracks);
-    if (leftTitleScore !== rightTitleScore) {
-      return rightTitleScore - leftTitleScore;
-    }
-
-    return left.order - right.order;
   }
 
   function getCommentRoots() {
@@ -770,6 +751,34 @@
     }
 
     return root.innerText || root.textContent || "";
+  }
+
+  function getCommentLikeCount(root) {
+    const voteCount = root.querySelector("#vote-count-middle, [id='vote-count-middle']");
+    if (voteCount && isVisible(voteCount)) {
+      const parsedVoteCount = parseCommentLikeCount(voteCount.textContent || "");
+      if (parsedVoteCount !== null) {
+        return parsedVoteCount;
+      }
+    }
+
+    for (const element of root.querySelectorAll("[aria-label]")) {
+      if (!isVisible(element)) {
+        continue;
+      }
+
+      const label = element.getAttribute("aria-label") || "";
+      if (!/\blike/i.test(label)) {
+        continue;
+      }
+
+      const parsedLabelCount = parseCommentLikeCount(label);
+      if (parsedLabelCount !== null) {
+        return parsedLabelCount;
+      }
+    }
+
+    return null;
   }
 
   function getTextTimestampCandidates(text, sourceKey) {
