@@ -12,6 +12,7 @@
   const PLAYER_MIN_HEIGHT = 128;
   const PLAYER_MIN_VISIBLE_WIDTH = 180;
   const PLAYER_MIN_VISIBLE_HEIGHT = 100;
+  const COMPACT_PLAYER_MIN_WIDTH = 300;
   const TRACK_END_GRACE_SECONDS = 0.35;
   const PREVIOUS_RESTART_SECONDS = 3;
   const MAX_HISTORY_LENGTH = 100;
@@ -28,6 +29,11 @@
     ANCHORED: "anchored",
     FLOATING: "floating",
   };
+  const RESIZE_MODES = {
+    FLOATING: "floating",
+    ANCHORED: "anchored",
+    COMPACT_WIDTH: "compact-width",
+  };
   const COMMENT_SOURCE_TYPES = {
     PINNED: "pinned",
     UPLOADER: "uploader",
@@ -41,7 +47,7 @@
   const state = {
     shuffleEnabled: false,
     repeatMode: REPEAT_MODES.OFF,
-    progressTimeMode: PROGRESS_TIME_MODES.REMAINING,
+    progressTimeMode: PROGRESS_TIME_MODES.DURATION,
     panelOpen: false,
     panelMode: PANEL_MODES.ANCHORED,
     anchoredCompact: false,
@@ -58,6 +64,9 @@
     scanTimer: null,
     playerPosition: null,
     playerSize: null,
+    anchoredWidth: null,
+    anchoredHeight: null,
+    compactWidth: null,
     playerLayoutFrame: null,
     lastUrl: location.href,
   };
@@ -91,6 +100,7 @@
   let resizeStartHeight = 0;
   let resizeStartLeft = 0;
   let resizeStartTop = 0;
+  let resizeMode = null;
 
   function init() {
     ensureUi();
@@ -1346,10 +1356,22 @@
   }
 
   function positionAnchoredPlayer() {
-    clearPlayerSize();
-
     const anchorRect = launcherButton?.isConnected ? launcherButton.getBoundingClientRect() : null;
     const alignmentRect = findCompactActionAnchor()?.getBoundingClientRect() || anchorRect;
+
+    if (state.anchoredWidth || state.anchoredHeight) {
+      const currentRect = root.getBoundingClientRect();
+      renderAnchoredPlayerSize(
+        clampAnchoredPlayerSize(
+          state.anchoredWidth ?? currentRect.width,
+          state.anchoredHeight ?? currentRect.height,
+          alignmentRect
+        )
+      );
+    } else {
+      clearPlayerSize();
+    }
+
     const rect = root.getBoundingClientRect();
     const viewport = getViewportSize();
     const fallbackLeft = viewport.width - rect.width - 18;
@@ -1373,10 +1395,16 @@
   function positionCompactPlayer() {
     movePlayerToOverlayRoot();
     removeEmptyCompactHost();
-    clearPlayerSize();
 
     const actionAnchor = findCompactActionAnchor();
     const actionRect = actionAnchor?.getBoundingClientRect();
+
+    if (state.compactWidth) {
+      renderCompactPlayerWidth(clampCompactPlayerWidth(state.compactWidth, actionRect));
+    } else {
+      clearPlayerSize();
+    }
+
     const rect = root.getBoundingClientRect();
 
     if (!actionRect || actionRect.width <= 0 || actionRect.height <= 0 || rect.width <= 0 || rect.height <= 0) {
@@ -1410,7 +1438,12 @@
       compactHost.append(root);
     }
 
-    clearPlayerSize();
+    if (state.compactWidth) {
+      renderCompactPlayerWidth(clampCompactPlayerWidth(state.compactWidth));
+    } else {
+      clearPlayerSize();
+    }
+
     clearRootPosition();
     return true;
   }
@@ -1449,6 +1482,29 @@
     root.style.height = "";
   }
 
+  function applyAnchoredPlayerSize(size) {
+    state.anchoredWidth = size.width;
+    state.anchoredHeight = size.height;
+    renderAnchoredPlayerSize(size);
+  }
+
+  function renderAnchoredPlayerSize(size) {
+    root.classList.add("has-custom-size");
+    root.style.width = `${size.width}px`;
+    root.style.height = `${size.height}px`;
+  }
+
+  function applyCompactPlayerWidth(width) {
+    state.compactWidth = width;
+    renderCompactPlayerWidth(width);
+  }
+
+  function renderCompactPlayerWidth(width) {
+    root.classList.remove("has-custom-size");
+    root.style.width = `${width}px`;
+    root.style.height = "";
+  }
+
   function clampPlayerPosition(left, top, width, height) {
     const viewport = getViewportSize();
     const maxLeft = Math.max(DRAG_VIEWPORT_PADDING, viewport.width - width - DRAG_VIEWPORT_PADDING);
@@ -1479,6 +1535,59 @@
     };
   }
 
+  function clampTopLeftResizeSize(width, height, right, bottom) {
+    const viewport = getViewportSize();
+    const maxViewportWidth = viewport.width - DRAG_VIEWPORT_PADDING * 2;
+    const maxViewportHeight = viewport.height - DRAG_VIEWPORT_PADDING * 2;
+    const maxWidth = Math.max(
+      PLAYER_MIN_VISIBLE_WIDTH,
+      Math.min(maxViewportWidth, right - DRAG_VIEWPORT_PADDING)
+    );
+    const maxHeight = Math.max(
+      PLAYER_MIN_VISIBLE_HEIGHT,
+      Math.min(maxViewportHeight, bottom - DRAG_VIEWPORT_PADDING)
+    );
+
+    return {
+      width: clamp(width, Math.min(PLAYER_MIN_WIDTH, maxWidth), maxWidth),
+      height: clamp(height, Math.min(PLAYER_MIN_HEIGHT, maxHeight), maxHeight),
+    };
+  }
+
+  function clampAnchoredPlayerWidth(width, alignmentRect = null) {
+    const viewport = getViewportSize();
+    const maxViewportWidth = viewport.width - DRAG_VIEWPORT_PADDING * 2;
+    const alignmentRight = alignmentRect?.right ?? viewport.width - DRAG_VIEWPORT_PADDING;
+    const maxAnchoredWidth = alignmentRight - DRAG_VIEWPORT_PADDING;
+    const maxWidth = Math.max(PLAYER_MIN_VISIBLE_WIDTH, Math.min(maxViewportWidth, maxAnchoredWidth));
+
+    return clamp(width, Math.min(PLAYER_MIN_WIDTH, maxWidth), maxWidth);
+  }
+
+  function clampCompactPlayerWidth(width, alignmentRect = null) {
+    const viewport = getViewportSize();
+    const maxViewportWidth = viewport.width - DRAG_VIEWPORT_PADDING * 2;
+    const alignmentRight = alignmentRect?.right ?? viewport.width - DRAG_VIEWPORT_PADDING;
+    const maxCompactWidth = alignmentRight - DRAG_VIEWPORT_PADDING;
+    const maxWidth = Math.max(PLAYER_MIN_VISIBLE_WIDTH, Math.min(maxViewportWidth, maxCompactWidth));
+
+    return clamp(width, Math.min(COMPACT_PLAYER_MIN_WIDTH, maxWidth), maxWidth);
+  }
+
+  function clampAnchoredPlayerSize(width, height, alignmentRect = null, anchorRect = null) {
+    const viewport = getViewportSize();
+    const maxViewportHeight = viewport.height - DRAG_VIEWPORT_PADDING * 2;
+    const maxAnchoredHeight = anchorRect
+      ? anchorRect.top - DRAG_VIEWPORT_PADDING * 2
+      : maxViewportHeight;
+    const maxHeight = Math.max(PLAYER_MIN_VISIBLE_HEIGHT, Math.min(maxViewportHeight, maxAnchoredHeight));
+
+    return {
+      width: clampAnchoredPlayerWidth(width, alignmentRect),
+      height: clamp(height, Math.min(PLAYER_MIN_HEIGHT, maxHeight), maxHeight),
+    };
+  }
+
   function getViewportSize() {
     return {
       width: window.visualViewport?.width ?? window.innerWidth,
@@ -1494,7 +1603,10 @@
   }
 
   function handleResizePointerDown(event) {
-    if (state.panelMode !== PANEL_MODES.FLOATING) {
+    const isAnchoredResize = state.panelMode === PANEL_MODES.ANCHORED && !state.anchoredCompact;
+    const isCompactResize = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;
+
+    if (state.panelMode !== PANEL_MODES.FLOATING && !isAnchoredResize && !isCompactResize) {
       return;
     }
 
@@ -1504,10 +1616,27 @@
 
     event.preventDefault();
     const rect = root.getBoundingClientRect();
-    const size = clampPlayerSize(rect.width, rect.height);
+    const alignmentRect = findCompactActionAnchor()?.getBoundingClientRect()
+      || (launcherButton?.isConnected ? launcherButton.getBoundingClientRect() : null);
+    const anchorRect = launcherButton?.isConnected ? launcherButton.getBoundingClientRect() : null;
+    let size;
+    if (isAnchoredResize) {
+      size = clampAnchoredPlayerSize(rect.width, rect.height, alignmentRect, anchorRect);
+    } else if (isCompactResize) {
+      size = { width: clampCompactPlayerWidth(rect.width, alignmentRect), height: rect.height };
+    } else {
+      size = clampPlayerSize(rect.width, rect.height);
+    }
     const position = clampPlayerPosition(rect.left, rect.top, size.width, size.height);
 
     resizePointerId = event.pointerId;
+    if (isAnchoredResize) {
+      resizeMode = RESIZE_MODES.ANCHORED;
+    } else if (isCompactResize) {
+      resizeMode = RESIZE_MODES.COMPACT_WIDTH;
+    } else {
+      resizeMode = RESIZE_MODES.FLOATING;
+    }
     resizeStartX = event.clientX;
     resizeStartY = event.clientY;
     resizeStartWidth = size.width;
@@ -1515,8 +1644,17 @@
     resizeStartLeft = position.left;
     resizeStartTop = position.top;
 
-    applyPlayerPosition(position);
-    applyPlayerSize(size);
+    if (resizeMode === RESIZE_MODES.ANCHORED) {
+      applyAnchoredPlayerSize(size);
+      layoutPlayer();
+    } else if (resizeMode === RESIZE_MODES.COMPACT_WIDTH) {
+      applyCompactPlayerWidth(size.width);
+      layoutPlayer();
+    } else {
+      applyPlayerPosition(position);
+      applyPlayerSize(size);
+    }
+
     root.classList.add("is-resizing");
     resizeHandle.setPointerCapture?.(event.pointerId);
     resizeHandle.addEventListener("pointermove", handleResizePointerMove);
@@ -1530,16 +1668,46 @@
     }
 
     event.preventDefault();
-    applyPlayerSize(
-      clampPlayerSize(
-        resizeStartWidth + event.clientX - resizeStartX,
-        resizeStartHeight + event.clientY - resizeStartY,
-        {
-          left: resizeStartLeft,
-          top: resizeStartTop,
-        }
-      )
+    if (resizeMode === RESIZE_MODES.ANCHORED) {
+      const alignmentRect = findCompactActionAnchor()?.getBoundingClientRect()
+        || (launcherButton?.isConnected ? launcherButton.getBoundingClientRect() : null);
+      const anchorRect = launcherButton?.isConnected ? launcherButton.getBoundingClientRect() : null;
+      applyAnchoredPlayerSize(
+        clampAnchoredPlayerSize(
+          resizeStartWidth + resizeStartX - event.clientX,
+          resizeStartHeight + resizeStartY - event.clientY,
+          alignmentRect,
+          anchorRect
+        )
+      );
+      layoutPlayer();
+      return;
+    }
+
+    if (resizeMode === RESIZE_MODES.COMPACT_WIDTH) {
+      const alignmentRect = findCompactActionAnchor()?.getBoundingClientRect()
+        || (launcherButton?.isConnected ? launcherButton.getBoundingClientRect() : null);
+      applyCompactPlayerWidth(
+        clampCompactPlayerWidth(resizeStartWidth + resizeStartX - event.clientX, alignmentRect)
+      );
+      layoutPlayer();
+      return;
+    }
+
+    const resizeStartRight = resizeStartLeft + resizeStartWidth;
+    const resizeStartBottom = resizeStartTop + resizeStartHeight;
+    const size = clampTopLeftResizeSize(
+      resizeStartWidth + resizeStartX - event.clientX,
+      resizeStartHeight + resizeStartY - event.clientY,
+      resizeStartRight,
+      resizeStartBottom
     );
+
+    applyPlayerPosition({
+      left: resizeStartRight - size.width,
+      top: resizeStartBottom - size.height,
+    });
+    applyPlayerSize(size);
     layoutPlayer();
   }
 
@@ -1550,6 +1718,7 @@
 
     resizeHandle.releasePointerCapture?.(event.pointerId);
     resizePointerId = null;
+    resizeMode = null;
     root.classList.remove("is-resizing");
     resizeHandle.removeEventListener("pointermove", handleResizePointerMove);
     resizeHandle.removeEventListener("pointerup", handleResizePointerEnd);

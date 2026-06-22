@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Timestamp Player for YouTube",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Intuitive track playback controls for timestamped albums and compilations on YouTube.",
   "icons": {
     "16": "icons/timestamp-player-youtube-16.png",

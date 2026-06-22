@@ -63,8 +63,7 @@
   overflow: hidden;
 }
 
-#timestamp-player-root.is-anchored .ts-drag-handle,
-#timestamp-player-root.is-anchored .ts-resize-handle {
+#timestamp-player-root.is-anchored .ts-drag-handle {
   display: none;
 }
 
@@ -398,18 +397,25 @@
 
 #timestamp-player-root .ts-drag-handle::before {
   position: absolute;
-  top: 5px;
-  left: 8px;
-  right: 8px;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.24);
+  top: 2px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow:
+    -7px 0 rgba(255, 255, 255, 0.34),
+    7px 0 rgba(255, 255, 255, 0.34);
   content: "";
+  transform: translateX(-50%);
 }
 
 #timestamp-player-root .ts-drag-handle:hover::before,
 #timestamp-player-root.is-dragging .ts-drag-handle::before {
-  background: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.52);
+  box-shadow:
+    -7px 0 rgba(255, 255, 255, 0.52),
+    7px 0 rgba(255, 255, 255, 0.52);
 }
 
 #timestamp-player-root.is-dragging .ts-drag-handle {
@@ -418,8 +424,10 @@
 
 #timestamp-player-root .ts-resize-handle {
   position: absolute;
-  right: 2px;
-  bottom: 2px;
+  top: 0;
+  right: auto;
+  bottom: auto;
+  left: 0;
   width: 18px;
   height: 18px;
   cursor: nwse-resize;
@@ -428,18 +436,36 @@
 
 #timestamp-player-root .ts-resize-handle::before {
   position: absolute;
-  right: 4px;
-  bottom: 4px;
+  top: 3px;
+  right: auto;
+  bottom: auto;
+  left: 3px;
   width: 8px;
   height: 8px;
-  border-right: 2px solid rgba(255, 255, 255, 0.28);
-  border-bottom: 2px solid rgba(255, 255, 255, 0.28);
+  border-right: 0;
+  border-left: 2px solid rgba(255, 255, 255, 0.28);
+  border-top: 2px solid rgba(255, 255, 255, 0.28);
+  border-bottom: 0;
+  border-top-left-radius: 5px;
   content: "";
+  transform: none;
 }
 
 #timestamp-player-root .ts-resize-handle:hover::before,
 #timestamp-player-root.is-resizing .ts-resize-handle::before {
   border-color: rgba(255, 255, 255, 0.5);
+}
+
+#timestamp-player-root.is-inline-compact .ts-resize-handle {
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  height: auto;
+  cursor: ew-resize;
+}
+
+#timestamp-player-root.is-inline-compact .ts-resize-handle::before {
+  display: none;
 }
 
 #timestamp-player-root .ts-compact-toggle,
