@@ -5,6 +5,7 @@
   const SCAN_DELAY_MS = 600;
   const DESCRIPTION_EXPAND_FALLBACK_DELAY_MS = 2500;
   const COMMENT_MIN_TRACKS = 3;
+  const COMMENT_FETCH_BATCH_LIMIT = 3;
   const REGULAR_COMMENT_SCAN_LIMIT = 30;
   const DRAG_VIEWPORT_PADDING = 8;
   const PLAYER_MIN_WIDTH = 260;
@@ -43,6 +44,9 @@
     parseCommentLikeCount,
   } = globalThis.TimestampPlayerCommentScoring;
   const {
+    fetchCommentRecords,
+  } = globalThis.TimestampPlayerCommentFetching;
+  const {
     cleanTrackTitle,
     findTracks,
     formatTimestamp,
@@ -73,6 +77,8 @@
     descriptionFallbackReadyAt: 0,
     shouldCollapseDescriptionVideoId: null,
     trackCache: new Map(),
+    commentFetchCache: new Map(),
+    lockedTrackVideoId: null,
     scanTimer: null,
     playerPosition: null,
     playerSize: null,
@@ -150,6 +156,7 @@
     state.descriptionFallbackVideoId = null;
     state.descriptionFallbackReadyAt = 0;
     state.shouldCollapseDescriptionVideoId = null;
+    state.lockedTrackVideoId = null;
     scheduleScan();
     updateUi();
   }
@@ -197,6 +204,14 @@
 
     prepareDescriptionFallback(videoId);
 
+    const lockedTracks = getLockedTracksForVideo(videoId);
+    if (lockedTracks) {
+      applyTracksForVideo(videoId, video, lockedTracks);
+      collapseDescriptionIfNeeded(videoId);
+      updateUi();
+      return;
+    }
+
     const quietDescriptionReadable = canReadQuietDescription();
     const candidates = getTimestampCandidates(videoId);
     let tracks = getTracksForVideo(videoId, video.duration, candidates);
@@ -212,17 +227,46 @@
     }
 
     if (tracks.length < 2) {
-      tracks = getCommentTracksForVideo(videoId, video.duration);
+      const fetchedCommentTracks = getFetchedCommentTracksForVideo(videoId, video.duration);
+      if (fetchedCommentTracks === null) {
+        tracks = [];
+      } else if (fetchedCommentTracks.length >= COMMENT_MIN_TRACKS) {
+        tracks = fetchedCommentTracks;
+      } else {
+        tracks = getCommentTracksForVideo(videoId, video.duration);
+      }
     }
 
+    if (tracks.length >= 2) {
+      tracks = lockTracksForVideo(videoId, tracks);
+    }
+
+    applyTracksForVideo(videoId, video, tracks);
+    collapseDescriptionIfNeeded(videoId);
+    updateUi();
+  }
+
+  function getLockedTracksForVideo(videoId) {
+    if (state.lockedTrackVideoId !== videoId) {
+      return null;
+    }
+
+    return state.trackCache.get(videoId) || null;
+  }
+
+  function lockTracksForVideo(videoId, tracks) {
+    state.trackCache.set(videoId, tracks);
+    state.lockedTrackVideoId = videoId;
+    return tracks;
+  }
+
+  function applyTracksForVideo(videoId, video, tracks) {
     if (tracksChanged(state.tracks, tracks)) {
       resetPlaybackOrder();
     }
     state.currentVideoId = videoId;
     state.tracks = tracks;
     state.currentTrackIndex = getTrackAtTime(video.currentTime)?.index ?? -1;
-    collapseDescriptionIfNeeded(videoId);
-    updateUi();
   }
 
   function resetPlaybackOrder() {
@@ -509,20 +553,58 @@
   }
 
   function getCommentTracksForVideo(videoId, duration) {
-    const bestSource = getBestCommentTrackSource(videoId, duration);
+    const bestSource = getBestTrackSource(getCommentTimestampSources(videoId), duration);
     if (!bestSource) {
       return [];
     }
 
-    const cachedTracks = state.trackCache.get(videoId);
-    const mergedTracks = mergeCachedTrackTitles(bestSource.tracks, cachedTracks);
-    const bestTracks = chooseBetterTrackSet(mergedTracks, cachedTracks);
-    state.trackCache.set(videoId, bestTracks);
-    return bestTracks;
+    return cacheTrackSourceForVideo(videoId, bestSource);
   }
 
-  function getBestCommentTrackSource(videoId, duration) {
-    const validSources = getCommentTimestampSources().map((source) => {
+  function getFetchedCommentTracksForVideo(videoId, duration) {
+    const cachedFetch = state.commentFetchCache.get(videoId);
+    if (cachedFetch?.status === "done") {
+      return cachedFetch.tracks;
+    }
+    if (cachedFetch?.status === "failed") {
+      return [];
+    }
+    if (cachedFetch?.status === "pending") {
+      return null;
+    }
+
+    startCommentFetch(videoId, duration);
+    return null;
+  }
+
+  function startCommentFetch(videoId, duration) {
+    if (typeof fetchCommentRecords !== "function") {
+      state.commentFetchCache.set(videoId, { status: "failed", tracks: [] });
+      return;
+    }
+
+    const fetchState = { status: "pending", tracks: [] };
+    state.commentFetchCache.set(videoId, fetchState);
+    fetchCommentRecords({ maxBatches: COMMENT_FETCH_BATCH_LIMIT, videoId })
+      .then((records) => {
+        const bestSource = getBestTrackSource(getFetchedCommentTimestampSources(records), duration);
+        fetchState.status = "done";
+        fetchState.records = records;
+        fetchState.tracks = bestSource ? cacheTrackSourceForVideo(videoId, bestSource) : [];
+      })
+      .catch(() => {
+        fetchState.status = "failed";
+        fetchState.tracks = [];
+      })
+      .finally(() => {
+        if (getCurrentVideoId() === videoId && state.lockedTrackVideoId !== videoId) {
+          scheduleScan();
+        }
+      });
+  }
+
+  function getBestTrackSource(sources, duration) {
+    const validSources = sources.map((source) => {
       return {
         ...source,
         duration,
@@ -533,11 +615,23 @@
     return validSources.sort(compareCommentTrackSources)[0] || null;
   }
 
-  function getCommentTimestampSources() {
+  function cacheTrackSourceForVideo(videoId, source) {
+    const cachedTracks = state.trackCache.get(videoId);
+    const mergedTracks = mergeCachedTrackTitles(source.tracks, cachedTracks);
+    const bestTracks = chooseBetterTrackSet(mergedTracks, cachedTracks);
+    state.trackCache.set(videoId, bestTracks);
+    return bestTracks;
+  }
+
+  function getCommentTimestampSources(videoId) {
     const sources = [];
     let regularCommentCount = 0;
 
     for (const [order, root] of getCommentRoots().entries()) {
+      if (!commentRootMatchesVideo(root, videoId)) {
+        continue;
+      }
+
       const sourceType = getCommentSourceType(root);
       if (sourceType === COMMENT_SOURCE_TYPES.REGULAR) {
         regularCommentCount += 1;
@@ -558,6 +652,52 @@
     }
 
     return sources;
+  }
+
+  function commentRootMatchesVideo(root, videoId) {
+    for (const link of root.querySelectorAll("a[href*='/watch']")) {
+      const timestamp = parseTimestampText(link.textContent);
+      if (!Number.isFinite(timestamp)) {
+        continue;
+      }
+
+      const linkedVideoId = new URL(link.href, location.href).searchParams.get("v");
+      if (linkedVideoId && linkedVideoId !== videoId) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function getFetchedCommentTimestampSources(records) {
+    return records.map((record) => {
+      const candidates = getTextTimestampCandidates(record.text, `fetched-comment:${record.order}`);
+      if (candidates.length < COMMENT_MIN_TRACKS) {
+        return null;
+      }
+
+      return {
+        sourceType: getFetchedCommentSourceType(record),
+        order: record.order,
+        likeCount: record.likeCount,
+        candidates,
+      };
+    }).filter(Boolean);
+  }
+
+  function getFetchedCommentSourceType(record) {
+    if (record.isPinned) {
+      return COMMENT_SOURCE_TYPES.PINNED;
+    }
+
+    const ownerName = normalizeChannelName(getVideoOwnerName());
+    const authorName = normalizeChannelName(record.authorName);
+    if (record.isUploader || (ownerName && authorName && ownerName === authorName)) {
+      return COMMENT_SOURCE_TYPES.UPLOADER;
+    }
+
+    return COMMENT_SOURCE_TYPES.REGULAR;
   }
 
   function getCommentRoots() {

@@ -4,7 +4,7 @@ YouTube has lots of videos with timestamps, but it doesn't have playback control
 
 Timestamp Player makes it easy to navigate tracks, seek within the current track, and even repeat and shuffle through tracks in any video that has timestamps.
 
-It checks for timestamps in both the video description and top comments, and intelligently chooses the best set that it can find.
+It checks for timestamps in both the video description and top comments, including comments that have not visibly loaded yet, and intelligently chooses the best set that it can find.
 
 You can open and close the player by clicking the new "Tracklist" button located next to the Share button.
 
