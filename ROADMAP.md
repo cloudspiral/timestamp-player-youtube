@@ -7,7 +7,6 @@ Ideas under consideration for future versions of Timestamp Player for YouTube.
 - Queue/history model improvements.
 - Optional repeat-all mode.
 - Manual queue reordering.
-- Per-track durations in the tracklist.
 - Compact in-player controls for quick current-track navigation.
 
 ## Timestamp Detection
@@ -19,6 +18,14 @@ Ideas under consideration for future versions of Timestamp Player for YouTube.
 ## Browser Support
 
 - Firefox packaging and AMO publishing.
+
+## Engineering Maturity
+
+- Continue splitting large content-script modules into focused helper files.
+- Add fixture-based parser and comment-selection tests for timestamp edge cases.
+- Document tricky timestamp/comment detection cases and the expected selection behavior.
+- Add a lightweight release checklist for Web Store packaging, version bumps, and manual regression videos.
+- Consider automated smoke tests for core playback state, including shuffle, previous, repeat, and progress seeking.
 
 ## Polish
 

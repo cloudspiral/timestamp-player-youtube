@@ -1813,6 +1813,13 @@
     }
 
     const video = event.target;
+    const currentTrack = getCurrentTrack(video.currentTime);
+    if (currentTrack && currentTrack.index !== state.currentTrackIndex) {
+      state.currentTrackIndex = currentTrack.index;
+      updateUi();
+      return;
+    }
+
     const activeTrack = state.tracks[state.currentTrackIndex];
     if (activeTrack && video.currentTime >= activeTrack.end - TRACK_END_GRACE_SECONDS) {
       if (state.repeatMode === REPEAT_MODES.ONE) {
@@ -1830,13 +1837,7 @@
       }
     }
 
-    const currentTrack = getCurrentTrack(video.currentTime);
-    if (currentTrack && currentTrack.index !== state.currentTrackIndex) {
-      state.currentTrackIndex = currentTrack.index;
-      updateUi();
-    } else {
-      updateProgress(video);
-    }
+    updateProgress(video);
   }
 
   function handlePlaybackStateChange(event) {

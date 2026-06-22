@@ -43,6 +43,10 @@ Use this list for manual testing while developing Timestamp Player for YouTube.
     upvoted.
 - https://www.youtube.com/watch?v=RY7FpB9BZH4
   - Timestamps in pinned comment. Across multiple albums in 5 hour video.
+- https://www.youtube.com/watch?v=9w1Bq8lem2I
+  - Timestamps in a high-upvote regular comment.
+  - Regression case for comment selection: should prefer the full-video
+    tracklist over a higher-on-page micro-event timestamp comment.
 
 ## Messy Timestamp Formats
 
