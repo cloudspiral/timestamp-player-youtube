@@ -1870,16 +1870,15 @@
   }
 
   function scrollCurrentTrackIntoView() {
+    if (state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact) {
+      return;
+    }
+
     const currentIndex = isValidTrackIndex(state.currentTrackIndex)
       ? state.currentTrackIndex
       : getEffectiveCurrentTrackIndex();
     if (!isValidTrackIndex(currentIndex)) {
       return;
-    }
-
-    if (state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact) {
-      state.anchoredCompact = false;
-      updateUi();
     }
 
     const item = listEl.querySelector(`[data-index="${currentIndex}"]`);

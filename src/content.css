@@ -175,6 +175,10 @@
   cursor: pointer;
 }
 
+#timestamp-player-root.is-inline-compact.has-tracks .ts-track {
+  cursor: default;
+}
+
 #timestamp-player-root.has-tracks .ts-track:hover {
   color: #ffffff;
 }
