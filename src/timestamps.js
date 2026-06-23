@@ -1,5 +1,6 @@
 (() => {
   const TRACKLIST_ANCHOR_SECONDS = 120;
+  const TITLE_LOOKAHEAD_LINE_LIMIT = 4;
   const TIMESTAMP_PATTERN = /\b\d{1,2}:\d{2}(?::\d{2})?\b/g;
 
   function findTracks(duration, candidates, minTrackCount = 2) {
@@ -93,6 +94,7 @@
           timestampText: range.startTimestampText,
           title: cleanTrackTitle(range.title),
           lineKey: `${sourceKey}:${lineIndex}:${range.normalizedLine}`,
+          lineIndex,
         });
         continue;
       }
@@ -109,11 +111,12 @@
           timestampText,
           title: cleanTrackTitle(titleFromLineFragment(line, timestampText)),
           lineKey: `${sourceKey}:${lineIndex}:${normalizeTitleText(line)}`,
+          lineIndex,
         });
       }
     }
 
-    return candidates;
+    return enrichCandidateTitlesFromNearbyLines(candidates, lines);
   }
 
   function parseTimeParam(value) {
@@ -241,6 +244,106 @@
     return beforeTitle || afterTitle;
   }
 
+  function enrichCandidateTitlesFromNearbyLines(candidates, lines) {
+    const nextLineTitles = new Map();
+    for (const candidate of candidates) {
+      if (!Number.isInteger(candidate.lineIndex)) {
+        continue;
+      }
+
+      const nearbyTitle = findNearbyTitleLine(lines, candidate.lineIndex);
+      if (nearbyTitle) {
+        nextLineTitles.set(candidate, nearbyTitle);
+      }
+    }
+
+    const patternLooksBlockBased = hasBlockTitlePattern(candidates, nextLineTitles);
+    return candidates.map((candidate) => {
+      const nearbyTitle = nextLineTitles.get(candidate);
+      if (!nearbyTitle) {
+        return candidate;
+      }
+
+      if (isWeakTrackTitle(candidate.title) || patternLooksBlockBased) {
+        return { ...candidate, title: nearbyTitle };
+      }
+
+      return candidate;
+    });
+  }
+
+  function hasBlockTitlePattern(candidates, nextLineTitles) {
+    const lineCandidates = candidates.filter((candidate) => Number.isInteger(candidate.lineIndex));
+    if (lineCandidates.length < 2) {
+      return false;
+    }
+
+    const candidatesWithNearbyTitles = lineCandidates.filter((candidate) => nextLineTitles.has(candidate));
+    const weakTitleCandidates = lineCandidates.filter((candidate) => isWeakTrackTitle(candidate.title));
+    return candidatesWithNearbyTitles.length >= 2 && weakTitleCandidates.length / lineCandidates.length >= 0.6;
+  }
+
+  function findNearbyTitleLine(lines, timestampLineIndex) {
+    let checkedMeaningfulLines = 0;
+    for (
+      let index = timestampLineIndex + 1;
+      index < lines.length && checkedMeaningfulLines < TITLE_LOOKAHEAD_LINE_LIMIT;
+      index += 1
+    ) {
+      const line = normalizeTitleText(lines[index]);
+      if (!line) {
+        continue;
+      }
+
+      checkedMeaningfulLines += 1;
+      if (isTitleSearchBoundaryLine(line) || lineHasTimestamp(line)) {
+        return "";
+      }
+
+      if (isTrackNumberOnlyText(line)) {
+        continue;
+      }
+
+      if (isMetadataLine(line)) {
+        return "";
+      }
+
+      const title = cleanTrackTitle(line);
+      if (!isWeakTrackTitle(title)) {
+        return title;
+      }
+    }
+
+    return "";
+  }
+
+  function isTitleSearchBoundaryLine(line) {
+    return /^[-–—_=*]{3,}$/.test(normalizeTitleText(line));
+  }
+
+  function lineHasTimestamp(line) {
+    return /\b\d{1,2}:\d{2}(?::\d{2})?\b/.test(normalizeTitleText(line));
+  }
+
+  function isMetadataLine(line) {
+    const text = normalizeTitleText(line);
+    return /^(?:album|arrange|arranged|arrangement|arranger|artist|catalog(?:ue)?(?: no)?|circle|composer|genre|length|lyric|lyrics|original(?:\s+(?:arrangement|title))?|released|release date|remix|source|track ?list|timestamps?|vocal|vocals)\b\s*[.:：]/i.test(
+      text
+    );
+  }
+
+  function isWeakTrackTitle(title) {
+    return !normalizeTitleText(title) || isTrackNumberOnlyText(title) || isTimestampOnlyText(title);
+  }
+
+  function isTrackNumberOnlyText(text) {
+    const cleaned = normalizeTitleText(text)
+      .replace(/^[\s()[\]{}#]+/g, "")
+      .replace(/[\s()[\]{}.:：\-–—]+$/g, "");
+
+    return /^(?:track\s*)?\d{1,3}$/i.test(cleaned);
+  }
+
   function stripTimestampAdjacency(text, side) {
     let cleaned = normalizeTitleText(text);
 
@@ -261,7 +364,7 @@
       .replace(/^\s*(?:track\s*)?\d{1,3}[\s.)\]-]+/i, "")
       .trim();
 
-    return isTimestampOnlyText(cleaned) ? "" : cleaned;
+    return isTimestampOnlyText(cleaned) || isTrackNumberOnlyText(cleaned) ? "" : cleaned;
   }
 
   function isTimestampOnlyText(text) {
