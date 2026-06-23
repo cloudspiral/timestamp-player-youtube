@@ -249,6 +249,11 @@
 #timestamp-player-root.is-inline-compact .ts-progress-slider::before,
 #timestamp-player-root.is-inline-compact .ts-progress-fill {
   top: 1px;
+  height: 1px;
+}
+
+#timestamp-player-root.is-inline-compact .ts-progress-fill {
+  opacity: 0.75;
 }
 
 #timestamp-player-root .ts-progress-slider::before {
@@ -293,6 +298,7 @@
 #timestamp-player-root.is-inline-compact .ts-progress-slider.is-scrubbing .ts-progress-fill {
   top: 1px;
   height: 4px;
+  opacity: 1;
 }
 
 #timestamp-player-root .ts-progress-slider:not([aria-disabled="true"]):hover .ts-progress-thumb,

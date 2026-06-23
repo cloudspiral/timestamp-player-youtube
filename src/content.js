@@ -144,13 +144,19 @@
   }
 
   function handleNavigation() {
+    resetVideoState(getCurrentVideoId());
+    scheduleScan();
+    updateUi();
+  }
+
+  function resetVideoState(videoId) {
     state.shuffleEnabled = false;
     state.repeatMode = REPEAT_MODES.OFF;
     state.panelOpen = false;
     state.panelMode = PANEL_MODES.ANCHORED;
     state.anchoredCompact = false;
     state.tracks = [];
-    state.currentVideoId = getCurrentVideoId();
+    state.currentVideoId = videoId;
     state.currentTrackIndex = -1;
     resetPlaybackOrder();
     state.descriptionExpandedVideoId = null;
@@ -158,8 +164,6 @@
     state.descriptionFallbackReadyAt = 0;
     state.shouldCollapseDescriptionVideoId = null;
     state.lockedTrackVideoId = null;
-    scheduleScan();
-    updateUi();
   }
 
   function handlePageMutations(mutations) {
@@ -191,10 +195,13 @@
     const videoId = getCurrentVideoId();
 
     if (!video || !videoId) {
-      state.tracks = [];
-      state.currentVideoId = null;
+      resetVideoState(null);
       updateUi("Open a YouTube video");
       return;
+    }
+
+    if (state.currentVideoId && state.currentVideoId !== videoId) {
+      resetVideoState(videoId);
     }
 
     if (!Number.isFinite(video.duration) || video.duration <= 0) {
