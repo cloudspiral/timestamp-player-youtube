@@ -58,6 +58,7 @@
   height: auto;
   max-height: none;
   padding: 4px 2px 4px 7px;
+  border-color: rgba(255, 255, 255, 0.075);
   border-radius: 12px;
   box-shadow: none;
   overflow: hidden;
