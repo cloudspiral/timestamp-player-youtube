@@ -573,6 +573,14 @@
   border-radius: 5px;
 }
 
+#timestamp-player-root.is-inline-compact .ts-previous,
+#timestamp-player-root.is-inline-compact .ts-play-pause,
+#timestamp-player-root.is-inline-compact .ts-next {
+  border-color: rgba(255, 255, 255, 0.13);
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(255, 255, 255, 0.88);
+}
+
 #timestamp-player-root.is-inline-compact .ts-icon {
   width: 15px;
   height: 15px;
@@ -639,6 +647,14 @@
 
 #timestamp-player-root button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.14);
+}
+
+#timestamp-player-root.is-inline-compact .ts-previous:hover:not(:disabled),
+#timestamp-player-root.is-inline-compact .ts-play-pause:hover:not(:disabled),
+#timestamp-player-root.is-inline-compact .ts-next:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
 }
 
 #timestamp-player-root .ts-toggle:hover:not(:disabled),
