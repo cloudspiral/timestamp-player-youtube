@@ -50,6 +50,9 @@ Use this list for manual testing while developing Timestamp Player for YouTube.
 
 ## Messy Timestamp Formats
 
+- https://www.youtube.com/watch?v=vU4Ak3DBb1o
+  - Description uses same-line timestamp ranges like `0:00 - 0:58 Introduction`.
+  - Should use the first timestamp as the start and ignore the second timestamp as the range end marker.
 - https://www.youtube.com/watch?v=a3uLaA5CMoU
   - 12 hours
   - Has random timestamps in parentheses on same line as valid timestamps

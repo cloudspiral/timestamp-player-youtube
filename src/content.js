@@ -52,6 +52,7 @@
     formatTimestamp,
     formatTrackLabel,
     getTextTimestampCandidates,
+    isTimestampRangeEndMarker,
     lineContainingTimestamp,
     normalizeTitleText,
     parseTimeParam,
@@ -525,6 +526,7 @@
 
   function getTimestampCandidates(videoId) {
     const roots = getTimestampCandidateRoots();
+    const candidates = getTextTimestampCandidatesFromRoots();
 
     const links = [];
     for (const searchRoot of roots) {
@@ -535,9 +537,36 @@
       }
     }
 
-    return links
-      .map((link) => toTimestampCandidate(link, videoId))
-      .filter(Boolean);
+    candidates.push(...links.map((link) => toTimestampCandidate(link, videoId)).filter(Boolean));
+    return candidates;
+  }
+
+  function getTextTimestampCandidatesFromRoots() {
+    const candidates = [];
+    const seenTexts = new Set();
+    for (const [rootIndex, root] of getTimestampTextCandidateRoots().entries()) {
+      const text = root.innerText || root.textContent || "";
+      const normalizedText = normalizeTitleText(text);
+      if (!normalizedText || seenTexts.has(normalizedText)) {
+        continue;
+      }
+
+      seenTexts.add(normalizedText);
+      candidates.push(...getTextTimestampCandidates(text, `description-text:${rootIndex}`));
+    }
+
+    return candidates;
+  }
+
+  function getTimestampTextCandidateRoots() {
+    const selectors = [
+      ...getQuietDescriptionSelectors(),
+      "ytd-watch-metadata #description-inline-expander #expanded",
+      "ytd-watch-metadata #description-inline-expander",
+      "ytd-watch-metadata #description",
+    ];
+
+    return getUniqueElements(selectors);
   }
 
   function getTimestampCandidateRoots() {
@@ -896,17 +925,23 @@
       return null;
     }
 
+    const timestampText = link.textContent.trim();
+    const lineText = getTimestampLineText(link);
+    if (isTimestampRangeEndMarker(lineText, timestampText)) {
+      return null;
+    }
+
     return {
       start,
-      timestampText: link.textContent.trim(),
-      title: cleanTrackTitle(extractTrackTitle(link)),
-      lineKey: normalizeTitleText(getTimestampLineText(link)),
+      timestampText,
+      title: cleanTrackTitle(extractTrackTitle(link, lineText)),
+      lineKey: normalizeTitleText(lineText),
     };
   }
 
-  function extractTrackTitle(link) {
+  function extractTrackTitle(link, lineText = getTimestampLineText(link)) {
     const timestamp = link.textContent.trim();
-    const lineTitle = titleFromLineFragment(getTimestampLineText(link), timestamp);
+    const lineTitle = titleFromLineFragment(lineText, timestamp);
     if (lineTitle) {
       return lineTitle;
     }
@@ -916,9 +951,57 @@
   }
 
   function getTimestampLineText(link) {
-    const host = link.closest(".ytAttributedStringHost, yt-attributed-string, #description, div, li, p");
-    const text = host?.innerText || host?.textContent || "";
+    const container = link.closest(".ytAttributedStringHost, yt-attributed-string, #description, div, li, p");
+    const startNode = link.closest(".ytAttributedStringLinkInheritColor") || link;
+    const nodeLineText = getLineTextForNode(container, startNode);
+    if (nodeLineText) {
+      return nodeLineText;
+    }
+
+    const text = container?.innerText || container?.textContent || "";
     return lineContainingTimestamp(text, link.textContent.trim());
+  }
+
+  function getLineTextForNode(container, targetNode) {
+    if (!container || !targetNode || !container.contains(targetNode)) {
+      return "";
+    }
+
+    let text = "";
+    let targetOffset = -1;
+
+    function visit(node) {
+      if (node === targetNode) {
+        targetOffset = text.length;
+      }
+
+      if (node.nodeType === Node.TEXT_NODE) {
+        text += node.nodeValue || "";
+        return;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return;
+      }
+
+      if (node.tagName === "BR") {
+        text += "\n";
+        return;
+      }
+
+      for (const child of node.childNodes) {
+        visit(child);
+      }
+    }
+
+    visit(container);
+    if (targetOffset === -1) {
+      return "";
+    }
+
+    const lineStart = text.lastIndexOf("\n", Math.max(0, targetOffset - 1)) + 1;
+    const lineEnd = text.indexOf("\n", targetOffset);
+    return text.slice(lineStart, lineEnd === -1 ? text.length : lineEnd);
   }
 
   function collectTextAfterTimestampLink(link) {

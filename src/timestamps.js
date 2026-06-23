@@ -1,5 +1,6 @@
 (() => {
   const TRACKLIST_ANCHOR_SECONDS = 120;
+  const TIMESTAMP_PATTERN = /\b\d{1,2}:\d{2}(?::\d{2})?\b/g;
 
   function findTracks(duration, candidates, minTrackCount = 2) {
     if (candidates.length < minTrackCount || !Number.isFinite(duration) || duration <= 0) {
@@ -85,7 +86,18 @@
     const candidates = [];
     const lines = (text || "").split(/\r?\n/);
     for (const [lineIndex, line] of lines.entries()) {
-      for (const match of line.matchAll(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g)) {
+      const range = timestampRangeFromLine(line);
+      if (range) {
+        candidates.push({
+          start: range.start,
+          timestampText: range.startTimestampText,
+          title: cleanTrackTitle(range.title),
+          lineKey: `${sourceKey}:${lineIndex}:${range.normalizedLine}`,
+        });
+        continue;
+      }
+
+      for (const match of normalizeTitleText(line).matchAll(TIMESTAMP_PATTERN)) {
         const timestampText = match[0];
         const start = parseTimestampText(timestampText);
         if (!Number.isFinite(start)) {
@@ -140,6 +152,11 @@
   }
 
   function titleFromLineFragment(line, timestamp) {
+    const range = timestampRangeFromLine(line, timestamp);
+    if (range) {
+      return range.title;
+    }
+
     const normalizedLine = normalizeTitleText(line);
     const timestampIndex = normalizedLine.indexOf(timestamp);
     if (timestampIndex === -1) {
@@ -156,6 +173,72 @@
     }
 
     return beforeTitle || trimAfterEmbeddedTimestamp(afterTitle);
+  }
+
+  function isTimestampRangeEndMarker(line, timestamp) {
+    const range = timestampRangeFromLine(line, timestamp);
+    return Boolean(range && range.endTimestampText === timestamp);
+  }
+
+  function timestampRangeFromLine(line, timestampText = "") {
+    const normalizedLine = normalizeTitleText(line);
+    const matches = [...normalizedLine.matchAll(TIMESTAMP_PATTERN)].map((match) => {
+      return {
+        text: match[0],
+        index: match.index,
+        endIndex: match.index + match[0].length,
+        start: parseTimestampText(match[0]),
+      };
+    });
+
+    for (let index = 0; index < matches.length - 1; index += 1) {
+      const startMatch = matches[index];
+      const endMatch = matches[index + 1];
+      if (timestampText && timestampText !== startMatch.text && timestampText !== endMatch.text) {
+        continue;
+      }
+      if (!Number.isFinite(startMatch.start) || !Number.isFinite(endMatch.start)) {
+        continue;
+      }
+      if (endMatch.start <= startMatch.start) {
+        continue;
+      }
+
+      const separator = normalizedLine.slice(startMatch.endIndex, endMatch.index);
+      if (!isTimestampRangeSeparator(separator)) {
+        continue;
+      }
+
+      return {
+        normalizedLine,
+        start: startMatch.start,
+        startTimestampText: startMatch.text,
+        end: endMatch.start,
+        endTimestampText: endMatch.text,
+        title: titleFromRangeFragments(normalizedLine, startMatch, endMatch),
+      };
+    }
+
+    return null;
+  }
+
+  function isTimestampRangeSeparator(text) {
+    const cleaned = normalizeTitleText(text)
+      .replace(/^[\s()[\]{}]+/g, "")
+      .replace(/[\s()[\]{}]+$/g, "");
+
+    return /^[-–—]+$/.test(cleaned) || /^(?:to|until)$/i.test(cleaned);
+  }
+
+  function titleFromRangeFragments(line, startMatch, endMatch) {
+    const beforeTitle = stripTimestampAdjacency(line.slice(0, startMatch.index), "before");
+    const afterTitle = stripTimestampAdjacency(line.slice(endMatch.endIndex), "after");
+
+    if (beforeTitle && afterTitle) {
+      return beforeTitle.length >= afterTitle.length ? beforeTitle : afterTitle;
+    }
+
+    return beforeTitle || afterTitle;
   }
 
   function stripTimestampAdjacency(text, side) {
@@ -237,6 +320,7 @@
     formatTimestamp,
     formatTrackLabel,
     getTextTimestampCandidates,
+    isTimestampRangeEndMarker,
     lineContainingTimestamp,
     normalizeTitleText,
     parseTimeParam,
