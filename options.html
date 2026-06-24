@@ -17,45 +17,60 @@
       </header>
 
       <form id="settings-form" class="settings-form">
-        <section class="settings-section" aria-labelledby="playback-heading">
+        <section class="settings-section" aria-labelledby="behavior-heading">
           <div class="section-heading">
-            <h2 id="playback-heading">Playback</h2>
-            <p>Choose how the player appears and displays track progress.</p>
+            <h2 id="behavior-heading">Behavior</h2>
           </div>
 
           <label class="setting-row toggle-row">
             <span>
-              <strong>Auto-show compact player</strong>
-              <small>Open compact mode automatically when timestamps are found.</small>
+              <strong>Auto-display compact player</strong>
+              <small>Automatically start in compact player mode when timestamps are found.</small>
             </span>
             <input id="auto-show-compact" name="autoShowCompact" type="checkbox">
           </label>
 
           <fieldset class="setting-group">
-            <legend>Progress time</legend>
+            <legend>Progress bar time</legend>
             <div class="segmented-control" data-setting="progressTimeMode"></div>
-          </fieldset>
-
-          <fieldset class="setting-group">
-            <legend>Compact progress bar</legend>
-            <div class="segmented-control" data-setting="compactProgressStyle"></div>
           </fieldset>
         </section>
 
         <section class="settings-section" aria-labelledby="appearance-heading">
           <div class="section-heading">
             <h2 id="appearance-heading">Appearance</h2>
-            <p>Adjust the tracklist accent color.</p>
           </div>
 
           <fieldset class="setting-group">
-            <legend>Current track highlight</legend>
+            <legend>Current track highlight color</legend>
             <div class="swatch-control" data-setting="trackHighlightColor"></div>
           </fieldset>
 
           <fieldset class="setting-group">
-            <legend>Compact progress color</legend>
-            <div class="swatch-control" data-setting="compactProgressColor"></div>
+            <legend>Full player progress bar color</legend>
+            <div class="color-control-row">
+              <div class="swatch-control" data-setting="progressColor"></div>
+              <label class="custom-color-picker" for="progress-custom-color">
+                <span>Custom color</span>
+                <input id="progress-custom-color" name="progressCustomColor" type="color" value="#ff0033">
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="setting-group">
+            <legend>Compact player progress bar color</legend>
+            <div class="color-control-row">
+              <div class="swatch-control" data-setting="compactProgressColor"></div>
+              <label class="custom-color-picker" for="compact-progress-custom-color">
+                <span>Custom color</span>
+                <input id="compact-progress-custom-color" name="compactProgressCustomColor" type="color" value="#ff0033">
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="setting-group">
+            <legend>Compact player progress bar</legend>
+            <div class="segmented-control" data-setting="compactProgressStyle"></div>
           </fieldset>
         </section>
 

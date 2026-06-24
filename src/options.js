@@ -10,6 +10,20 @@
 
   const form = document.getElementById("settings-form");
   const autoShowInput = document.getElementById("auto-show-compact");
+  const compactProgressCustomColorInput = document.getElementById("compact-progress-custom-color");
+  const progressCustomColorInput = document.getElementById("progress-custom-color");
+  const customColorInputs = [
+    {
+      input: compactProgressCustomColorInput,
+      colorSetting: "compactProgressColor",
+      customSetting: "compactProgressCustomColor",
+    },
+    {
+      input: progressCustomColorInput,
+      colorSetting: "progressColor",
+      customSetting: "progressCustomColor",
+    },
+  ];
   const statusEl = document.getElementById("save-status");
   let saveTimer = null;
 
@@ -18,6 +32,7 @@
     renderSegmentedControl("compactProgressStyle", COMPACT_PROGRESS_STYLES);
     renderSwatchControl("trackHighlightColor", TRACK_HIGHLIGHT_COLORS);
     renderSwatchControl("compactProgressColor", COMPACT_PROGRESS_COLORS);
+    renderSwatchControl("progressColor", COMPACT_PROGRESS_COLORS);
 
     loadSettings((settings) => {
       applySettings(settings);
@@ -52,10 +67,10 @@
     root.innerHTML = Object.entries(choices)
       .map(([value, choice]) => {
         return `
-          <label>
-            <input type="radio" name="${settingName}" value="${value}">
+          <label title="${choice.label}">
+            <input type="radio" name="${settingName}" value="${value}" aria-label="${choice.label}">
             <span class="swatch" style="--swatch-color: ${choice.swatch}"></span>
-            <span>${choice.label}</span>
+            <span class="sr-only">${choice.label}</span>
           </label>
         `;
       })
@@ -68,6 +83,11 @@
     checkRadio("compactProgressStyle", settings.compactProgressStyle);
     checkRadio("trackHighlightColor", settings.trackHighlightColor);
     checkRadio("compactProgressColor", settings.compactProgressColor);
+    checkRadio("progressColor", settings.progressColor);
+    compactProgressCustomColorInput.value = settings.compactProgressCustomColor;
+    progressCustomColorInput.value = settings.progressCustomColor;
+    updateCustomColorPreview("compactProgressColor", settings.compactProgressCustomColor);
+    updateCustomColorPreview("progressColor", settings.progressCustomColor);
   }
 
   function checkRadio(name, value) {
@@ -83,15 +103,29 @@
       autoShowCompact: autoShowInput.checked,
       compactProgressStyle: formData.get("compactProgressStyle"),
       compactProgressColor: formData.get("compactProgressColor"),
+      compactProgressCustomColor: formData.get("compactProgressCustomColor"),
+      progressColor: formData.get("progressColor"),
+      progressCustomColor: formData.get("progressCustomColor"),
       progressTimeMode: formData.get("progressTimeMode"),
       trackHighlightColor: formData.get("trackHighlightColor"),
     };
   }
 
-  function handleChange() {
+  function handleChange(event) {
+    const customColorInput = customColorInputs.find(({ input }) => input === event.target);
+    if (customColorInput) {
+      checkRadio(customColorInput.colorSetting, "custom");
+      updateCustomColorPreview(customColorInput.colorSetting, customColorInput.input.value);
+    }
+
     saveSettings(readSettingsFromForm(), (saved) => {
       showStatus(saved ? "Saved" : "Could not save settings");
     });
+  }
+
+  function updateCustomColorPreview(settingName, color) {
+    const customSwatch = form.querySelector(`input[name='${settingName}'][value='custom'] + .swatch`);
+    customSwatch?.style.setProperty("--swatch-color", color);
   }
 
   function showStatus(message) {

@@ -5,6 +5,7 @@
   --ts-compact-progress-color: #ff0033;
   --ts-compact-progress-height: 1px;
   --ts-compact-progress-opacity: 0.75;
+  --ts-progress-color: #ff0033;
   position: fixed;
   right: 18px;
   bottom: 88px;
@@ -270,7 +271,7 @@
 
 #timestamp-player-root .ts-progress-fill {
   width: var(--ts-progress);
-  background: #ff0033;
+  background: var(--ts-progress-color);
 }
 
 #timestamp-player-root .ts-progress-thumb {
@@ -280,7 +281,7 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #ff0033;
+  background: var(--ts-progress-color);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.22);
   opacity: 0;
   transform: translateX(-50%) scale(0.65);

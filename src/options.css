@@ -56,7 +56,7 @@ body {
 
 .settings-section {
   display: grid;
-  gap: 18px;
+  gap: 26px;
   padding: 20px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -104,7 +104,7 @@ body {
 
 .setting-group {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -115,7 +115,14 @@ body {
 .swatch-control {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 8px 14px;
+}
+
+.color-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
 }
 
 .segmented-control label,
@@ -139,9 +146,13 @@ body {
 }
 
 .swatch-control label {
-  gap: 8px;
-  min-width: 104px;
-  padding: 0 12px;
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 999px;
+  background: transparent;
 }
 
 .segmented-control input,
@@ -151,24 +162,71 @@ body {
   pointer-events: none;
 }
 
-.segmented-control label:has(input:checked),
-.swatch-control label:has(input:checked) {
+.segmented-control label:has(input:checked) {
   border-color: rgba(255, 255, 255, 0.28);
   background: rgba(255, 255, 255, 0.14);
 }
 
-.segmented-control label:focus-within,
-.swatch-control label:focus-within {
+.swatch-control label:has(input:checked) {
+  border-color: transparent;
+  background: transparent;
+}
+
+.segmented-control label:has(input:focus-visible),
+.swatch-control label:has(input:focus-visible) {
   outline: 2px solid rgba(255, 255, 255, 0.34);
   outline-offset: 2px;
 }
 
 .swatch {
-  width: 14px;
-  height: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.34);
+  width: 18px;
+  height: 18px;
+  border: 0;
   border-radius: 50%;
   background: var(--swatch-color);
+}
+
+.swatch-control label:has(input:checked) .swatch {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.68);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.custom-color-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.custom-color-picker:focus-within {
+  outline: 2px solid rgba(255, 255, 255, 0.34);
+  outline-offset: 2px;
+}
+
+.custom-color-picker input {
+  width: 32px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .save-status {

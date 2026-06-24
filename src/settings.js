@@ -2,7 +2,10 @@
   const DEFAULT_SETTINGS = {
     autoShowCompact: false,
     compactProgressColor: "red",
+    compactProgressCustomColor: "#ff0033",
     compactProgressStyle: "subtle",
+    progressColor: "red",
+    progressCustomColor: "#ff0033",
     progressTimeMode: "duration",
     trackHighlightColor: "purple",
   };
@@ -50,22 +53,41 @@
       color: "#a681ff",
       swatch: "#a681ff",
     },
+    custom: {
+      label: "Custom",
+      color: null,
+      swatch: "#ff0033",
+    },
   };
 
   const TRACK_HIGHLIGHT_COLORS = {
-    purple: {
-      label: "Purple",
-      bg: "rgba(126, 87, 194, 0.34)",
-      hoverBg: "rgba(126, 87, 194, 0.42)",
-      text: "#d7c8ff",
-      swatch: "#7e57c2",
-    },
     red: {
       label: "Red",
       bg: "rgba(255, 0, 51, 0.24)",
       hoverBg: "rgba(255, 0, 51, 0.32)",
       text: "#ffc2cc",
       swatch: "#ff0033",
+    },
+    orange: {
+      label: "Orange",
+      bg: "rgba(247, 147, 26, 0.24)",
+      hoverBg: "rgba(247, 147, 26, 0.32)",
+      text: "#ffd7a6",
+      swatch: "#f7931a",
+    },
+    green: {
+      label: "Green",
+      bg: "rgba(50, 201, 130, 0.24)",
+      hoverBg: "rgba(50, 201, 130, 0.32)",
+      text: "#bff3d8",
+      swatch: "#32c982",
+    },
+    cyan: {
+      label: "Cyan",
+      bg: "rgba(0, 188, 255, 0.22)",
+      hoverBg: "rgba(0, 188, 255, 0.30)",
+      text: "#bdeeff",
+      swatch: "#00bcff",
     },
     blue: {
       label: "Blue",
@@ -74,12 +96,26 @@
       text: "#c9dcff",
       swatch: "#2a82ff",
     },
-    green: {
-      label: "Green",
-      bg: "rgba(50, 201, 130, 0.24)",
-      hoverBg: "rgba(50, 201, 130, 0.32)",
-      text: "#bff3d8",
-      swatch: "#32c982",
+    purple: {
+      label: "Purple",
+      bg: "rgba(126, 87, 194, 0.34)",
+      hoverBg: "rgba(126, 87, 194, 0.42)",
+      text: "#d7c8ff",
+      swatch: "#7e57c2",
+    },
+    pink: {
+      label: "Pink",
+      bg: "rgba(255, 79, 163, 0.24)",
+      hoverBg: "rgba(255, 79, 163, 0.32)",
+      text: "#ffc4df",
+      swatch: "#ff4fa3",
+    },
+    grey: {
+      label: "Grey",
+      bg: "rgba(148, 154, 164, 0.22)",
+      hoverBg: "rgba(148, 154, 164, 0.30)",
+      text: "#e2e5ea",
+      swatch: "#8f96a3",
     },
   };
 
@@ -96,6 +132,18 @@
       normalized.compactProgressColor = settings.compactProgressColor;
     }
 
+    if (isHexColor(settings.compactProgressCustomColor)) {
+      normalized.compactProgressCustomColor = settings.compactProgressCustomColor.toLowerCase();
+    }
+
+    if (Object.hasOwn(COMPACT_PROGRESS_COLORS, settings.progressColor)) {
+      normalized.progressColor = settings.progressColor;
+    }
+
+    if (isHexColor(settings.progressCustomColor)) {
+      normalized.progressCustomColor = settings.progressCustomColor.toLowerCase();
+    }
+
     if (Object.hasOwn(PROGRESS_TIME_MODES, settings.progressTimeMode)) {
       normalized.progressTimeMode = settings.progressTimeMode;
     }
@@ -105,6 +153,10 @@
     }
 
     return normalized;
+  }
+
+  function isHexColor(value) {
+    return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
   }
 
   function getStorageArea() {

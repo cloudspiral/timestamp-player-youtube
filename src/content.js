@@ -198,16 +198,25 @@
 
     const compactProgressStyle =
       COMPACT_PROGRESS_STYLES[state.settings.compactProgressStyle] || COMPACT_PROGRESS_STYLES.subtle;
-    const compactProgressColor =
-      COMPACT_PROGRESS_COLORS[state.settings.compactProgressColor] || COMPACT_PROGRESS_COLORS.red;
+    const compactProgressColor = resolveProgressColor(
+      state.settings.compactProgressColor,
+      state.settings.compactProgressCustomColor
+    );
+    const progressColor = resolveProgressColor(state.settings.progressColor, state.settings.progressCustomColor);
     const highlightColor = TRACK_HIGHLIGHT_COLORS[state.settings.trackHighlightColor] || TRACK_HIGHLIGHT_COLORS.purple;
 
     root.style.setProperty("--ts-compact-progress-height", compactProgressStyle.height);
     root.style.setProperty("--ts-compact-progress-opacity", compactProgressStyle.opacity);
-    root.style.setProperty("--ts-compact-progress-color", compactProgressColor.color);
+    root.style.setProperty("--ts-compact-progress-color", compactProgressColor);
+    root.style.setProperty("--ts-progress-color", progressColor);
     root.style.setProperty("--ts-active-track-bg", highlightColor.bg);
     root.style.setProperty("--ts-active-track-hover-bg", highlightColor.hoverBg);
     root.style.setProperty("--ts-active-track-text", highlightColor.text);
+  }
+
+  function resolveProgressColor(colorName, customColor) {
+    const colorChoice = COMPACT_PROGRESS_COLORS[colorName] || COMPACT_PROGRESS_COLORS.red;
+    return colorName === "custom" ? customColor : colorChoice.color;
   }
 
   function handleNavigation() {
