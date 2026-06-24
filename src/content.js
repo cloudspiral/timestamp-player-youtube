@@ -332,7 +332,7 @@
       return;
     }
 
-    const quietDescriptionReadable = canReadQuietDescription();
+    const quietDescriptionReadable = canReadQuietDescription(videoId);
     const candidates = getTimestampCandidates(videoId);
     let tracks = getTracksForVideo(videoId, video.duration, candidates);
     if (tracks.length < 2 && candidates.length < 2 && !quietDescriptionReadable && shouldWaitForQuietDescriptionScan()) {
@@ -1130,9 +1130,15 @@
     return null;
   }
 
-  function canReadQuietDescription() {
+  function canReadQuietDescription(videoId) {
     return getUniqueElements(getQuietDescriptionSelectors()).some((root) => {
-      return normalizeTitleText(root.textContent).length > 0;
+      if (!timestampTextRootMatchesVideo(root, videoId)) {
+        return false;
+      }
+
+      const text = removeNativeTimestampSections(root.textContent || "");
+      const normalizedText = normalizeTitleText(text);
+      return normalizedText.length > 0 && !isLikelyCollapsedDescriptionTextRoot(root, normalizedText);
     });
   }
 
