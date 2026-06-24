@@ -47,9 +47,16 @@ Use this list for manual testing while developing Timestamp Player for YouTube.
   - Timestamps in a high-upvote regular comment.
   - Regression case for comment selection: should prefer the full-video
     tracklist over a higher-on-page micro-event timestamp comment.
+- https://www.youtube.com/watch?v=zt20wdIzYGM
+  - Has good timestamp lists in comments.
+  - Also exposes YouTube-generated Key Moments; comments should win over native
+    Key Moments when the description does not contain a real timestamp list.
 
 ## Messy Timestamp Formats
 
+- https://www.youtube.com/watch?v=C_CIUUxEuPE
+  - Description uses timestamp/track-number lines followed by title lines.
+  - Regression case for real trailing ellipses: final track title includes `...` and should preserve it.
 - https://www.youtube.com/watch?v=087-Aa4xKYo
   - Description uses timestamp/track-number lines followed by the title on the next line.
   - Should use the next title-like line when the timestamp line only contains a track number.

@@ -27,15 +27,24 @@
   function getFirstCandidatePerLine(candidates) {
     const deduped = [];
     const seenLines = new Set();
-    const seenStarts = new Set();
+    const candidateIndexByStart = new Map();
     for (const [sourceOrder, candidate] of candidates.entries()) {
       const lineKey = candidate.lineKey || `${sourceOrder}:${candidate.timestampText}`;
-      if (seenLines.has(lineKey) || seenStarts.has(candidate.start)) {
+      if (seenLines.has(lineKey)) {
         continue;
       }
 
       seenLines.add(lineKey);
-      seenStarts.add(candidate.start);
+      const existingIndex = candidateIndexByStart.get(candidate.start);
+      if (existingIndex !== undefined) {
+        const existingCandidate = deduped[existingIndex];
+        if (trackTitleQuality(candidate.title) > trackTitleQuality(existingCandidate.title)) {
+          deduped[existingIndex] = { ...candidate, sourceOrder: existingCandidate.sourceOrder };
+        }
+        continue;
+      }
+
+      candidateIndexByStart.set(candidate.start, deduped.length);
       deduped.push({ ...candidate, sourceOrder });
     }
 
@@ -362,9 +371,33 @@
     const cleaned = normalizeTitleText(title)
       .replace(/\s+\/\s*(?:original|vocal|lyrics|arrange|arrangement|source)\b.*$/i, "")
       .replace(/^\s*(?:track\s*)?\d{1,3}[\s.)\]-]+/i, "")
+      .replace(/\s*(?:\.{3}|…)\s*more$/i, "")
       .trim();
 
     return isTimestampOnlyText(cleaned) || isTrackNumberOnlyText(cleaned) ? "" : cleaned;
+  }
+
+  function trackTitleQuality(title) {
+    const text = cleanTrackTitle(title);
+    if (isWeakTrackTitle(text)) {
+      return 0;
+    }
+
+    let score = 100;
+    if (hasTrailingEllipsis(text)) {
+      score -= 18;
+    }
+    if (/[\/／]/.test(text)) {
+      score -= 25;
+    }
+    if (text.length > 80) {
+      score -= Math.min(35, Math.ceil((text.length - 80) / 5));
+    }
+    return score;
+  }
+
+  function hasTrailingEllipsis(text) {
+    return /(?:\.{3}|…)$/.test(normalizeTitleText(text));
   }
 
   function isTimestampOnlyText(text) {

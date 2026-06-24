@@ -7,6 +7,11 @@
   const COMMENT_MIN_TRACKS = 3;
   const COMMENT_FETCH_BATCH_LIMIT = 3;
   const REGULAR_COMMENT_SCAN_LIMIT = 30;
+  const NATIVE_TIMESTAMP_CONTAINER_SELECTOR = [
+    "ytd-horizontal-card-list-renderer",
+    "ytd-macro-markers-list-renderer",
+    "ytd-macro-markers-list-item-renderer",
+  ].join(",");
   const DRAG_VIEWPORT_PADDING = 8;
   const PLAYER_MIN_WIDTH = 260;
   const PLAYER_MIN_HEIGHT = 128;
@@ -341,15 +346,21 @@
       return;
     }
 
+    let commentFetchPending = false;
     if (tracks.length < 2) {
       const fetchedCommentTracks = getFetchedCommentTracksForVideo(videoId, video.duration);
       if (fetchedCommentTracks === null) {
+        commentFetchPending = true;
         tracks = [];
       } else if (fetchedCommentTracks.length >= COMMENT_MIN_TRACKS) {
         tracks = fetchedCommentTracks;
       } else {
         tracks = getCommentTracksForVideo(videoId, video.duration);
       }
+    }
+
+    if (tracks.length < 2 && !commentFetchPending) {
+      tracks = getTracksForVideo(videoId, video.duration, getNativeTimestampCandidates(videoId));
     }
 
     if (abortStaleScan(videoId)) {
@@ -684,18 +695,28 @@
   function getTimestampCandidates(videoId) {
     const roots = getTimestampCandidateRoots();
     const candidates = getTextTimestampCandidatesFromRoots(videoId);
+    candidates.push(...getLinkTimestampCandidates(videoId, roots, { excludeNativeTimestampSections: true }));
+    return candidates;
+  }
 
+  function getNativeTimestampCandidates(videoId) {
+    return getLinkTimestampCandidates(videoId, getNativeTimestampCandidateRoots());
+  }
+
+  function getLinkTimestampCandidates(videoId, roots, options = {}) {
     const links = [];
     for (const searchRoot of roots) {
       for (const link of searchRoot.querySelectorAll("a[href*='/watch']")) {
+        if (options.excludeNativeTimestampSections && isNativeTimestampSectionElement(link)) {
+          continue;
+        }
         if (!links.includes(link)) {
           links.push(link);
         }
       }
     }
 
-    candidates.push(...links.map((link) => toTimestampCandidate(link, videoId)).filter(Boolean));
-    return candidates;
+    return links.map((link) => toTimestampCandidate(link, videoId)).filter(Boolean);
   }
 
   function getTextTimestampCandidatesFromRoots(videoId) {
@@ -706,9 +727,12 @@
         continue;
       }
 
-      const text = root.innerText || root.textContent || "";
+      const text = removeNativeTimestampSections(root.innerText || root.textContent || "");
       const normalizedText = normalizeTitleText(text);
       if (!normalizedText || seenTexts.has(normalizedText)) {
+        continue;
+      }
+      if (isLikelyCollapsedDescriptionTextRoot(root, normalizedText)) {
         continue;
       }
 
@@ -729,6 +753,37 @@
     }
 
     return linkedVideoIds.size === 0 || linkedVideoIds.has(videoId);
+  }
+
+  function isLikelyCollapsedDescriptionTextRoot(root, text) {
+    const hasExpandControl = Boolean([...root.querySelectorAll("#expand, tp-yt-paper-button#expand, button")].find((element) => {
+      const buttonText = normalizeTitleText(element.textContent).toLowerCase();
+      return buttonText.includes("more");
+    }));
+    if (!hasExpandControl) {
+      return false;
+    }
+
+    return text.split(/\r?\n/).some((line) => {
+      return hasTimestampText(line) && /(?:\.{3}|…)\s*(?:more)?$/i.test(normalizeTitleText(line));
+    });
+  }
+
+  function hasTimestampText(text) {
+    return /\b\d{1,2}:\d{2}(?::\d{2})?\b/.test(text);
+  }
+
+  function removeNativeTimestampSections(text) {
+    const lines = (text || "").split(/\r?\n/);
+    const keyMomentsIndex = lines.findIndex((line) => {
+      return /^key moments$/i.test(normalizeTitleText(line));
+    });
+
+    return keyMomentsIndex > 0 ? lines.slice(0, keyMomentsIndex).join("\n") : text;
+  }
+
+  function isNativeTimestampSectionElement(element) {
+    return Boolean(element.closest(NATIVE_TIMESTAMP_CONTAINER_SELECTOR));
   }
 
   function getTimestampLinkVideoId(link) {
@@ -760,10 +815,15 @@
       "ytd-watch-metadata #description-inline-expander #expanded",
       "ytd-watch-metadata #description-inline-expander",
       "ytd-watch-metadata #description",
-      "ytd-watch-metadata",
     ];
 
     return getUniqueElements(selectors);
+  }
+
+  function getNativeTimestampCandidateRoots() {
+    return getUniqueElements([
+      "ytd-watch-metadata",
+    ]);
   }
 
   function getCommentTracksForVideo(videoId, duration) {
