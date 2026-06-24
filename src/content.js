@@ -186,9 +186,18 @@
   function setSettings(settings) {
     state.settings = normalizeSettings(settings);
     state.progressTimeMode = state.settings.progressTimeMode;
+    syncLayoutSettingsToState();
     applySettingsToUi();
     maybeAutoOpenCompact(getCurrentVideoId());
     updateUi();
+  }
+
+  function syncLayoutSettingsToState() {
+    state.playerPosition = state.settings.floatingPlayerPosition;
+    state.playerSize = state.settings.floatingPlayerSize;
+    state.anchoredWidth = state.settings.anchoredPlayerSize?.width ?? null;
+    state.anchoredHeight = state.settings.anchoredPlayerSize?.height ?? null;
+    state.compactWidth = state.settings.compactPlayerWidth;
   }
 
   function applySettingsToUi() {
@@ -1475,6 +1484,7 @@
     dragHandle.removeEventListener("pointermove", handleDragPointerMove);
     dragHandle.removeEventListener("pointerup", handleDragPointerEnd);
     dragHandle.removeEventListener("pointercancel", handleDragPointerEnd);
+    saveFloatingPlayerLayout();
   }
 
   function positionPlayer(left, top) {
@@ -1688,6 +1698,25 @@
     root.style.height = "";
   }
 
+  function saveFloatingPlayerLayout() {
+    saveSettings({
+      floatingPlayerPosition: state.playerPosition,
+      floatingPlayerSize: state.playerSize,
+    });
+  }
+
+  function saveAnchoredPlayerLayout() {
+    saveSettings({
+      anchoredPlayerSize: state.anchoredWidth && state.anchoredHeight
+        ? { width: state.anchoredWidth, height: state.anchoredHeight }
+        : null,
+    });
+  }
+
+  function saveCompactPlayerLayout() {
+    saveSettings({ compactPlayerWidth: state.compactWidth });
+  }
+
   function clampPlayerPosition(left, top, width, height) {
     const viewport = getViewportSize();
     const maxLeft = Math.max(DRAG_VIEWPORT_PADDING, viewport.width - width - DRAG_VIEWPORT_PADDING);
@@ -1899,6 +1928,7 @@
       return;
     }
 
+    const completedResizeMode = resizeMode;
     resizeHandle.releasePointerCapture?.(event.pointerId);
     resizePointerId = null;
     resizeMode = null;
@@ -1906,6 +1936,14 @@
     resizeHandle.removeEventListener("pointermove", handleResizePointerMove);
     resizeHandle.removeEventListener("pointerup", handleResizePointerEnd);
     resizeHandle.removeEventListener("pointercancel", handleResizePointerEnd);
+
+    if (completedResizeMode === RESIZE_MODES.ANCHORED) {
+      saveAnchoredPlayerLayout();
+    } else if (completedResizeMode === RESIZE_MODES.COMPACT_WIDTH) {
+      saveCompactPlayerLayout();
+    } else if (completedResizeMode === RESIZE_MODES.FLOATING) {
+      saveFloatingPlayerLayout();
+    }
   }
 
   function togglePlayPause() {

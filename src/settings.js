@@ -4,9 +4,13 @@
     compactProgressColor: "red",
     compactProgressCustomColor: "#ff0033",
     compactProgressStyle: "subtle",
+    floatingPlayerPosition: null,
+    floatingPlayerSize: null,
     progressColor: "red",
     progressCustomColor: "#ff0033",
     progressTimeMode: "duration",
+    anchoredPlayerSize: null,
+    compactPlayerWidth: null,
     trackHighlightColor: "purple",
   };
 
@@ -128,6 +132,9 @@
       normalized.compactProgressStyle = settings.compactProgressStyle;
     }
 
+    normalized.floatingPlayerPosition = normalizePosition(settings.floatingPlayerPosition);
+    normalized.floatingPlayerSize = normalizeSize(settings.floatingPlayerSize);
+
     if (Object.hasOwn(COMPACT_PROGRESS_COLORS, settings.compactProgressColor)) {
       normalized.compactProgressColor = settings.compactProgressColor;
     }
@@ -148,6 +155,9 @@
       normalized.progressTimeMode = settings.progressTimeMode;
     }
 
+    normalized.anchoredPlayerSize = normalizeSize(settings.anchoredPlayerSize);
+    normalized.compactPlayerWidth = normalizePositiveNumber(settings.compactPlayerWidth);
+
     if (Object.hasOwn(TRACK_HIGHLIGHT_COLORS, settings.trackHighlightColor)) {
       normalized.trackHighlightColor = settings.trackHighlightColor;
     }
@@ -157,6 +167,42 @@
 
   function isHexColor(value) {
     return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+  }
+
+  function normalizePosition(value) {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const left = normalizeNonNegativeNumber(value.left);
+    const top = normalizeNonNegativeNumber(value.top);
+    return left === null || top === null ? null : { left, top };
+  }
+
+  function normalizeSize(value) {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const width = normalizePositiveNumber(value.width);
+    const height = normalizePositiveNumber(value.height);
+    return width === null || height === null ? null : { width, height };
+  }
+
+  function normalizeNonNegativeNumber(value) {
+    return normalizeNumber(value, 0);
+  }
+
+  function normalizePositiveNumber(value) {
+    return normalizeNumber(value, 1);
+  }
+
+  function normalizeNumber(value, minimum) {
+    if (!Number.isFinite(value) || value < minimum) {
+      return null;
+    }
+
+    return Math.round(value);
   }
 
   function getStorageArea() {
