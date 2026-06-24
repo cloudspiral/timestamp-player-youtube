@@ -6,9 +6,11 @@ Timestamp Player makes it easy to navigate tracks, seek within the current track
 
 It checks for timestamps in both the video description and comments, and intelligently parses the best set that it can find.
 
-You can open and close the player by clicking the new "Tracklist" button located next to the Share button.
+Open and close the player by clicking the new "Tracklist" button located next to the Share button.
 
 You can also use it in compact bar mode below the video, or pop out into floating panel mode.
+
+Additional settings can be found in the Extension Options page.
 
 [Install from the Chrome Web Store](https://chromewebstore.google.com/detail/apdohlkmddbfpmhkoeibajlhpnhilocb)
 

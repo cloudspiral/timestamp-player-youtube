@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Timestamp Player for YouTube",
-  "version": "0.7.0",
-  "description": "Better track playback controls for timestamped albums and compilations on YouTube.",
+  "version": "0.8.0",
+  "description": "The best way to enjoy YouTube albums and compilations. Automatic timestamp detection, seamless track navigation, proper playback controls including shuffle, and more.",
   "permissions": [
     "storage"
   ],
