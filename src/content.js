@@ -60,19 +60,30 @@
     titleFromLineFragment,
     trackTitleScore,
   } = globalThis.TimestampPlayerTimestamps;
+  const {
+    COMPACT_PROGRESS_COLORS,
+    COMPACT_PROGRESS_STYLES,
+    DEFAULT_SETTINGS,
+    TRACK_HIGHLIGHT_COLORS,
+    loadSettings,
+    normalizeSettings,
+    saveSettings,
+  } = globalThis.TimestampPlayerSettings;
 
   const state = {
     shuffleEnabled: false,
     repeatMode: REPEAT_MODES.OFF,
-    progressTimeMode: PROGRESS_TIME_MODES.DURATION,
+    progressTimeMode: DEFAULT_SETTINGS.progressTimeMode,
     panelOpen: false,
     panelMode: PANEL_MODES.ANCHORED,
     anchoredCompact: false,
+    settings: { ...DEFAULT_SETTINGS },
     tracks: [],
     currentTrackIndex: -1,
     history: [],
     upcoming: [],
     currentVideoId: null,
+    tracksVideoId: null,
     descriptionExpandedVideoId: null,
     descriptionFallbackVideoId: null,
     descriptionFallbackReadyAt: 0,
@@ -87,6 +98,8 @@
     anchoredHeight: null,
     compactWidth: null,
     playerLayoutFrame: null,
+    autoOpenedCompactVideoId: null,
+    userClosedPanelVideoId: null,
     lastUrl: location.href,
   };
 
@@ -123,6 +136,8 @@
 
   function init() {
     ensureUi();
+    applySettingsToUi();
+    loadStoredSettings();
     scanPage();
     document.addEventListener("yt-navigate-finish", handleNavigation);
     window.addEventListener("yt-navigate-finish", handleNavigation);
@@ -143,10 +158,72 @@
     window.visualViewport?.addEventListener("resize", schedulePlayerLayout);
   }
 
+  function loadStoredSettings() {
+    loadSettings((settings) => {
+      setSettings(settings);
+    });
+
+    globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
+      if (areaName !== "local") {
+        return;
+      }
+
+      const nextSettings = { ...state.settings };
+      let settingsChanged = false;
+      for (const key of Object.keys(DEFAULT_SETTINGS)) {
+        if (Object.hasOwn(changes, key)) {
+          nextSettings[key] = changes[key].newValue;
+          settingsChanged = true;
+        }
+      }
+
+      if (settingsChanged) {
+        setSettings(nextSettings);
+      }
+    });
+  }
+
+  function setSettings(settings) {
+    state.settings = normalizeSettings(settings);
+    state.progressTimeMode = state.settings.progressTimeMode;
+    applySettingsToUi();
+    maybeAutoOpenCompact(getCurrentVideoId());
+    updateUi();
+  }
+
+  function applySettingsToUi() {
+    if (!root) {
+      return;
+    }
+
+    const compactProgressStyle =
+      COMPACT_PROGRESS_STYLES[state.settings.compactProgressStyle] || COMPACT_PROGRESS_STYLES.subtle;
+    const compactProgressColor =
+      COMPACT_PROGRESS_COLORS[state.settings.compactProgressColor] || COMPACT_PROGRESS_COLORS.red;
+    const highlightColor = TRACK_HIGHLIGHT_COLORS[state.settings.trackHighlightColor] || TRACK_HIGHLIGHT_COLORS.purple;
+
+    root.style.setProperty("--ts-compact-progress-height", compactProgressStyle.height);
+    root.style.setProperty("--ts-compact-progress-opacity", compactProgressStyle.opacity);
+    root.style.setProperty("--ts-compact-progress-color", compactProgressColor.color);
+    root.style.setProperty("--ts-active-track-bg", highlightColor.bg);
+    root.style.setProperty("--ts-active-track-hover-bg", highlightColor.hoverBg);
+    root.style.setProperty("--ts-active-track-text", highlightColor.text);
+  }
+
   function handleNavigation() {
-    resetVideoState(getCurrentVideoId());
+    syncVideoStateWithUrl();
     scheduleScan();
     updateUi();
+  }
+
+  function syncVideoStateWithUrl() {
+    const videoId = getCurrentVideoId();
+    if (state.currentVideoId !== videoId || (state.tracksVideoId && state.tracksVideoId !== videoId)) {
+      resetVideoState(videoId);
+      return true;
+    }
+
+    return false;
   }
 
   function resetVideoState(videoId) {
@@ -157,6 +234,7 @@
     state.anchoredCompact = false;
     state.tracks = [];
     state.currentVideoId = videoId;
+    state.tracksVideoId = null;
     state.currentTrackIndex = -1;
     resetPlaybackOrder();
     state.descriptionExpandedVideoId = null;
@@ -164,6 +242,8 @@
     state.descriptionFallbackReadyAt = 0;
     state.shouldCollapseDescriptionVideoId = null;
     state.lockedTrackVideoId = null;
+    state.autoOpenedCompactVideoId = null;
+    state.userClosedPanelVideoId = null;
   }
 
   function handlePageMutations(mutations) {
@@ -176,6 +256,9 @@
       return;
     }
 
+    if (syncVideoStateWithUrl()) {
+      updateUi();
+    }
     scheduleScan();
   }
 
@@ -191,6 +274,11 @@
   }
 
   function scanPage() {
+    const videoIdChanged = syncVideoStateWithUrl();
+    if (videoIdChanged) {
+      updateUi();
+    }
+
     const video = getVideo();
     const videoId = getCurrentVideoId();
 
@@ -198,10 +286,6 @@
       resetVideoState(null);
       updateUi("Open a YouTube video");
       return;
-    }
-
-    if (state.currentVideoId && state.currentVideoId !== videoId) {
-      resetVideoState(videoId);
     }
 
     if (!Number.isFinite(video.duration) || video.duration <= 0) {
@@ -214,7 +298,12 @@
 
     const lockedTracks = getLockedTracksForVideo(videoId);
     if (lockedTracks) {
+      if (abortStaleScan(videoId)) {
+        return;
+      }
+
       applyTracksForVideo(videoId, video, lockedTracks);
+      maybeAutoOpenCompact(videoId);
       collapseDescriptionIfNeeded(videoId);
       updateUi();
       return;
@@ -245,13 +334,52 @@
       }
     }
 
+    if (abortStaleScan(videoId)) {
+      return;
+    }
+
     if (tracks.length >= 2) {
       tracks = lockTracksForVideo(videoId, tracks);
     }
 
     applyTracksForVideo(videoId, video, tracks);
+    maybeAutoOpenCompact(videoId);
     collapseDescriptionIfNeeded(videoId);
     updateUi();
+  }
+
+  function abortStaleScan(videoId) {
+    if (videoId === getCurrentVideoId()) {
+      return false;
+    }
+
+    syncVideoStateWithUrl();
+    scheduleScan();
+    updateUi();
+    return true;
+  }
+
+  function maybeAutoOpenCompact(videoId) {
+    if (
+      !videoId
+      || !state.settings.autoShowCompact
+      || state.panelOpen
+      || !tracksBelongToVideo(videoId)
+      || state.lockedTrackVideoId !== videoId
+      || state.autoOpenedCompactVideoId === videoId
+      || state.userClosedPanelVideoId === videoId
+    ) {
+      return;
+    }
+
+    state.panelOpen = true;
+    state.panelMode = PANEL_MODES.ANCHORED;
+    state.anchoredCompact = true;
+    state.autoOpenedCompactVideoId = videoId;
+  }
+
+  function tracksBelongToVideo(videoId = getCurrentVideoId()) {
+    return state.tracks.length >= 2 && state.tracksVideoId === videoId;
   }
 
   function getLockedTracksForVideo(videoId) {
@@ -273,6 +401,7 @@
       resetPlaybackOrder();
     }
     state.currentVideoId = videoId;
+    state.tracksVideoId = tracks.length >= 2 ? videoId : null;
     state.tracks = tracks;
     state.currentTrackIndex = getTrackAtTime(video.currentTime)?.index ?? -1;
   }
@@ -301,7 +430,10 @@
       return bestTracks;
     }
 
-    return cachedTracks || [];
+    // Cached tracks are only a continuity fallback after this video has already
+    // been confirmed in the current page view. During YouTube SPA navigation,
+    // old DOM can briefly linger, and auto-show should never open from cache alone.
+    return state.lockedTrackVideoId === videoId ? cachedTracks || [] : [];
   }
 
   function mergeCachedTrackTitles(tracks, cachedTracks) {
@@ -533,7 +665,7 @@
 
   function getTimestampCandidates(videoId) {
     const roots = getTimestampCandidateRoots();
-    const candidates = getTextTimestampCandidatesFromRoots();
+    const candidates = getTextTimestampCandidatesFromRoots(videoId);
 
     const links = [];
     for (const searchRoot of roots) {
@@ -548,10 +680,14 @@
     return candidates;
   }
 
-  function getTextTimestampCandidatesFromRoots() {
+  function getTextTimestampCandidatesFromRoots(videoId) {
     const candidates = [];
     const seenTexts = new Set();
     for (const [rootIndex, root] of getTimestampTextCandidateRoots().entries()) {
+      if (!timestampTextRootMatchesVideo(root, videoId)) {
+        continue;
+      }
+
       const text = root.innerText || root.textContent || "";
       const normalizedText = normalizeTitleText(text);
       if (!normalizedText || seenTexts.has(normalizedText)) {
@@ -563,6 +699,30 @@
     }
 
     return candidates;
+  }
+
+  function timestampTextRootMatchesVideo(root, videoId) {
+    const linkedVideoIds = new Set();
+    for (const link of root.querySelectorAll("a[href*='/watch']")) {
+      const linkedVideoId = getTimestampLinkVideoId(link);
+      if (linkedVideoId) {
+        linkedVideoIds.add(linkedVideoId);
+      }
+    }
+
+    return linkedVideoIds.size === 0 || linkedVideoIds.has(videoId);
+  }
+
+  function getTimestampLinkVideoId(link) {
+    const url = new URL(link.href, location.href);
+    const linkedVideoId = url.searchParams.get("v");
+    if (!linkedVideoId) {
+      return "";
+    }
+
+    const timeParamStart = parseTimeParam(url.searchParams.get("t"));
+    const textStart = parseTimestampText(link.textContent);
+    return Number.isFinite(timeParamStart) || Number.isFinite(textStart) ? linkedVideoId : "";
   }
 
   function getTimestampTextCandidateRoots() {
@@ -1199,6 +1359,7 @@
 
   function closePlayer() {
     state.panelOpen = false;
+    state.userClosedPanelVideoId = getCurrentVideoId();
     updateUi();
   }
 
@@ -1209,6 +1370,7 @@
     }
 
     state.panelOpen = true;
+    state.userClosedPanelVideoId = null;
     updateUi();
   }
 
@@ -1779,6 +1941,7 @@
       state.progressTimeMode === PROGRESS_TIME_MODES.REMAINING
         ? PROGRESS_TIME_MODES.DURATION
         : PROGRESS_TIME_MODES.REMAINING;
+    saveSettings({ progressTimeMode: state.progressTimeMode });
     updateProgress();
   }
 
@@ -1825,7 +1988,7 @@
     const { recordHistory = true } = options;
     const video = getVideo();
     const track = state.tracks[index];
-    if (!video || !track) {
+    if (!video || !track || !tracksBelongToVideo()) {
       updateUi();
       return;
     }
@@ -1865,7 +2028,7 @@
   }
 
   function pickSequentialTrackIndex() {
-    if (!state.tracks.length) {
+    if (!tracksBelongToVideo()) {
       return -1;
     }
 
@@ -1878,7 +2041,7 @@
   }
 
   function pickPreviousSequentialTrackIndex(currentIndex) {
-    if (!state.tracks.length) {
+    if (!tracksBelongToVideo()) {
       return -1;
     }
 
@@ -1993,6 +2156,11 @@
       return;
     }
 
+    if (!tracksBelongToVideo()) {
+      updateUi();
+      return;
+    }
+
     const video = event.target;
     const currentTrack = getCurrentTrack(video.currentTime);
     if (currentTrack && currentTrack.index !== state.currentTrackIndex) {
@@ -2032,11 +2200,15 @@
   }
 
   function getTrackAtTime(time) {
+    if (!tracksBelongToVideo()) {
+      return null;
+    }
+
     return state.tracks.find((track) => time >= track.start && time < track.end) || null;
   }
 
   function getProgressTrack(video) {
-    if (!video) {
+    if (!video || !tracksBelongToVideo()) {
       return null;
     }
 
@@ -2152,7 +2324,8 @@
   function updateUi() {
     ensureUi();
     const video = getVideo();
-    const tracksAvailable = state.tracks.length >= 2;
+    const videoId = getCurrentVideoId();
+    const tracksAvailable = tracksBelongToVideo(videoId);
     const isPlaying = Boolean(video && !video.paused);
     const isFloating = state.panelMode === PANEL_MODES.FLOATING;
     const isAnchoredCompact = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;

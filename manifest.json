@@ -3,6 +3,10 @@
   "name": "Timestamp Player for YouTube",
   "version": "0.7.0",
   "description": "Better track playback controls for timestamped albums and compilations on YouTube.",
+  "permissions": [
+    "storage"
+  ],
+  "options_page": "options.html",
   "icons": {
     "16": "icons/timestamp-player-youtube-16.png",
     "32": "icons/timestamp-player-youtube-32.png",
@@ -16,6 +20,7 @@
         "https://music.youtube.com/watch*"
       ],
       "js": [
+        "src/settings.js",
         "src/timestamps.js",
         "src/comment-scoring.js",
         "src/comment-fetching.js",

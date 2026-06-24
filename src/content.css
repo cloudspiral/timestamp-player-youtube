@@ -1,4 +1,10 @@
 #timestamp-player-root {
+  --ts-active-track-bg: rgba(126, 87, 194, 0.34);
+  --ts-active-track-hover-bg: rgba(126, 87, 194, 0.42);
+  --ts-active-track-text: #d7c8ff;
+  --ts-compact-progress-color: #ff0033;
+  --ts-compact-progress-height: 1px;
+  --ts-compact-progress-opacity: 0.75;
   position: fixed;
   right: 18px;
   bottom: 88px;
@@ -249,11 +255,12 @@
 #timestamp-player-root.is-inline-compact .ts-progress-slider::before,
 #timestamp-player-root.is-inline-compact .ts-progress-fill {
   top: 1px;
-  height: 1px;
+  height: var(--ts-compact-progress-height);
 }
 
 #timestamp-player-root.is-inline-compact .ts-progress-fill {
-  opacity: 0.75;
+  background: var(--ts-compact-progress-color);
+  opacity: var(--ts-compact-progress-opacity);
 }
 
 #timestamp-player-root .ts-progress-slider::before {
@@ -282,6 +289,7 @@
 
 #timestamp-player-root.is-inline-compact .ts-progress-thumb {
   top: -2.5px;
+  background: var(--ts-compact-progress-color);
 }
 
 #timestamp-player-root .ts-progress-slider:not([aria-disabled="true"]):hover::before,
@@ -354,7 +362,7 @@
 }
 
 #timestamp-player-root .ts-list-item.is-active {
-  background: rgba(126, 87, 194, 0.34);
+  background: var(--ts-active-track-bg);
 }
 
 #timestamp-player-root .ts-list-number,
@@ -375,7 +383,7 @@
 
 #timestamp-player-root .ts-list-item.is-active .ts-list-number,
 #timestamp-player-root .ts-list-item.is-active .ts-list-time {
-  color: #d7c8ff;
+  color: var(--ts-active-track-text);
 }
 
 #timestamp-player-root button {
@@ -684,7 +692,7 @@
 }
 
 #timestamp-player-root .ts-list-item.is-active:hover:not(:disabled) {
-  background: rgba(126, 87, 194, 0.42);
+  background: var(--ts-active-track-hover-bg);
 }
 
 #timestamp-player-root button:disabled {

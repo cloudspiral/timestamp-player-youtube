@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Timestamp Player for YouTube Settings</title>
+    <link rel="stylesheet" href="src/options.css">
+  </head>
+  <body>
+    <main class="options-shell">
+      <header class="options-header">
+        <img src="icons/timestamp-player-youtube-48.png" alt="" width="48" height="48">
+        <div>
+          <h1>Timestamp Player for YouTube</h1>
+          <p>Settings</p>
+        </div>
+      </header>
+
+      <form id="settings-form" class="settings-form">
+        <section class="settings-section" aria-labelledby="playback-heading">
+          <div class="section-heading">
+            <h2 id="playback-heading">Playback</h2>
+            <p>Choose how the player appears and displays track progress.</p>
+          </div>
+
+          <label class="setting-row toggle-row">
+            <span>
+              <strong>Auto-show compact player</strong>
+              <small>Open compact mode automatically when timestamps are found.</small>
+            </span>
+            <input id="auto-show-compact" name="autoShowCompact" type="checkbox">
+          </label>
+
+          <fieldset class="setting-group">
+            <legend>Progress time</legend>
+            <div class="segmented-control" data-setting="progressTimeMode"></div>
+          </fieldset>
+
+          <fieldset class="setting-group">
+            <legend>Compact progress bar</legend>
+            <div class="segmented-control" data-setting="compactProgressStyle"></div>
+          </fieldset>
+        </section>
+
+        <section class="settings-section" aria-labelledby="appearance-heading">
+          <div class="section-heading">
+            <h2 id="appearance-heading">Appearance</h2>
+            <p>Adjust the tracklist accent color.</p>
+          </div>
+
+          <fieldset class="setting-group">
+            <legend>Current track highlight</legend>
+            <div class="swatch-control" data-setting="trackHighlightColor"></div>
+          </fieldset>
+
+          <fieldset class="setting-group">
+            <legend>Compact progress color</legend>
+            <div class="swatch-control" data-setting="compactProgressColor"></div>
+          </fieldset>
+        </section>
+
+        <p id="save-status" class="save-status" role="status" aria-live="polite"></p>
+      </form>
+    </main>
+
+    <script src="src/settings.js"></script>
+    <script src="src/options.js"></script>
+  </body>
+</html>
