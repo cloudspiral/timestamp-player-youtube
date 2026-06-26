@@ -37,6 +37,34 @@ extension card after making any code changes.
 4. Select this repository's `manifest.json`.
 5. Refresh the YouTube tab being tested after loading or reloading the add-on.
 
+## Packaging
+
+Install release tooling once:
+
+```sh
+npm install
+```
+
+Run checks:
+
+```sh
+npm run check
+```
+
+Lint the Firefox package:
+
+```sh
+npm run lint:firefox
+```
+
+Build Chrome and Firefox upload packages:
+
+```sh
+npm run build
+```
+
+The final upload zips are written to `web-ext-artifacts/`. Package sources are generated in `dist/`, which is ignored and can be recreated at any time.
+
 ## Test Videos
 
 See `TEST_VIDEOS.md` for manual test cases.
