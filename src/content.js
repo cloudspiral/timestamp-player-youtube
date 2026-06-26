@@ -159,6 +159,8 @@
     document.addEventListener("timeupdate", handleTimeUpdate, true);
     document.addEventListener("play", handlePlaybackStateChange, true);
     document.addEventListener("pause", handlePlaybackStateChange, true);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
     window.addEventListener("resize", schedulePlayerLayout);
     window.visualViewport?.addEventListener("resize", schedulePlayerLayout);
   }
@@ -2296,6 +2298,15 @@
     }
   }
 
+  function handleFullscreenChange() {
+    updateUi();
+    schedulePlayerLayout();
+  }
+
+  function isFullscreenActive() {
+    return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+  }
+
   function getCurrentTrack(time) {
     return getTrackAtTime(time);
   }
@@ -2430,7 +2441,8 @@
     const isPlaying = Boolean(video && !video.paused);
     const isFloating = state.panelMode === PANEL_MODES.FLOATING;
     const isAnchoredCompact = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;
-    const isVisible = tracksAvailable && state.panelOpen;
+    const isHiddenByFullscreen = isFullscreenActive() && state.panelMode === PANEL_MODES.ANCHORED;
+    const isVisible = tracksAvailable && state.panelOpen && !isHiddenByFullscreen;
     const isInlineCompact = isVisible && isAnchoredCompact;
     syncLauncher(tracksAvailable);
     const mountedInlineCompact = mountPlayerForMode(isInlineCompact);
