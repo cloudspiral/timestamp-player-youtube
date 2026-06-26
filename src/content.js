@@ -7,11 +7,6 @@
   const COMMENT_MIN_TRACKS = 3;
   const COMMENT_FETCH_BATCH_LIMIT = 3;
   const REGULAR_COMMENT_SCAN_LIMIT = 30;
-  const NATIVE_TIMESTAMP_CONTAINER_SELECTOR = [
-    "ytd-horizontal-card-list-renderer",
-    "ytd-macro-markers-list-renderer",
-    "ytd-macro-markers-list-item-renderer",
-  ].join(",");
   const DRAG_VIEWPORT_PADDING = 8;
   const PLAYER_MIN_WIDTH = 260;
   const PLAYER_MIN_HEIGHT = 128;
@@ -51,6 +46,10 @@
   const {
     fetchCommentRecords,
   } = globalThis.TimestampPlayerCommentFetching;
+  const {
+    getNativeTimestampCandidates,
+    isNativeTimestampSectionElement,
+  } = globalThis.TimestampPlayerNativeTimestamps;
   const {
     cleanTrackTitle,
     findTracks,
@@ -359,7 +358,7 @@
       }
     }
 
-    if (tracks.length < 2 && !commentFetchPending) {
+    if (tracks.length < 2 && !commentFetchPending && shouldUseNativeTimestampFallback()) {
       tracks = getTracksForVideo(videoId, video.duration, getNativeTimestampCandidates(videoId));
     }
 
@@ -699,8 +698,10 @@
     return candidates;
   }
 
-  function getNativeTimestampCandidates(videoId) {
-    return getLinkTimestampCandidates(videoId, getNativeTimestampCandidateRoots());
+  function shouldUseNativeTimestampFallback() {
+    // Keep native YouTube Key moments as an isolated fallback so a future source
+    // preference can disable it without changing the rest of the scan pipeline.
+    return true;
   }
 
   function getLinkTimestampCandidates(videoId, roots, options = {}) {
@@ -782,10 +783,6 @@
     return keyMomentsIndex > 0 ? lines.slice(0, keyMomentsIndex).join("\n") : text;
   }
 
-  function isNativeTimestampSectionElement(element) {
-    return Boolean(element.closest(NATIVE_TIMESTAMP_CONTAINER_SELECTOR));
-  }
-
   function getTimestampLinkVideoId(link) {
     const url = new URL(link.href, location.href);
     const linkedVideoId = url.searchParams.get("v");
@@ -818,12 +815,6 @@
     ];
 
     return getUniqueElements(selectors);
-  }
-
-  function getNativeTimestampCandidateRoots() {
-    return getUniqueElements([
-      "ytd-watch-metadata",
-    ]);
   }
 
   function getCommentTracksForVideo(videoId, duration) {

@@ -22,6 +22,7 @@
       "js": [
         "src/settings.js",
         "src/timestamps.js",
+        "src/native-timestamps.js",
         "src/comment-scoring.js",
         "src/comment-fetching.js",
         "src/content.js"

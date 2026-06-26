@@ -34,6 +34,13 @@ Use this list for manual testing while developing Timestamp Player for YouTube.
   - Exposes YouTube chapters in the playback bar.
   - Unknown whether the chapters are manual or automatic.
 
+## Native Key Moments Fallback
+
+- https://www.youtube.com/watch?v=JBaDah2iXdo
+  - Does not have a better description/comment timestamp list.
+  - Exposes YouTube Key moments that should be used only as the last-resort fallback.
+  - Native fallback should show best-effort Key moment labels instead of generic `Track 1`, `Track 2`, etc.
+
 ## Timestamps in Comments
 
 - https://www.youtube.com/watch?v=QHQj04YEn7c

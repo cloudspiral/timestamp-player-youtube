@@ -13,6 +13,7 @@ Ideas under consideration for future versions of Timestamp Player for YouTube.
 
 - Harden background comment fetching against YouTube response-shape changes.
 - Explore parsing YouTube initial page data for raw description text so visible description opening can remain a last-resort fallback.
+- Explore using high-quality native YouTube chapter labels to enrich messy description-derived titles without changing source priority.
 
 ## Browser Support
 
