@@ -205,19 +205,39 @@
     return Math.round(value);
   }
 
-  function getStorageArea() {
-    return globalThis.chrome?.storage?.local || null;
+  function getExtensionApi() {
+    return globalThis.browser?.storage?.local
+      ? globalThis.browser
+      : globalThis.chrome?.storage?.local
+        ? globalThis.chrome
+        : null;
+  }
+
+  function isPromiseApi(api) {
+    return api === globalThis.browser;
+  }
+
+  function getRuntimeLastError(api) {
+    return api?.runtime?.lastError || null;
   }
 
   function loadSettings(callback) {
-    const storage = getStorageArea();
+    const api = getExtensionApi();
+    const storage = api?.storage?.local || null;
     if (!storage) {
       callback({ ...DEFAULT_SETTINGS });
       return;
     }
 
+    if (isPromiseApi(api)) {
+      storage.get(DEFAULT_SETTINGS)
+        .then((items) => callback(normalizeSettings(items)))
+        .catch(() => callback({ ...DEFAULT_SETTINGS }));
+      return;
+    }
+
     storage.get(DEFAULT_SETTINGS, (items) => {
-      if (globalThis.chrome?.runtime?.lastError) {
+      if (getRuntimeLastError(api)) {
         callback({ ...DEFAULT_SETTINGS });
         return;
       }
@@ -227,7 +247,8 @@
   }
 
   function saveSettings(partialSettings, callback = () => {}) {
-    const storage = getStorageArea();
+    const api = getExtensionApi();
+    const storage = api?.storage?.local || null;
     if (!storage) {
       callback(false);
       return;
@@ -241,12 +262,39 @@
       }
     }
 
+    if (isPromiseApi(api)) {
+      storage.set(payload)
+        .then(() => callback(true))
+        .catch(() => callback(false));
+      return;
+    }
+
     storage.set(payload, () => {
-      callback(!globalThis.chrome?.runtime?.lastError);
+      callback(!getRuntimeLastError(api));
     });
   }
 
+  function addSettingsChangeListener(callback) {
+    const api = getExtensionApi();
+    const onChanged = api?.storage?.onChanged;
+    if (!onChanged?.addListener) {
+      return () => {};
+    }
+
+    const listener = (changes, areaName) => {
+      if (areaName === "local") {
+        callback(changes);
+      }
+    };
+    onChanged.addListener(listener);
+
+    return () => {
+      onChanged.removeListener?.(listener);
+    };
+  }
+
   globalThis.TimestampPlayerSettings = {
+    addSettingsChangeListener,
     COMPACT_PROGRESS_COLORS,
     COMPACT_PROGRESS_STYLES,
     DEFAULT_SETTINGS,

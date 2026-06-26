@@ -46,16 +46,21 @@
       return;
     }
 
-    root.innerHTML = Object.entries(choices)
-      .map(([value, choice]) => {
-        return `
-          <label>
-            <input type="radio" name="${settingName}" value="${value}">
-            <span>${choice.label}</span>
-          </label>
-        `;
+    root.replaceChildren(
+      ...Object.entries(choices).map(([value, choice]) => {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        const text = document.createElement("span");
+
+        input.type = "radio";
+        input.name = settingName;
+        input.value = value;
+        text.textContent = choice.label;
+
+        label.append(input, text);
+        return label;
       })
-      .join("");
+    );
   }
 
   function renderSwatchControl(settingName, choices) {
@@ -64,17 +69,30 @@
       return;
     }
 
-    root.innerHTML = Object.entries(choices)
-      .map(([value, choice]) => {
-        return `
-          <label title="${choice.label}">
-            <input type="radio" name="${settingName}" value="${value}" aria-label="${choice.label}">
-            <span class="swatch" style="--swatch-color: ${choice.swatch}"></span>
-            <span class="sr-only">${choice.label}</span>
-          </label>
-        `;
+    root.replaceChildren(
+      ...Object.entries(choices).map(([value, choice]) => {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        const swatch = document.createElement("span");
+        const screenReaderLabel = document.createElement("span");
+
+        label.title = choice.label;
+
+        input.type = "radio";
+        input.name = settingName;
+        input.value = value;
+        input.setAttribute("aria-label", choice.label);
+
+        swatch.className = "swatch";
+        swatch.style.setProperty("--swatch-color", choice.swatch);
+
+        screenReaderLabel.className = "sr-only";
+        screenReaderLabel.textContent = choice.label;
+
+        label.append(input, swatch, screenReaderLabel);
+        return label;
       })
-      .join("");
+    );
   }
 
   function applySettings(settings) {

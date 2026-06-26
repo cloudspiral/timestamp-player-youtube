@@ -69,6 +69,7 @@
     COMPACT_PROGRESS_STYLES,
     DEFAULT_SETTINGS,
     TRACK_HIGHLIGHT_COLORS,
+    addSettingsChangeListener,
     loadSettings,
     normalizeSettings,
     saveSettings,
@@ -167,11 +168,7 @@
       setSettings(settings);
     });
 
-    globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
-      if (areaName !== "local") {
-        return;
-      }
-
+    addSettingsChangeListener((changes) => {
       const nextSettings = { ...state.settings };
       let settingsChanged = false;
       for (const key of Object.keys(DEFAULT_SETTINGS)) {

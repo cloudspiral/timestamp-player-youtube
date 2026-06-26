@@ -18,6 +18,8 @@ Additional settings can be found in extension options.
 
 ## Running Locally
 
+### Chrome or Brave
+
 1. Clone this repository.
 2. Open your browser's extensions URL, e.g. `brave://extensions`.
 3. Enable Developer mode.
@@ -26,6 +28,14 @@ Additional settings can be found in extension options.
 6. Ensure the extension is enabled. Click Reload on the
 extension card after making any code changes.
 7. Refresh the YouTube tab being tested.
+
+### Firefox
+
+1. Clone this repository.
+2. Open `about:debugging#/runtime/this-firefox`.
+3. Click Load Temporary Add-on.
+4. Select this repository's `manifest.json`.
+5. Refresh the YouTube tab being tested after loading or reloading the add-on.
 
 ## Test Videos
 
