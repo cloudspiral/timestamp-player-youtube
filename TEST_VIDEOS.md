@@ -33,6 +33,10 @@ Use this list for manual testing while developing Timestamp Player for YouTube.
   - Has timestamps in the video description.
   - Exposes YouTube chapters in the playback bar.
   - Unknown whether the chapters are manual or automatic.
+- https://www.youtube.com/watch?v=CdubbHK2XDQ
+  - Has a normal description timestamp list and YouTube-rendered chapters.
+  - Regression case: description titles should not be overwritten by duplicate
+    native chapter/card text.
 
 ## Native Key Moments Fallback
 

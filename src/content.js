@@ -692,9 +692,15 @@
 
   function getTimestampCandidates(videoId) {
     const roots = getTimestampCandidateRoots();
-    const candidates = getTextTimestampCandidatesFromRoots(videoId);
-    candidates.push(...getLinkTimestampCandidates(videoId, roots, { excludeNativeTimestampSections: true }));
-    return candidates;
+    const textCandidates = getTextTimestampCandidatesFromRoots(videoId);
+    const titledTextStarts = new Set(
+      textCandidates
+        .filter((candidate) => candidate.title)
+        .map((candidate) => candidate.start)
+    );
+    const linkCandidates = getLinkTimestampCandidates(videoId, roots, { excludeNativeTimestampSections: true })
+      .filter((candidate) => !titledTextStarts.has(candidate.start));
+    return [...textCandidates, ...linkCandidates];
   }
 
   function shouldUseNativeTimestampFallback() {
@@ -775,11 +781,21 @@
 
   function removeNativeTimestampSections(text) {
     const lines = (text || "").split(/\r?\n/);
-    const keyMomentsIndex = lines.findIndex((line) => {
-      return /^key moments$/i.test(normalizeTitleText(line));
+    const nativeSectionIndex = lines.findIndex((line, index) => {
+      const normalizedLine = normalizeTitleText(line);
+      if (/^key moments$/i.test(normalizedLine)) {
+        return true;
+      }
+
+      return /^chapters$/i.test(normalizedLine)
+        && countTimestampLines(lines.slice(0, index)) >= 2;
     });
 
-    return keyMomentsIndex > 0 ? lines.slice(0, keyMomentsIndex).join("\n") : text;
+    return nativeSectionIndex >= 0 ? lines.slice(0, nativeSectionIndex).join("\n") : text;
+  }
+
+  function countTimestampLines(lines) {
+    return lines.filter((line) => hasTimestampText(line)).length;
   }
 
   function getTimestampLinkVideoId(link) {
