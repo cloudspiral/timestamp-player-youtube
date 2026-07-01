@@ -71,6 +71,9 @@ Use this list for manual testing while developing Timestamp Player for YouTube.
 - https://www.youtube.com/watch?v=087-Aa4xKYo
   - Description uses timestamp/track-number lines followed by the title on the next line.
   - Should use the next title-like line when the timestamp line only contains a track number.
+- https://www.youtube.com/watch?v=kHr7Olj-Sb0
+  - Description uses decorated timestamp/track-number lines like `" 01.` followed by multilingual title lines.
+  - Should use the first title-like line after the decorated track number.
 - https://www.youtube.com/watch?v=vU4Ak3DBb1o
   - Description uses same-line timestamp ranges like `0:00 - 0:58 Introduction`.
   - Should use the first timestamp as the start and ignore the second timestamp as the range end marker.

@@ -2,9 +2,10 @@
   "name": "timestamp-player-youtube",
   "private": true,
   "scripts": {
-    "check:js": "node --check src/settings.js && node --check src/timestamps.js && node --check src/native-timestamps.js && node --check src/comment-scoring.js && node --check src/comment-fetching.js && node --check src/content.js && node --check src/options.js && node --check scripts/prepare-package-sources.mjs",
+    "check:js": "node --check src/settings.js && node --check src/timestamps.js && node --check src/native-timestamps.js && node --check src/comment-scoring.js && node --check src/comment-fetching.js && node --check src/content.js && node --check src/options.js && node --check scripts/prepare-package-sources.mjs && node --check tests/timestamps.test.mjs",
     "check:manifest": "node -e \"JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')); console.log('manifest ok')\"",
-    "check": "npm run check:js && npm run check:manifest",
+    "test:timestamps": "node --test tests/timestamps.test.mjs",
+    "check": "npm run check:js && npm run check:manifest && npm run test:timestamps",
     "prepare:packages": "node scripts/prepare-package-sources.mjs",
     "lint:firefox": "npm run prepare:packages && NO_UPDATE_NOTIFIER=1 web-ext lint --source-dir dist/firefox",
     "build:chrome": "npm run prepare:packages && NO_UPDATE_NOTIFIER=1 web-ext build --source-dir dist/chrome --artifacts-dir web-ext-artifacts --overwrite-dest --filename timestamp-player-youtube-chrome-{version}.zip",

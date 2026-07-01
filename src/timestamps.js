@@ -2,6 +2,7 @@
   const TRACKLIST_ANCHOR_SECONDS = 120;
   const TITLE_LOOKAHEAD_LINE_LIMIT = 4;
   const TIMESTAMP_PATTERN = /\b\d{1,2}:\d{2}(?::\d{2})?\b/g;
+  const TRACK_NUMBER_DECORATION_EDGE_PATTERN = /^[\s()[\]{}#"']+|[\s()[\]{}#"'.,:：\-–—]+$/g;
 
   function findTracks(duration, candidates, minTrackCount = 2) {
     if (candidates.length < minTrackCount || !Number.isFinite(duration) || duration <= 0) {
@@ -347,8 +348,7 @@
 
   function isTrackNumberOnlyText(text) {
     const cleaned = normalizeTitleText(text)
-      .replace(/^[\s()[\]{}#]+/g, "")
-      .replace(/[\s()[\]{}.:：\-–—]+$/g, "");
+      .replace(TRACK_NUMBER_DECORATION_EDGE_PATTERN, "");
 
     return /^(?:track\s*)?\d{1,3}$/i.test(cleaned);
   }
@@ -370,6 +370,7 @@
   function cleanTrackTitle(title) {
     const cleaned = normalizeTitleText(title)
       .replace(/\s+\/\s*(?:original|vocal|lyrics|arrange|arrangement|source)\b.*$/i, "")
+      .replace(/^[\s()[\]{}#"']*(?:track\s*)?\d{1,3}[\s.)\]:：\-–—]+/i, "")
       .replace(/^\s*(?:track\s*)?\d{1,3}[\s.)\]-]+/i, "")
       .replace(/\s*(?:\.{3}|…)\s*more$/i, "")
       .trim();
