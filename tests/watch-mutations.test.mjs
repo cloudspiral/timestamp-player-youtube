@@ -156,6 +156,48 @@ test("relevant mutation storms coalesce through the generation-scoped scan task"
   assert.equal(scans, 1);
 });
 
+test("content rearms exhausted discovery only for relevant discovery mutations", async () => {
+  const { mutations, sessions } = await loadRuntime();
+  const contentSource = await readFile(new URL("../src/content.js", import.meta.url), "utf8");
+  const session = sessions.createWatchSession({ generation: 1, videoId: "album" });
+  const description = new FakeNode("#description-inline-expander");
+  const player = new FakeNode("#movie_player");
+  const unrelated = new FakeNode("ytd-rich-item-renderer");
+  let discoveryDispatches = 0;
+
+  session.retries.sourceDiscovery.attempt = 6;
+  session.retries.sourceDiscovery.startedAt = 1;
+  session.retries.sourceDiscovery.exhausted = true;
+  const onDiscovery = () => {
+    discoveryDispatches += 1;
+    sessions.rearmExhaustedSessionRetry(session, "sourceDiscovery");
+  };
+
+  mutations.dispatchWatchMutations([mutation(player)], { onDiscovery });
+  mutations.dispatchWatchMutations([mutation(unrelated)], { onDiscovery });
+  assert.equal(discoveryDispatches, 0);
+  assert.equal(session.retries.sourceDiscovery.exhausted, true);
+
+  mutations.dispatchWatchMutations([mutation(description)], { onDiscovery });
+  assert.equal(discoveryDispatches, 1);
+  assert.deepEqual(
+    {
+      attempt: session.retries.sourceDiscovery.attempt,
+      exhausted: session.retries.sourceDiscovery.exhausted,
+      startedAt: session.retries.sourceDiscovery.startedAt,
+    },
+    { attempt: 0, exhausted: false, startedAt: null }
+  );
+  assert.match(
+    contentSource,
+    /onDiscovery: \(\) => scheduleMutationDiscoveryScan\(session\)/
+  );
+  assert.match(
+    contentSource,
+    /function scheduleMutationDiscoveryScan[\s\S]*rearmExhaustedSessionRetry\(session, "sourceDiscovery"\)[\s\S]*scheduleScan\(session\)/
+  );
+});
+
 test("action row changes route to launcher sync without full discovery", async () => {
   const { mutations } = await loadRuntime();
   const actionRow = new FakeNode("#top-level-buttons-computed");

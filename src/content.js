@@ -56,6 +56,7 @@
     createWatchSession,
     disposeWatchSession,
     isWatchSessionCurrent,
+    rearmExhaustedSessionRetry,
     resetSessionRetry,
     scheduleSessionRetry,
     scheduleSessionTask,
@@ -377,10 +378,22 @@
     dispatchWatchMutations(mutations, {
       interests: getSessionMutationInterests(session),
       isExtensionNode,
-      onDiscovery: () => scheduleScan(session),
+      onDiscovery: () => scheduleMutationDiscoveryScan(session),
       onLauncher: () => scheduleLauncherSync(session),
       onMedia: () => scheduleMediaRefresh(session),
     });
+  }
+
+  function scheduleMutationDiscoveryScan(session) {
+    if (!isCurrentSession(session)) {
+      return false;
+    }
+
+    // A relevant external DOM change is new evidence. Give an exhausted
+    // discovery cycle one fresh bounded budget so a newly hydrated weak-owned
+    // source receives the two consecutive observations ownership requires.
+    rearmExhaustedSessionRetry(session, "sourceDiscovery");
+    return scheduleScan(session);
   }
 
   function getSessionMutationInterests(session) {

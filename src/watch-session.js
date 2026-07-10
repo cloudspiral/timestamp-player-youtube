@@ -300,6 +300,16 @@
     retry.exhausted = false;
   }
 
+  function rearmExhaustedSessionRetry(session, retryName) {
+    const retry = session?.retries[retryName];
+    if (!retry?.exhausted || session.abortController.signal.aborted) {
+      return false;
+    }
+
+    resetSessionRetry(session, retryName);
+    return true;
+  }
+
   function disposeWatchSession(
     session,
     reason = "watch-session-ended",
@@ -335,6 +345,7 @@
     disposeWatchSession,
     isSessionMediaCurrent,
     isWatchSessionCurrent,
+    rearmExhaustedSessionRetry,
     resetSessionRetry,
     scheduleSessionRetry,
     scheduleSessionTask,
