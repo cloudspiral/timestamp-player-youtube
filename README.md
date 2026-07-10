@@ -51,6 +51,9 @@ Run checks:
 npm run check
 ```
 
+See [`TESTING.md`](TESTING.md) for the automated test layers, targeted commands,
+fixture conventions, and manual release checklist.
+
 Lint the Firefox package:
 
 ```sh
