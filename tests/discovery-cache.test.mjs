@@ -193,8 +193,9 @@ test("equal scores remain stable across distinct comments but allow one source t
 });
 
 test("runtime wiring bounds title retention and never stores raw fetched-comment records", async () => {
-  const [contentSource, manifest, packageJson, sessionSource] = await Promise.all([
+  const [contentSource, trackDiscoverySource, manifest, packageJson, sessionSource] = await Promise.all([
     readFile(new URL("../src/content.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/track-discovery.js", import.meta.url), "utf8"),
     readFile(new URL("../manifest.json", import.meta.url), "utf8").then(JSON.parse),
     readFile(new URL("../package.json", import.meta.url), "utf8").then(JSON.parse),
     readFile(new URL("../src/watch-session.js", import.meta.url), "utf8"),
@@ -212,8 +213,8 @@ test("runtime wiring bounds title retention and never stores raw fetched-comment
 
   assert.match(contentSource, /trackTitleCache: createTrackTitleCache\(\)/);
   assert.match(contentSource, /storeSettledTrackTitles\(state\.trackTitleCache, selectedResult\)/);
-  assert.match(contentSource, /retainFetchedCommentResult\(/);
-  assert.doesNotMatch(contentSource, /discovery\.records/);
+  assert.match(trackDiscoverySource, /retainFetchedCommentResult\(/);
+  assert.doesNotMatch(trackDiscoverySource, /discovery\.records/);
   assert.doesNotMatch(
     sessionSource,
     /commentDiscovery:\s*\{[\s\S]*?\brecords\s*:/,

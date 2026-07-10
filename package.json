@@ -17,6 +17,7 @@
     "test:session-diagnostics": "node --test tests/session-diagnostics.test.mjs",
     "test:watch-route": "node --test tests/watch-route.test.mjs",
     "test:track-selection": "node --test tests/track-selection.test.mjs",
+    "test:track-discovery": "node --test tests/track-discovery.test.mjs",
     "test:discovery-status": "node --test tests/discovery-status.test.mjs",
     "test:lru-cache": "node --test tests/lru-cache.test.mjs",
     "test:discovery-cache": "node --test tests/discovery-cache.test.mjs",

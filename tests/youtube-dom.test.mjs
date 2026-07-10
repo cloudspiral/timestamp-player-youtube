@@ -933,20 +933,24 @@ test("uses visible uploader badges and only known like controls", async () => {
 });
 
 test("extension orchestration delegates localized YouTube DOM interpretation to the adapter", async () => {
-  const [content, manifest, packageJson] = await Promise.all([
+  const [content, trackDiscovery, manifest, packageJson] = await Promise.all([
     readFile(new URL("../src/content.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/track-discovery.js", import.meta.url), "utf8"),
     readFile(new URL("../manifest.json", import.meta.url), "utf8").then(JSON.parse),
     readFile(new URL("../package.json", import.meta.url), "utf8").then(JSON.parse),
   ]);
   const scripts = manifest.content_scripts[0].js;
+  const ownershipIndex = scripts.indexOf("src/video-ownership.js");
   const adapterIndex = scripts.indexOf("src/youtube-dom.js");
 
+  assert.ok(ownershipIndex >= 0);
+  assert.ok(adapterIndex > ownershipIndex);
   assert.ok(adapterIndex > scripts.indexOf("src/native-timestamps.js"));
   assert.ok(adapterIndex > scripts.indexOf("src/comment-scoring.js"));
   assert.ok(adapterIndex < scripts.indexOf("src/content.js"));
   assert.match(content, /createYouTubeDom\(\{ Node, document, location \}\)/);
-  assert.match(content, /youtubeDom\.getDescriptionRoots\(session\.videoId\)/);
-  assert.match(content, /youtubeDom\.getCommentRoots\(session\.videoId\)/);
+  assert.match(trackDiscovery, /youtubeDom\.getDescriptionRoots\(session\.videoId\)/);
+  assert.match(trackDiscovery, /youtubeDom\.getCommentRoots\(session\.videoId\)/);
   assert.match(content, /youtubeDom\.findActionRow\(state\.session\?\.videoId \|\| ""\)/);
   assert.doesNotMatch(content, /function getCommentRoots\b/);
   assert.doesNotMatch(content, /function getTimestampLinkVideoId\b/);
