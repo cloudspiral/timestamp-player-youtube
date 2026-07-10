@@ -2,6 +2,11 @@
   const DEFAULT_MAX_COMMENT_BATCHES = 3;
   const DEFAULT_COMMENT_FETCH_TIMEOUT_MS = 10000;
   const DEFAULT_NEXT_API_PATH = "/youtubei/v1/next";
+  const SUPPORTED_YOUTUBE_HOSTNAMES = new Set([
+    "youtube.com",
+    "www.youtube.com",
+    "music.youtube.com",
+  ]);
   const COMMENT_FETCH_OUTCOMES = Object.freeze({
     SUCCESS: "success",
     PARTIAL: "partial",
@@ -92,6 +97,7 @@
         reason: failure.reason,
         retryable: failure.reason !== "aborted"
           && failure.reason !== "unsafe-continuation-api-url"
+          && failure.reason !== "unsafe-watch-page-url"
           && !signal?.aborted,
       });
     } finally {
@@ -135,10 +141,10 @@
   }
 
   async function fetchWatchPageData(videoId, signal) {
-    const url = new URL("/watch", location.origin);
-    url.searchParams.set("v", videoId);
+    const url = resolveWatchPageUrl(videoId);
     const response = await fetchWithSignal(url.toString(), {
       credentials: "include",
+      redirect: "error",
       signal,
     }, signal);
     if (!response.ok) {
@@ -150,6 +156,13 @@
       signal
     );
     return getYouTubePageDataFromScripts(extractScriptTextsFromHtml(html));
+  }
+
+  function resolveWatchPageUrl(videoId) {
+    const currentOrigin = resolveCurrentYouTubeOrigin("unsafe-watch-page-url");
+    const url = new URL("/watch", `${currentOrigin.origin}/`);
+    url.searchParams.set("v", videoId);
+    return url;
   }
 
   function pageDataMatchesVideo(initialData, videoId) {
@@ -334,10 +347,9 @@
       throw createCommentFetchFailure("unsupported", "unsafe-continuation-api-url");
     }
 
-    let currentOrigin;
+    const currentOrigin = resolveCurrentYouTubeOrigin("unsafe-continuation-api-url");
     let url;
     try {
-      currentOrigin = new URL(location.origin);
       url = new URL(rawApiUrl, `${currentOrigin.origin}/`);
     } catch (_error) {
       throw createCommentFetchFailure("unsupported", "unsafe-continuation-api-url");
@@ -357,10 +369,32 @@
     return url;
   }
 
+  function resolveCurrentYouTubeOrigin(failureReason) {
+    let currentOrigin;
+    let rawOrigin;
+    try {
+      rawOrigin = String(globalThis.location?.origin || "");
+      currentOrigin = new URL(rawOrigin);
+    } catch (_error) {
+      throw createCommentFetchFailure("unsupported", failureReason);
+    }
+
+    if (
+      currentOrigin.protocol !== "https:"
+      || !isYouTubeHostname(currentOrigin.hostname)
+      || currentOrigin.port
+      || currentOrigin.username
+      || currentOrigin.password
+      || currentOrigin.origin !== rawOrigin
+    ) {
+      throw createCommentFetchFailure("unsupported", failureReason);
+    }
+    return currentOrigin;
+  }
+
   function isYouTubeHostname(hostname) {
     const normalizedHostname = String(hostname || "").toLowerCase();
-    return normalizedHostname === "youtube.com"
-      || normalizedHostname.endsWith(".youtube.com");
+    return SUPPORTED_YOUTUBE_HOSTNAMES.has(normalizedHostname);
   }
 
   function createBoundedAbortSignal(parentSignal, timeoutMs) {

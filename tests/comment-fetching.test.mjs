@@ -144,6 +144,17 @@ test("resolves only same-origin HTTPS YouTube continuation API URLs", async () =
       && error.reason === "unsafe-continuation-api-url"
   );
 
+  const apexRuntime = await loadCommentFetching({
+    locationFixture: {
+      href: "https://youtube.com/watch?v=fixture-video",
+      origin: "https://youtube.com",
+    },
+  });
+  assert.equal(
+    apexRuntime.resolveContinuationApiUrl("youtubei/v1/next").toString(),
+    "https://youtube.com/youtubei/v1/next"
+  );
+
   const unsafeCases = [
     "//www.youtube.com/youtubei/v1/next",
     "//attacker.example/youtubei/v1/next",
@@ -180,6 +191,14 @@ test("resolves only same-origin HTTPS YouTube continuation API URLs", async () =
     {
       href: "https://example.com/watch?v=fixture-video",
       origin: "https://example.com",
+    },
+    {
+      href: "https://preview.youtube.com/watch?v=fixture-video",
+      origin: "https://preview.youtube.com",
+    },
+    {
+      href: "https://www.youtube.com:444/watch?v=fixture-video",
+      origin: "https://www.youtube.com:444",
     },
   ]) {
     const unsafeRuntime = await loadCommentFetching({ locationFixture });
@@ -472,6 +491,78 @@ test("passes one bounded signal through stale watch-page hydration and continuat
   assert.match(requests[0].url, /\/watch\?v=fixture-video$/);
   assert.match(requests[1].url, /\/youtubei\/v1\/next/);
   assert.equal(requests[0].options.signal, requests[1].options.signal);
+  assert.equal(requests[0].options.credentials, "include");
+  assert.equal(requests[0].options.redirect, "error");
+  assert.equal(requests[0].options.method, undefined, "the fallback remains a GET");
+});
+
+test("never sends the credentialed Watch fallback from an unsafe runtime origin", async () => {
+  const unsafeLocations = [
+    {
+      href: "http://www.youtube.com/watch?v=stale-video",
+      origin: "http://www.youtube.com",
+    },
+    {
+      href: "https://preview.youtube.com/watch?v=stale-video",
+      origin: "https://preview.youtube.com",
+    },
+    {
+      href: "https://attacker.example/watch?v=stale-video",
+      origin: "https://attacker.example",
+    },
+    {
+      href: "https://www.youtube.com:444/watch?v=stale-video",
+      origin: "https://www.youtube.com:444",
+    },
+    {
+      href: "not a valid URL",
+      origin: "not a valid origin",
+    },
+  ];
+
+  for (const locationFixture of unsafeLocations) {
+    const stalePage = await readJsonFixture("initial-page");
+    stalePage.initialData.currentVideoEndpoint.watchEndpoint.videoId = "stale-video";
+    const requests = [];
+    const runtime = await loadCommentFetching({
+      locationFixture,
+      pageFixture: stalePage,
+      fetchImpl: async (...request) => {
+        requests.push(request);
+        throw new Error("unsafe fallback fetch must not run");
+      },
+    });
+
+    const result = await runtime.fetchCommentRecords({ videoId: "fixture-video" });
+
+    assert.equal(result.status, runtime.COMMENT_FETCH_OUTCOMES.UNSUPPORTED);
+    assert.equal(result.reason, "unsafe-watch-page-url");
+    assert.equal(result.retryable, false);
+    assert.equal(result.batchesFetched, 0);
+    assert.equal(requests.length, 0, locationFixture.origin);
+  }
+});
+
+test("classifies a browser-blocked Watch redirect as a retryable network failure", async () => {
+  const stalePage = await readJsonFixture("initial-page");
+  stalePage.initialData.currentVideoEndpoint.watchEndpoint.videoId = "stale-video";
+  const requests = [];
+  const runtime = await loadCommentFetching({
+    pageFixture: stalePage,
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      assert.equal(options.redirect, "error");
+      throw new TypeError("Failed to fetch");
+    },
+  });
+
+  const result = await runtime.fetchCommentRecords({ videoId: "fixture-video" });
+
+  assert.equal(result.status, runtime.COMMENT_FETCH_OUTCOMES.TRANSIENT_ERROR);
+  assert.equal(result.reason, "network-error");
+  assert.equal(result.retryable, true);
+  assert.equal(result.batchesFetched, 0);
+  assert.equal(requests.length, 1);
 });
 
 test("preserves earlier batches when a later continuation fails", async () => {
