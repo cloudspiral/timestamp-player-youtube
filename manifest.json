@@ -41,6 +41,7 @@
         "src/watch-session.js",
         "src/watch-mutations.js",
         "src/track-list-renderer.js",
+        "src/playback-state.js",
         "src/content.js"
       ],
       "css": [

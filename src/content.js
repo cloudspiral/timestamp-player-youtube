@@ -16,12 +16,6 @@
   const COMPACT_PLAYER_MIN_WIDTH = 300;
   const TRACK_END_GRACE_SECONDS = 0.35;
   const PREVIOUS_RESTART_SECONDS = 3;
-  const MAX_HISTORY_LENGTH = 100;
-  const REPEAT_MODES = {
-    OFF: "off",
-    ALL: "all",
-    ONE: "one",
-  };
   const PROGRESS_TIME_MODES = {
     REMAINING: "remaining",
     DURATION: "duration",
@@ -110,13 +104,23 @@
   const {
     createTrackListRenderer,
   } = globalThis.TimestampPlayerTrackListRenderer;
+  const {
+    REPEAT_MODES,
+    clearPlaybackOrder,
+    createPlaybackState,
+    recordTrackSelection,
+    resetPlaybackState,
+    selectNextTrack,
+    selectPreviousTrack,
+    toggleRepeat: togglePlaybackRepeat,
+    toggleShuffle: togglePlaybackShuffle,
+  } = globalThis.TimestampPlayerPlaybackState;
 
   const state = {
     watchPageActive: false,
     session: null,
     nextSessionGeneration: 0,
-    shuffleEnabled: false,
-    repeatMode: REPEAT_MODES.OFF,
+    playback: createPlaybackState(),
     progressTimeMode: DEFAULT_SETTINGS.progressTimeMode,
     panelOpen: false,
     panelMode: PANEL_MODES.ANCHORED,
@@ -124,8 +128,6 @@
     settings: { ...DEFAULT_SETTINGS },
     tracks: [],
     currentTrackIndex: -1,
-    history: [],
-    upcoming: [],
     trackCache: new Map(),
     playerPosition: null,
     playerSize: null,
@@ -406,14 +408,12 @@
   }
 
   function resetSessionViewState() {
-    state.shuffleEnabled = false;
-    state.repeatMode = REPEAT_MODES.OFF;
+    state.playback = resetPlaybackState();
     state.panelOpen = false;
     state.panelMode = PANEL_MODES.ANCHORED;
     state.anchoredCompact = false;
     state.tracks = [];
     state.currentTrackIndex = -1;
-    resetPlaybackOrder();
   }
 
   function isCurrentSession(session) {
@@ -671,18 +671,13 @@
     const selectedResult = session.trackSelection.current;
     const tracks = selectedResult?.tracks || [];
     if (trackTimingsChanged(state.tracks, tracks)) {
-      resetPlaybackOrder();
+      state.playback = clearPlaybackOrder(state.playback);
     }
     state.tracks = tracks;
     if (selectedResult) {
       state.trackCache.set(session.videoId, selectedResult);
     }
     state.currentTrackIndex = getTrackAtTime(video.currentTime)?.index ?? -1;
-  }
-
-  function resetPlaybackOrder() {
-    state.history = [];
-    state.upcoming = [];
   }
 
   function trackTimingsChanged(previousTracks, nextTracks) {
@@ -2387,23 +2382,12 @@
   }
 
   function toggleShuffle() {
-    state.shuffleEnabled = !state.shuffleEnabled;
-    if (state.shuffleEnabled && state.tracks.length < 2) {
-      state.shuffleEnabled = false;
-    }
-    if (state.shuffleEnabled) {
-      resetPlaybackOrder();
-    } else {
-      state.upcoming = [];
-    }
+    state.playback = togglePlaybackShuffle(state.playback, state.tracks.length);
     updateUi();
   }
 
   function toggleRepeat() {
-    state.repeatMode = state.repeatMode === REPEAT_MODES.ONE ? REPEAT_MODES.OFF : REPEAT_MODES.ONE;
-    if (state.repeatMode !== REPEAT_MODES.OFF && state.tracks.length < 2) {
-      state.repeatMode = REPEAT_MODES.OFF;
-    }
+    state.playback = togglePlaybackRepeat(state.playback, state.tracks.length);
     updateUi();
   }
 
@@ -2418,8 +2402,17 @@
   }
 
   function playNextTrack(options = {}) {
-    const nextIndex = state.shuffleEnabled ? pickNextShuffleTrackIndex(options.currentIndex) : pickSequentialTrackIndex();
-    playTrack(nextIndex, { previousIndex: options.previousIndex });
+    const currentIndex = state.playback.shuffleEnabled && options.currentIndex !== undefined
+      ? options.currentIndex
+      : getEffectiveCurrentTrackIndex();
+    const selection = selectNextTrack(state.playback, {
+      currentIndex,
+      random: Math.random,
+      trackCount: state.tracks.length,
+      tracksAvailable: tracksBelongToVideo(),
+    });
+    state.playback = selection.state;
+    playTrack(selection.index, { previousIndex: options.previousIndex });
   }
 
   function playPreviousTrack() {
@@ -2441,19 +2434,13 @@
       return;
     }
 
-    const previousIndex = pickPreviousTrackIndex(currentIndex);
-    if (state.shuffleEnabled && previousIndex !== currentIndex) {
-      queueTrackNext(currentIndex);
-    }
-    playTrack(previousIndex, { recordHistory: false });
-  }
-
-  function pickPreviousTrackIndex(currentIndex) {
-    if (!state.shuffleEnabled) {
-      return pickPreviousSequentialTrackIndex(currentIndex);
-    }
-
-    return state.history.length ? state.history.pop() : currentIndex;
+    const selection = selectPreviousTrack(state.playback, {
+      currentIndex,
+      trackCount: state.tracks.length,
+      tracksAvailable: tracksBelongToVideo(),
+    });
+    state.playback = selection.state;
+    playTrack(selection.index, { recordHistory: false });
   }
 
   function playTrack(index, options = {}) {
@@ -2466,92 +2453,16 @@
     }
 
     const previousIndex = options.previousIndex ?? getCurrentTrackIndexForVideo(video);
-    if (recordHistory) {
-      pushHistory(previousIndex, index);
-    }
-    removeUpcomingTrack(index);
+    state.playback = recordTrackSelection(state.playback, {
+      nextIndex: index,
+      previousIndex,
+      recordHistory,
+      trackCount: state.tracks.length,
+    });
     state.currentTrackIndex = index;
     video.currentTime = track.start;
     video.play().catch(() => {});
     updateUi();
-  }
-
-  function pushHistory(previousIndex, nextIndex) {
-    if (!isValidTrackIndex(previousIndex) || previousIndex === nextIndex) {
-      return;
-    }
-
-    state.history.push(previousIndex);
-    if (state.history.length > MAX_HISTORY_LENGTH) {
-      state.history.shift();
-    }
-  }
-
-  function pickNextShuffleTrackIndex(currentIndex = getEffectiveCurrentTrackIndex()) {
-    while (state.upcoming.length && (!isValidTrackIndex(state.upcoming[0]) || state.upcoming[0] === currentIndex)) {
-      state.upcoming.shift();
-    }
-
-    if (!state.upcoming.length) {
-      refillShuffleQueue(currentIndex);
-    }
-
-    return state.upcoming.shift() ?? pickSequentialTrackIndex();
-  }
-
-  function pickSequentialTrackIndex() {
-    if (!tracksBelongToVideo()) {
-      return -1;
-    }
-
-    const currentIndex = getEffectiveCurrentTrackIndex();
-    if (currentIndex < 0) {
-      return 0;
-    }
-
-    return (currentIndex + 1) % state.tracks.length;
-  }
-
-  function pickPreviousSequentialTrackIndex(currentIndex) {
-    if (!tracksBelongToVideo()) {
-      return -1;
-    }
-
-    if (currentIndex <= 0) {
-      return state.repeatMode === REPEAT_MODES.ALL ? state.tracks.length - 1 : 0;
-    }
-
-    return currentIndex - 1;
-  }
-
-  function refillShuffleQueue(excludeIndex) {
-    const indices = state.tracks
-      .map((track, index) => index)
-      .filter((index) => index !== excludeIndex);
-
-    state.upcoming = shuffleIndices(indices);
-  }
-
-  function shuffleIndices(indices) {
-    const shuffled = [...indices];
-    for (let index = shuffled.length - 1; index > 0; index -= 1) {
-      const swapIndex = Math.floor(Math.random() * (index + 1));
-      [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-    }
-    return shuffled;
-  }
-
-  function queueTrackNext(index) {
-    if (!isValidTrackIndex(index)) {
-      return;
-    }
-
-    removeUpcomingTrack(index);
-    state.upcoming.unshift(index);
-  }
-
-  function removeUpcomingTrack(index) {
-    state.upcoming = state.upcoming.filter((trackIndex) => trackIndex !== index);
   }
 
   function getEffectiveCurrentTrackIndex() {
@@ -2643,16 +2554,16 @@
 
     const activeTrack = state.tracks[state.currentTrackIndex];
     if (activeTrack && video.currentTime >= activeTrack.end - TRACK_END_GRACE_SECONDS) {
-      if (state.repeatMode === REPEAT_MODES.ONE) {
+      if (state.playback.repeatMode === REPEAT_MODES.ONE) {
         playTrack(activeTrack.index, { recordHistory: false });
         return;
-      } else if (state.shuffleEnabled) {
+      } else if (state.playback.shuffleEnabled) {
         playNextTrack({
           currentIndex: activeTrack.index,
           previousIndex: activeTrack.index,
         });
         return;
-      } else if (state.repeatMode === REPEAT_MODES.ALL && activeTrack.index === state.tracks.length - 1) {
+      } else if (state.playback.repeatMode === REPEAT_MODES.ALL && activeTrack.index === state.tracks.length - 1) {
         playTrack(0, { previousIndex: activeTrack.index });
         return;
       }
@@ -2795,8 +2706,8 @@
     const isInlineCompact = isVisible && isAnchoredCompact;
     syncLauncherForSession(session, tracksAvailable, { restorePlayer: false });
     const mountedInlineCompact = mountPlayerForMode(isInlineCompact);
-    root.classList.toggle("is-shuffle-enabled", state.shuffleEnabled);
-    root.classList.toggle("is-repeat-enabled", state.repeatMode === REPEAT_MODES.ONE);
+    root.classList.toggle("is-shuffle-enabled", state.playback.shuffleEnabled);
+    root.classList.toggle("is-repeat-enabled", state.playback.repeatMode === REPEAT_MODES.ONE);
     root.classList.toggle("is-playing", isPlaying);
     root.classList.toggle("has-tracks", tracksAvailable);
     root.classList.toggle("is-visible", isVisible);
@@ -2810,11 +2721,11 @@
     playPauseButton.title = isPlaying ? "Pause" : "Play";
     progressSlider.setAttribute("aria-disabled", String(!tracksAvailable));
     toggleButton.disabled = !tracksAvailable;
-    toggleButton.setAttribute("aria-label", state.shuffleEnabled ? "Turn shuffle off" : "Turn shuffle on");
-    toggleButton.title = state.shuffleEnabled ? "Shuffle on" : "Shuffle";
+    toggleButton.setAttribute("aria-label", state.playback.shuffleEnabled ? "Turn shuffle off" : "Turn shuffle on");
+    toggleButton.title = state.playback.shuffleEnabled ? "Shuffle on" : "Shuffle";
     repeatButton.disabled = !tracksAvailable;
-    repeatButton.setAttribute("aria-label", state.repeatMode === REPEAT_MODES.ONE ? "Turn repeat off" : "Turn repeat on");
-    repeatButton.title = state.repeatMode === REPEAT_MODES.ONE ? "Repeat on" : "Repeat current track";
+    repeatButton.setAttribute("aria-label", state.playback.repeatMode === REPEAT_MODES.ONE ? "Turn repeat off" : "Turn repeat on");
+    repeatButton.title = state.playback.repeatMode === REPEAT_MODES.ONE ? "Repeat on" : "Repeat current track";
     nextButton.disabled = !tracksAvailable;
     compactButton.disabled = !tracksAvailable || isFloating;
     compactButton.setAttribute("aria-pressed", String(isAnchoredCompact));
