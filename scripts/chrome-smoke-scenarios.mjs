@@ -10,6 +10,18 @@ const DESCRIPTION_HYDRATION_DELAY_MS = 2_800;
 const ACTION_HYDRATION_DELAY_MS = 4_200;
 const MIN_DESCRIPTION_HYDRATION_ELAPSED_MS = 2_500;
 const MIN_ACTION_HYDRATION_ELAPSED_MS = 4_000;
+const COMPACT_PLAYER_MIN_HEIGHT_PX = 30;
+const COMPACT_PLAYER_MAX_HEIGHT_PX = 44;
+const COMPACT_PLAYER_MIN_WIDTH_PX = 300;
+const COMPACT_PLAYER_MAX_WIDTH_PX = 396;
+const COMPACT_ANCHOR_GAP_PX = 6;
+const COMPACT_LAYOUT_TOLERANCE_PX = 1.5;
+const COMPACT_GUTTER_MAX_OPACITY = 0.01;
+const COMPACT_TITLE_MIN_OPACITY = 0.99;
+const COMPACT_CONTROL_MIN_SIZE_PX = 24;
+const COMPACT_CONTROL_MAX_SIZE_PX = 48;
+const STICKY_ANCHOR_TOP_PX = 120;
+const STICKY_SCROLL_Y_PX = 360;
 export const SMOKE_SCENARIOS = Object.freeze([
   Object.freeze({
     actionRowSelector: "#top-level-buttons-computed",
@@ -51,13 +63,24 @@ export function createFixtureHtml(scenario) {
     <meta charset="utf-8">
     <title>Timestamp Player ${formatScenarioName(scenario)} cold SPA fixture</title>
     <style>
+      html, body { margin: 0; min-height: 1800px; }
       body, ytd-page-manager, ytd-watch-flexy, ytd-watch-metadata,
       ytmusic-app-layout, ytmusic-player-page, ytmusic-player,
       ytmusic-description-shelf-renderer, #description-inline-expander,
       #description, #expanded, #actions,
       #top-level-buttons-computed { display: block; min-width: 320px; min-height: 32px; }
+      ytd-watch-metadata, ytmusic-player-page { min-height: 1200px; }
+      #above-the-fold { min-height: 800px; }
+      ytmusic-description-shelf-renderer,
+      #description-inline-expander { min-height: 64px; }
       #movie_player, video { display: block; width: 640px; height: 360px; }
-      #actions, #top-level-buttons-computed { width: 520px; height: 40px; }
+      #actions {
+        position: sticky;
+        top: ${STICKY_ANCHOR_TOP_PX}px;
+        width: 520px;
+        height: 40px;
+      }
+      #top-level-buttons-computed { width: 520px; height: 40px; }
     </style>
   </head>
   <body>
@@ -73,6 +96,9 @@ export function createFixtureHtml(scenario) {
       let launcherAbsentBeforeWatch = false;
       let playerAbsentBeforeWatch = false;
       let routeEnteredAt = null;
+      let compactLayoutProof = null;
+      let compactProbeError = "";
+      let compactProbeStarted = false;
       sessionStorage.setItem("timestamp-player:debug", "1");
 
       function reportSuccessWhenReady() {
@@ -107,6 +133,23 @@ export function createFixtureHtml(scenario) {
         ) {
           return;
         }
+
+        if (!compactLayoutProof) {
+          if (!compactProbeStarted) {
+            compactProbeStarted = true;
+            collectCompactLayoutProof({ actionRow, launcher, root, video })
+              .then((proof) => {
+                compactLayoutProof = proof;
+                reportSuccessWhenReady();
+              })
+              .catch((error) => {
+                compactProbeError = error?.message || String(error);
+                reportFailure();
+              });
+          }
+          return;
+        }
+
         reported = true;
         fetch(${JSON.stringify(SMOKE_PATH)}, {
           method: "POST",
@@ -125,11 +168,102 @@ export function createFixtureHtml(scenario) {
             hasActionRow: Boolean(actionRow),
             hasDescription: Boolean(description),
             hasExpectedShell: Boolean(shell),
+            compactLayout: compactLayoutProof,
             trackCount: trackRows.length,
             trackTimes,
             trackTitles,
             videoOwnedByExpectedShell: Boolean(video.closest(smokeScenario.shellSelector))
           })
+        });
+      }
+
+      async function collectCompactLayoutProof({ actionRow, launcher, root, video }) {
+        if (!root.classList.contains("is-visible")) {
+          launcher.click();
+          await waitForAnimationFrames(2);
+        }
+
+        const compactButton = root.querySelector(".ts-compact-toggle");
+        if (!compactButton) {
+          throw new Error("Compact layout probe could not find the compact toggle");
+        }
+        if (!root.classList.contains("is-inline-compact")) {
+          compactButton.click();
+          await waitForAnimationFrames(2);
+        }
+
+        const actionAnchor = actionRow.closest("#actions") || actionRow;
+        const progressSlider = root.querySelector(".ts-progress-slider");
+        const resizeHandle = root.querySelector(".ts-resize-handle");
+        const trackTitle = root.querySelector(".ts-track");
+        if (!actionAnchor || !progressSlider || !resizeHandle || !trackTitle) {
+          throw new Error("Compact layout probe could not find its anchor or compact controls");
+        }
+
+        const originalRoot = root;
+        const before = readCompactLayout(root, actionAnchor);
+        const compactButtonRect = compactButton.getBoundingClientRect();
+        const progressSliderRect = progressSlider.getBoundingClientRect();
+        const videoRect = video.getBoundingClientRect();
+        const resizeGutterStyle = getComputedStyle(resizeHandle, "::before");
+
+        window.scrollTo(0, ${STICKY_SCROLL_Y_PX});
+        await waitForAnimationFrames(3);
+
+        const after = readCompactLayout(root, actionAnchor);
+        return {
+          actionGapAfterScroll: after.actionGap,
+          actionGapBeforeScroll: before.actionGap,
+          actionRightOffsetAfterScroll: after.actionRightOffset,
+          actionRightOffsetBeforeScroll: before.actionRightOffset,
+          anchorTopAfterScroll: after.anchorTop,
+          anchorTopBeforeScroll: before.anchorTop,
+          clearsVideoBeforeScroll: before.playerTop >= roundMetric(videoRect.bottom),
+          compactToggleHeight: roundMetric(compactButtonRect.height),
+          compactToggleWidth: roundMetric(compactButtonRect.width),
+          height: before.playerHeight,
+          inlineCompact: root.classList.contains("is-inline-compact"),
+          playerTopBeforeScroll: before.playerTop,
+          position: getComputedStyle(root).position,
+          resizeGutterOpacity: Number.parseFloat(resizeGutterStyle.opacity),
+          rootIdentityPreserved: originalRoot === document.getElementById("timestamp-player-root"),
+          rootParentIsDocumentElement: root.parentElement === document.documentElement,
+          scrollY: roundMetric(window.scrollY),
+          seekHitHeight: roundMetric(progressSliderRect.height),
+          titleOpacity: Number.parseFloat(getComputedStyle(trackTitle).opacity),
+          videoBottomBeforeScroll: roundMetric(videoRect.bottom),
+          width: before.playerWidth
+        };
+      }
+
+      function readCompactLayout(root, actionAnchor) {
+        const playerRect = root.getBoundingClientRect();
+        const anchorRect = actionAnchor.getBoundingClientRect();
+        return {
+          actionGap: roundMetric(anchorRect.top - playerRect.bottom),
+          actionRightOffset: roundMetric(anchorRect.right - playerRect.right),
+          anchorTop: roundMetric(anchorRect.top),
+          playerHeight: roundMetric(playerRect.height),
+          playerTop: roundMetric(playerRect.top),
+          playerWidth: roundMetric(playerRect.width)
+        };
+      }
+
+      function roundMetric(value) {
+        return Math.round(value * 100) / 100;
+      }
+
+      function waitForAnimationFrames(count) {
+        return new Promise((resolve) => {
+          const wait = () => {
+            if (count <= 0) {
+              resolve();
+              return;
+            }
+            count -= 1;
+            requestAnimationFrame(wait);
+          };
+          wait();
         });
       }
 
@@ -153,6 +287,8 @@ export function createFixtureHtml(scenario) {
             hostname: location.hostname,
             kind: smokeScenario.kind,
             actionHydrationElapsedMs,
+            compactLayout: compactLayoutProof,
+            compactProbeError,
             descriptionHydrationElapsedMs,
             hasActionRow: Boolean(actionRow),
             hasDescription: Boolean(description),
@@ -279,6 +415,7 @@ export function validateSmokeResult(result, scenario) {
   } catch (_error) {
     // The shared validation failure below reports the malformed result.
   }
+  const compactLayout = result?.compactLayout;
   if (
     result?.startedOffWatch !== true
     || !Number.isFinite(result?.descriptionHydrationElapsedMs)
@@ -294,6 +431,77 @@ export function validateSmokeResult(result, scenario) {
     || result?.hasDescription !== true
     || result?.hasExpectedShell !== true
     || result?.videoOwnedByExpectedShell !== true
+    || compactLayout?.inlineCompact !== true
+    || compactLayout?.position !== "absolute"
+    || compactLayout?.rootParentIsDocumentElement !== true
+    || compactLayout?.rootIdentityPreserved !== true
+    || !isFiniteBetween(
+      compactLayout?.height,
+      COMPACT_PLAYER_MIN_HEIGHT_PX,
+      COMPACT_PLAYER_MAX_HEIGHT_PX
+    )
+    || !isFiniteBetween(
+      compactLayout?.width,
+      COMPACT_PLAYER_MIN_WIDTH_PX,
+      COMPACT_PLAYER_MAX_WIDTH_PX
+    )
+    || !isWithinTolerance(
+      compactLayout?.actionGapBeforeScroll,
+      COMPACT_ANCHOR_GAP_PX,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || !isWithinTolerance(
+      compactLayout?.actionGapAfterScroll,
+      COMPACT_ANCHOR_GAP_PX,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || !isWithinTolerance(
+      compactLayout?.actionRightOffsetBeforeScroll,
+      0,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || !isWithinTolerance(
+      compactLayout?.actionRightOffsetAfterScroll,
+      0,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || !Number.isFinite(compactLayout?.anchorTopBeforeScroll)
+    || compactLayout.anchorTopBeforeScroll <= STICKY_ANCHOR_TOP_PX
+    || !isWithinTolerance(
+      compactLayout?.anchorTopAfterScroll,
+      STICKY_ANCHOR_TOP_PX,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || !isWithinTolerance(
+      compactLayout?.scrollY,
+      STICKY_SCROLL_Y_PX,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || compactLayout?.clearsVideoBeforeScroll !== true
+    || !Number.isFinite(compactLayout?.playerTopBeforeScroll)
+    || !Number.isFinite(compactLayout?.videoBottomBeforeScroll)
+    || compactLayout.playerTopBeforeScroll < compactLayout.videoBottomBeforeScroll
+    || !isFiniteBetween(
+      compactLayout?.compactToggleHeight,
+      COMPACT_CONTROL_MIN_SIZE_PX,
+      COMPACT_CONTROL_MAX_SIZE_PX
+    )
+    || !isFiniteBetween(
+      compactLayout?.compactToggleWidth,
+      COMPACT_CONTROL_MIN_SIZE_PX,
+      COMPACT_CONTROL_MAX_SIZE_PX
+    )
+    || !isFiniteBetween(
+      compactLayout?.seekHitHeight,
+      COMPACT_CONTROL_MIN_SIZE_PX,
+      COMPACT_CONTROL_MAX_SIZE_PX
+    )
+    || !isFiniteBetween(
+      compactLayout?.resizeGutterOpacity,
+      0,
+      COMPACT_GUTTER_MAX_OPACITY
+    )
+    || !isFiniteBetween(compactLayout?.titleOpacity, COMPACT_TITLE_MIN_OPACITY, 1)
     || resultUrl?.protocol !== "https:"
     || resultUrl?.hostname !== scenario.hostname
     || resultUrl?.pathname !== "/watch"
@@ -309,9 +517,20 @@ export function validateSmokeResult(result, scenario) {
     || !result.launcherText.includes("Tracklist")
   ) {
     throw new Error(
-      `${formatScenarioName(scenario)} result did not prove the expected cold non-watch to watch transition`
+      [
+        `${formatScenarioName(scenario)} result did not prove the expected cold non-watch to watch transition and compact layout contract.`,
+        `Compact layout: ${JSON.stringify(compactLayout)}`,
+      ].join(" ")
     );
   }
+}
+
+function isFiniteBetween(value, minimum, maximum) {
+  return Number.isFinite(value) && value >= minimum && value <= maximum;
+}
+
+function isWithinTolerance(value, expected, tolerance) {
+  return Number.isFinite(value) && Math.abs(value - expected) <= tolerance;
 }
 
 export function formatScenarioName(scenario) {

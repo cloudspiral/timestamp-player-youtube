@@ -466,6 +466,60 @@ test("compact layout aligns to the action anchor and mounts a host fallback", as
   assert.equal(harness.root.style.width, "");
 });
 
+test("compact overlay realigns to a sticky action anchor during coalesced scrolling", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 36, left: 0, top: 0, width: 395 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  harness.refs.actionAnchor = harness.element({
+    height: 40,
+    left: 500,
+    top: 400,
+    width: 450,
+  });
+  harness.documentObject.documentElement.append(harness.refs.actionAnchor);
+
+  harness.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: harness.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+
+  assert.equal(harness.root.style.position, "absolute");
+  assert.equal(harness.root.style.left, "555px");
+  assert.equal(harness.root.style.top, "358px");
+  assert.equal(
+    harness.refs.actionAnchor.getBoundingClientRect().top
+      - harness.root.getBoundingClientRect().bottom,
+    6
+  );
+
+  harness.windowObject.scrollY = 240;
+  harness.refs.actionAnchor.setRect({
+    height: 40,
+    left: 500,
+    top: 80,
+    width: 450,
+  });
+  harness.windowObject.dispatchEvent({ type: "scroll" });
+  harness.windowObject.dispatchEvent({ type: "scroll" });
+  harness.windowObject.visualViewport.dispatchEvent({ type: "scroll" });
+
+  assert.equal(harness.frames.pending.size, 1, "scroll work should share one animation frame");
+  harness.frames.flush();
+
+  assert.equal(harness.root.style.left, "555px");
+  assert.equal(harness.root.style.top, "278px");
+  assert.equal(
+    harness.refs.actionAnchor.getBoundingClientRect().top
+      - harness.root.getBoundingClientRect().bottom,
+    6,
+    "the compact player should remain six pixels above a sticky anchor"
+  );
+});
+
 test("connecting identical elements is idempotent and preserves an active compact mount", async () => {
   const harness = await createHarness();
   harness.refs.actionRow = harness.element({ height: 50, left: 0, top: 400, width: 900 });
@@ -496,7 +550,9 @@ test("connecting identical elements is idempotent and preserves an active compac
   assert.equal(harness.resizeHandle.listenerCount("keydown"), 1);
   assert.equal(harness.resizeHandle.listenerCount("blur"), 1);
   assert.equal(harness.windowObject.listenerCount("resize"), 1);
+  assert.equal(harness.windowObject.listenerCount("scroll"), 1);
   assert.equal(harness.windowObject.visualViewport.listenerCount("resize"), 1);
+  assert.equal(harness.windowObject.visualViewport.listenerCount("scroll"), 1);
 });
 
 test("ownership covers the player and compact host without claiming neighboring actions", async () => {
@@ -600,7 +656,7 @@ test("floating entry preserves a hydrated position instead of overwriting it fro
   assert.deepEqual(harness.saves, []);
 });
 
-test("hidden layout state suppresses direct and resize-triggered frame scheduling", async () => {
+test("hidden layout state suppresses direct and viewport-triggered frame scheduling", async () => {
   const harness = await createHarness();
 
   assert.equal(harness.controller.layoutNow({
@@ -609,7 +665,9 @@ test("hidden layout state suppresses direct and resize-triggered frame schedulin
   }), false);
   assert.equal(harness.controller.schedule(), false);
   harness.windowObject.dispatchEvent({ type: "resize" });
+  harness.windowObject.dispatchEvent({ type: "scroll" });
   harness.windowObject.visualViewport.dispatchEvent({ type: "resize" });
+  harness.windowObject.visualViewport.dispatchEvent({ type: "scroll" });
 
   assert.equal(harness.frames.pending.size, 0);
   assert.equal(harness.controller.getSnapshot().framePending, false);
@@ -627,6 +685,10 @@ test("resize events coalesce into one frame and cancellation owns that frame", a
     visible: true,
   });
   assert.deepEqual(plain(harness.controller.getSnapshot().playerPosition), { left: 562, top: 332 });
+
+  harness.windowObject.dispatchEvent({ type: "scroll" });
+  harness.windowObject.visualViewport.dispatchEvent({ type: "scroll" });
+  assert.equal(harness.frames.pending.size, 0, "fixed floating players should ignore page scroll");
 
   harness.windowObject.visualViewport.width = 800;
   harness.windowObject.visualViewport.height = 500;
@@ -974,7 +1036,9 @@ test("disconnect cancels transient work without persisting partial pointer state
   assert.equal(snapshot.framePending, false);
   assert.equal(harness.dragHandle.hasPointerCapture(12), false);
   assert.equal(harness.windowObject.listenerCount("resize"), 0);
+  assert.equal(harness.windowObject.listenerCount("scroll"), 0);
   assert.equal(harness.windowObject.visualViewport.listenerCount("resize"), 0);
+  assert.equal(harness.windowObject.visualViewport.listenerCount("scroll"), 0);
   assert.equal(harness.frames.pending.size, 0);
   assert.deepEqual(harness.saves, []);
 });
@@ -1014,7 +1078,9 @@ test("disconnect and reconnect preserve hydrated geometry without duplicating li
   assert.equal(harness.resizeHandle.listenerCount("pointerdown"), 1);
   assert.equal(harness.resizeHandle.listenerCount("keydown"), 1);
   assert.equal(harness.windowObject.listenerCount("resize"), 1);
+  assert.equal(harness.windowObject.listenerCount("scroll"), 1);
   assert.equal(harness.windowObject.visualViewport.listenerCount("resize"), 1);
+  assert.equal(harness.windowObject.visualViewport.listenerCount("scroll"), 1);
 });
 
 test("content delegates layout ownership and disconnects before tearing down the view", async () => {

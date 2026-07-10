@@ -39,6 +39,11 @@ test("Chrome smoke scenarios cover distinct Watch and Music cold-route structure
     assert.match(html, /playerAbsentBeforeWatch = !document\.getElementById/);
     assert.match(html, /stageElement\(smokeScenario\.descriptionSelector\)/);
     assert.match(html, /stageElement\(smokeScenario\.actionRowSelector\)/);
+    assert.match(html, /launcher\.click\(\)/);
+    assert.match(html, /compactButton\.click\(\)/);
+    assert.match(html, /getComputedStyle\(resizeHandle, "::before"\)/);
+    assert.match(html, /root\.parentElement === document\.documentElement/);
+    assert.match(html, /window\.scrollTo\(0, 360\)/);
     assert.match(html, /}, 2800\);/);
     assert.match(html, /}, 4200\);/);
     assert.match(html, new RegExp(`"hostname":\\s*"${escapeRegExp(scenario.hostname)}"`));
@@ -62,6 +67,29 @@ test("Chrome smoke scenarios cover distinct Watch and Music cold-route structure
 test("smoke result validation binds every proof to its exact scenario", () => {
   for (const scenario of SMOKE_SCENARIOS) {
     const validResult = {
+      compactLayout: {
+        actionGapAfterScroll: 6,
+        actionGapBeforeScroll: 6,
+        actionRightOffsetAfterScroll: 0,
+        actionRightOffsetBeforeScroll: 0,
+        anchorTopAfterScroll: 120,
+        anchorTopBeforeScroll: 424,
+        clearsVideoBeforeScroll: true,
+        compactToggleHeight: 24,
+        compactToggleWidth: 24,
+        height: 43,
+        inlineCompact: true,
+        playerTopBeforeScroll: 375,
+        position: "absolute",
+        resizeGutterOpacity: 0,
+        rootIdentityPreserved: true,
+        rootParentIsDocumentElement: true,
+        scrollY: 360,
+        seekHitHeight: 24,
+        titleOpacity: 1,
+        videoBottomBeforeScroll: 360,
+        width: 395,
+      },
       hasActionRow: true,
       hasDescription: true,
       hasExpectedShell: true,
@@ -85,6 +113,13 @@ test("smoke result validation binds every proof to its exact scenario", () => {
     const otherHostname = scenario.hostname === "www.youtube.com"
       ? "music.youtube.com"
       : "www.youtube.com";
+    const withCompactLayout = (changes) => ({
+      ...validResult,
+      compactLayout: {
+        ...validResult.compactLayout,
+        ...changes,
+      },
+    });
     for (const invalidResult of [
       { ...validResult, hostname: otherHostname },
       { ...validResult, actionHydrationElapsedMs: 3_999 },
@@ -104,6 +139,29 @@ test("smoke result validation binds every proof to its exact scenario", () => {
       { ...validResult, trackTimes: ["0:00", "0:01", "0:03"] },
       { ...validResult, trackTitles: ["Opening", "Middle", "Wrong"] },
       { ...validResult, videoOwnedByExpectedShell: false },
+      { ...validResult, compactLayout: null },
+      withCompactLayout({ inlineCompact: false }),
+      withCompactLayout({ position: "fixed" }),
+      withCompactLayout({ rootParentIsDocumentElement: false }),
+      withCompactLayout({ rootIdentityPreserved: false }),
+      withCompactLayout({ height: 29 }),
+      withCompactLayout({ height: 45 }),
+      withCompactLayout({ width: 397 }),
+      withCompactLayout({ width: 299 }),
+      withCompactLayout({ actionGapBeforeScroll: 4 }),
+      withCompactLayout({ actionGapAfterScroll: 8 }),
+      withCompactLayout({ actionRightOffsetBeforeScroll: 2 }),
+      withCompactLayout({ actionRightOffsetAfterScroll: -2 }),
+      withCompactLayout({ anchorTopBeforeScroll: 120 }),
+      withCompactLayout({ anchorTopAfterScroll: 122 }),
+      withCompactLayout({ scrollY: 0 }),
+      withCompactLayout({ clearsVideoBeforeScroll: false }),
+      withCompactLayout({ playerTopBeforeScroll: 359 }),
+      withCompactLayout({ compactToggleHeight: 23 }),
+      withCompactLayout({ compactToggleWidth: 23 }),
+      withCompactLayout({ seekHitHeight: 23 }),
+      withCompactLayout({ resizeGutterOpacity: 0.1 }),
+      withCompactLayout({ titleOpacity: 0.45 }),
     ]) {
       assert.throws(
         () => validateSmokeResult(invalidResult, scenario),

@@ -968,6 +968,51 @@ test("player CSS exposes native range, focus-visible, hidden, and target-size af
   assert.doesNotMatch(css, /\.ts-progress-fill|\.ts-progress-thumb|aria-disabled/);
 });
 
+test("inline compact CSS preserves the historical low-profile presentation", async () => {
+  const css = await contentCssPromise;
+
+  assert.match(
+    css,
+    /#timestamp-player-root\.is-inline-compact \{[^}]*grid-template-columns: minmax\(0, 1fr\) 24px;/
+  );
+  assert.match(
+    css,
+    /#timestamp-player-root\.is-inline-compact \.ts-track \{[^}]*min-height: 14px;/
+  );
+  assert.match(
+    css,
+    /#timestamp-player-root\.is-inline-compact \.ts-progress \{[^}]*position: relative;[^}]*height: 5px;/
+  );
+  assert.match(
+    css,
+    /#timestamp-player-root\.is-inline-compact \.ts-progress-slider \{[^}]*position: absolute;[^}]*height: 24px;/
+  );
+  assert.match(
+    css,
+    /#timestamp-player-root\.is-inline-compact \.ts-resize-handle::before \{[^}]*opacity: 0;/
+  );
+  assert.match(
+    css,
+    /#timestamp-player-root\.is-inline-compact \.ts-resize-handle:focus-visible::before,[^}]*opacity: 1;/
+  );
+  assert.match(
+    css,
+    /#timestamp-player-root\.is-inline-compact \.ts-compact-toggle,[^}]*width: 24px;[^}]*min-height: 24px;/
+  );
+  assert.match(
+    css,
+    /#timestamp-player-root\.is-inline-compact \.ts-track:disabled \{[^}]*opacity: 1;/
+  );
+  assert.match(
+    css,
+    /#timestamp-player-root\.is-inline-compact \.ts-progress-slider::-webkit-slider-thumb \{[^}]*opacity: 0;/
+  );
+  assert.match(
+    css,
+    /#timestamp-player-root\.is-inline-compact \.ts-progress-slider:hover:not\(:disabled\)::-webkit-slider-thumb,[^}]*opacity: 1;/
+  );
+});
+
 test("extension wiring loads canonical settings before the player view and content", async () => {
   const [manifest, packageJson] = await Promise.all([manifestPromise, packagePromise]);
   const scripts = manifest.content_scripts[0].js;

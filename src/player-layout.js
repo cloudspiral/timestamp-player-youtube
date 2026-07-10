@@ -87,7 +87,11 @@
       resizeHandle?.addEventListener?.("keydown", handleResizeKeyDown);
       resizeHandle?.addEventListener?.("blur", handleResizeBlur);
       windowObject?.addEventListener?.("resize", schedule);
+      windowObject?.addEventListener?.("scroll", handleViewportScroll, { passive: true });
       windowObject?.visualViewport?.addEventListener?.("resize", schedule);
+      windowObject?.visualViewport?.addEventListener?.("scroll", handleViewportScroll, {
+        passive: true,
+      });
       connected = true;
       return controller;
     }
@@ -102,7 +106,9 @@
       resizeHandle?.removeEventListener?.("keydown", handleResizeKeyDown);
       resizeHandle?.removeEventListener?.("blur", handleResizeBlur);
       windowObject?.removeEventListener?.("resize", schedule);
+      windowObject?.removeEventListener?.("scroll", handleViewportScroll);
       windowObject?.visualViewport?.removeEventListener?.("resize", schedule);
+      windowObject?.visualViewport?.removeEventListener?.("scroll", handleViewportScroll);
       cancelScheduledLayout();
       if (root?.isConnected) {
         movePlayerToOverlayRoot();
@@ -180,6 +186,13 @@
         layoutNow();
       });
       return true;
+    }
+
+    function handleViewportScroll() {
+      if (view.panelMode !== PANEL_MODES.ANCHORED) {
+        return false;
+      }
+      return schedule();
     }
 
     function cancelScheduledLayout() {
