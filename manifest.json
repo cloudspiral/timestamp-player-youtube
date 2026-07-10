@@ -39,6 +39,8 @@
         "src/watch-route.js",
         "src/track-selection.js",
         "src/watch-session.js",
+        "src/watch-mutations.js",
+        "src/track-list-renderer.js",
         "src/content.js"
       ],
       "css": [

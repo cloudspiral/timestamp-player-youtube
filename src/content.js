@@ -3,6 +3,7 @@
   const LAUNCHER_ID = "timestamp-player-launcher";
   const COMPACT_HOST_ID = "timestamp-player-compact-host";
   const SCAN_DELAY_MS = 600;
+  const LAUNCHER_SYNC_DELAY_MS = 50;
   const DESCRIPTION_EXPAND_FALLBACK_DELAY_MS = 2500;
   const COMMENT_MIN_TRACKS = 3;
   const COMMENT_FETCH_BATCH_LIMIT = 3;
@@ -101,6 +102,14 @@
     scheduleSessionRetry,
     scheduleSessionTask,
   } = globalThis.TimestampPlayerWatchSession;
+  const {
+    dispatchWatchMutations,
+    getPreferredWatchMutationRoot,
+    getTrackMutationInterests,
+  } = globalThis.TimestampPlayerWatchMutations;
+  const {
+    createTrackListRenderer,
+  } = globalThis.TimestampPlayerTrackListRenderer;
 
   const state = {
     watchPageActive: false,
@@ -125,6 +134,7 @@
     compactWidth: null,
     playerLayoutFrame: null,
     pageObserver: null,
+    pageObserverRoot: null,
     settingsChangeCleanup: null,
   };
 
@@ -147,6 +157,7 @@
   let toggleButton;
   let repeatButton;
   let nextButton;
+  let trackListRenderer;
   let dragPointerId = null;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
@@ -181,10 +192,7 @@
     applySettingsToUi();
     loadStoredSettings();
     state.pageObserver = new MutationObserver(handlePageMutations);
-    state.pageObserver.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-    });
+    bindWatchPageObserver();
     document.addEventListener("timeupdate", handleTimeUpdate, true);
     document.addEventListener("play", handlePlaybackStateChange, true);
     document.addEventListener("pause", handlePlaybackStateChange, true);
@@ -195,6 +203,30 @@
     beginWatchSession(videoId, previousUrl ? SCAN_DELAY_MS : 0);
   }
 
+  function bindWatchPageObserver() {
+    const nextRoot = getPreferredWatchMutationRoot(document);
+    if (!state.pageObserver || !nextRoot || state.pageObserverRoot === nextRoot) {
+      return;
+    }
+
+    state.pageObserver.disconnect();
+    state.pageObserverRoot = nextRoot;
+    state.pageObserver.observe(nextRoot, {
+      attributeFilter: [
+        "aria-expanded",
+        "aria-hidden",
+        "class",
+        "hidden",
+        "style",
+        "video-id",
+      ],
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+  }
+
   function deactivateWatchPage() {
     if (!state.watchPageActive) {
       return;
@@ -203,6 +235,7 @@
     state.watchPageActive = false;
     state.pageObserver?.disconnect();
     state.pageObserver = null;
+    state.pageObserverRoot = null;
     state.settingsChangeCleanup?.();
     state.settingsChangeCleanup = null;
     endWatchSession("left-watch-route");
@@ -222,6 +255,7 @@
 
   function removeWatchPageUi() {
     cancelPointerInteractions();
+    trackListRenderer?.clear();
     launcherButton?.remove();
     compactHost?.remove();
     root?.remove();
@@ -244,6 +278,7 @@
     toggleButton = null;
     repeatButton = null;
     nextButton = null;
+    trackListRenderer = null;
     dragPointerId = null;
     resizePointerId = null;
     resizeMode = null;
@@ -394,16 +429,38 @@
       return;
     }
 
-    const onlyExtensionMutations = mutations.every((mutation) => {
-      return root?.contains(mutation.target)
-        || launcherButton?.contains(mutation.target)
-        || compactHost?.contains(mutation.target);
+    bindWatchPageObserver();
+    const session = state.session;
+    dispatchWatchMutations(mutations, {
+      interests: getSessionMutationInterests(session),
+      isExtensionNode,
+      onDiscovery: () => scheduleScan(session),
+      onLauncher: () => scheduleLauncherSync(session),
     });
-    if (onlyExtensionMutations) {
-      return;
-    }
+  }
 
-    scheduleScan(state.session);
+  function getSessionMutationInterests(session) {
+    const selectedResult = session?.trackSelection.current;
+    return getTrackMutationInterests({
+      needsTitleEnrichment: trackSourceNeedsTitleEnrichment(selectedResult),
+      settled: selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED,
+      sourceKind: selectedResult?.source.kind || "",
+    });
+  }
+
+  function isExtensionNode(node) {
+    const element = node?.nodeType === 1 ? node : node?.parentElement;
+    return Boolean(
+      element
+      && (
+        element === root
+        || root?.contains(element)
+        || element === launcherButton
+        || launcherButton?.contains(element)
+        || element === compactHost
+        || compactHost?.contains(element)
+      )
+    );
   }
 
   function scheduleScan(session, delay = SCAN_DELAY_MS) {
@@ -412,6 +469,19 @@
     }
 
     return scheduleSessionTask(session, "scan", () => scanPage(session), { delay });
+  }
+
+  function scheduleLauncherSync(session, delay = LAUNCHER_SYNC_DELAY_MS) {
+    if (!isCurrentSession(session)) {
+      return false;
+    }
+
+    return scheduleSessionTask(
+      session,
+      "launcher-sync",
+      () => syncLauncherForSession(session),
+      { delay }
+    );
   }
 
   function scheduleReadinessRetry(session, phase) {
@@ -436,6 +506,8 @@
       return;
     }
 
+    bindWatchPageObserver();
+
     const video = getVideo();
     const videoId = session.videoId;
 
@@ -453,9 +525,11 @@
 
     session.phase = "discovering";
     const observation = beginTrackSelectionObservation(session.trackSelection);
+    let awaitingSourceConfirmation = false;
     const quietDescriptionReadable = canReadQuietDescription(videoId);
     const descriptionDiscovery = getDescriptionSourceResults(session, video.duration, observation);
-    considerTrackSourceResults(session, descriptionDiscovery.results);
+    awaitingSourceConfirmation = considerTrackSourceResults(session, descriptionDiscovery.results)
+      || awaitingSourceConfirmation;
     const descriptionSelected = selectedSourceKind(session) === TRACK_SOURCE_KINDS.DESCRIPTION;
 
     if (
@@ -487,13 +561,16 @@
       const commentStatus = session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.DONE
         ? TRACK_SOURCE_STATUSES.SETTLED
         : TRACK_SOURCE_STATUSES.PROVISIONAL;
-      considerTrackSourceResults(
+      awaitingSourceConfirmation = considerTrackSourceResults(
         session,
         getDomCommentSourceResults(session, video.duration, observation, commentStatus)
-      );
+      ) || awaitingSourceConfirmation;
       const fetchedCommentDiscovery = getFetchedCommentDiscoveryForSession(session, video.duration);
       if (fetchedCommentDiscovery.result) {
-        considerTrackSourceResults(session, [fetchedCommentDiscovery.result]);
+        awaitingSourceConfirmation = considerTrackSourceResults(
+          session,
+          [fetchedCommentDiscovery.result]
+        ) || awaitingSourceConfirmation;
       }
     }
 
@@ -503,16 +580,23 @@
     ) {
       const nativeResult = getNativeSourceResult(session, video.duration, observation);
       if (nativeResult) {
-        considerTrackSourceResults(session, [nativeResult]);
+        awaitingSourceConfirmation = considerTrackSourceResults(session, [nativeResult])
+          || awaitingSourceConfirmation;
       }
     }
 
     const selectedResult = session.trackSelection.current;
-    if (selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED) {
+    if (
+      selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED
+      && !awaitingSourceConfirmation
+    ) {
       resetSessionRetry(session, "readiness");
       session.phase = "ready";
     } else if (selectedResult) {
-      scheduleReadinessRetry(session, "provisional");
+      scheduleReadinessRetry(
+        session,
+        awaitingSourceConfirmation ? "verifying-source" : "provisional"
+      );
     } else {
       scheduleReadinessRetry(session, "discovering-sources");
     }
@@ -554,9 +638,12 @@
   }
 
   function considerTrackSourceResults(session, results) {
+    let awaitingOwnershipConfirmation = false;
     for (const result of results) {
       const ownedResult = observeTrackSourceOwnership(session.trackSelection, result);
       if (!ownedResult) {
+        awaitingOwnershipConfirmation = awaitingOwnershipConfirmation
+          || result.ownership.confidence === OWNERSHIP_CONFIDENCE.WEAK;
         continue;
       }
 
@@ -569,6 +656,7 @@
         videoId: session.videoId,
       });
     }
+    return awaitingOwnershipConfirmation;
   }
 
   function selectedSourceKind(session) {
@@ -716,6 +804,36 @@
     return true;
   }
 
+  function syncLauncherForSession(
+    session,
+    tracksAvailable = tracksBelongToVideo(session?.videoId),
+    { restorePlayer = true } = {}
+  ) {
+    if (!isCurrentSession(session)) {
+      return false;
+    }
+
+    const launcherAttached = syncLauncher(tracksAvailable);
+    syncLauncherRetry(session, tracksAvailable, launcherAttached);
+    if (launcherAttached && restorePlayer) {
+      restorePlayerAfterLauncherSync(tracksAvailable);
+    }
+    return launcherAttached;
+  }
+
+  function restorePlayerAfterLauncherSync(tracksAvailable) {
+    const isHiddenByFullscreen = isFullscreenActive() && state.panelMode === PANEL_MODES.ANCHORED;
+    const isVisible = tracksAvailable && state.panelOpen && !isHiddenByFullscreen;
+    if (!isVisible) {
+      return;
+    }
+
+    const inlineCompact = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;
+    const mountedInlineCompact = mountPlayerForMode(inlineCompact);
+    root.classList.toggle("is-inline-compact", mountedInlineCompact);
+    layoutPlayer();
+  }
+
   function syncLauncherRetry(session, tracksAvailable, launcherAttached) {
     if (!tracksAvailable || launcherAttached) {
       resetSessionRetry(session, "launcher");
@@ -724,7 +842,7 @@
 
     scheduleSessionRetry(session, "launcher", () => {
       if (isCurrentSession(session)) {
-        updateUi();
+        syncLauncherForSession(session);
       }
     });
   }
@@ -1635,6 +1753,12 @@
     progressRemainingEl = root.querySelector(".ts-progress-remaining");
     progressSlider = root.querySelector(".ts-progress-slider");
     listEl = root.querySelector(".ts-list");
+    trackListRenderer = createTrackListRenderer({
+      document,
+      formatTimestamp,
+      formatTrackLabel,
+      listElement: listEl,
+    });
     previousButton = root.querySelector(".ts-previous");
     playPauseButton = root.querySelector(".ts-play-pause");
     toggleButton = root.querySelector(".ts-toggle");
@@ -2617,33 +2741,8 @@
   }
 
   function renderTrackList() {
-    listEl.replaceChildren();
-
-    for (const track of state.tracks) {
-      const trackLabel = formatTrackLabel(track);
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "ts-list-item";
-      item.dataset.index = String(track.index);
-      item.title = trackLabel;
-      item.classList.toggle("is-active", track.index === state.currentTrackIndex);
-
-      const number = document.createElement("span");
-      number.className = "ts-list-number";
-      number.textContent = String(track.index + 1);
-
-      const title = document.createElement("span");
-      title.className = "ts-list-title";
-      title.textContent = trackLabel;
-      title.title = trackLabel;
-
-      const time = document.createElement("span");
-      time.className = "ts-list-time";
-      time.textContent = formatTimestamp(track.start);
-
-      item.append(number, title, time);
-      listEl.append(item);
-    }
+    trackListRenderer.renderCollection(state.tracks);
+    trackListRenderer.renderActive(state.currentTrackIndex);
   }
 
   function updateProgress(video = getVideo()) {
@@ -2694,8 +2793,7 @@
     const isHiddenByFullscreen = isFullscreenActive() && state.panelMode === PANEL_MODES.ANCHORED;
     const isVisible = tracksAvailable && state.panelOpen && !isHiddenByFullscreen;
     const isInlineCompact = isVisible && isAnchoredCompact;
-    const launcherAttached = syncLauncher(tracksAvailable);
-    syncLauncherRetry(session, tracksAvailable, launcherAttached);
+    syncLauncherForSession(session, tracksAvailable, { restorePlayer: false });
     const mountedInlineCompact = mountPlayerForMode(isInlineCompact);
     root.classList.toggle("is-shuffle-enabled", state.shuffleEnabled);
     root.classList.toggle("is-repeat-enabled", state.repeatMode === REPEAT_MODES.ONE);
