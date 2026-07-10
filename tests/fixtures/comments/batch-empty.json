@@ -1,0 +1,9 @@
+{
+  "onResponseReceivedEndpoints": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": []
+      }
+    }
+  ]
+}

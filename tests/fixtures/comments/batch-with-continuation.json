@@ -1,0 +1,45 @@
+{
+  "onResponseReceivedEndpoints": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": [
+          {
+            "commentThreadRenderer": {
+              "comment": {
+                "commentRenderer": {
+                  "contentText": {
+                    "runs": [
+                      {
+                        "text": "0:00 First track\n3:30 Second track\n7:45 Third track"
+                      }
+                    ]
+                  },
+                  "authorText": {
+                    "simpleText": "Fixture Listener"
+                  },
+                  "voteCount": {
+                    "simpleText": "42"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "continuationItemRenderer": {
+              "continuationEndpoint": {
+                "commandMetadata": {
+                  "webCommandMetadata": {
+                    "apiUrl": "/youtubei/v1/next"
+                  }
+                },
+                "continuationCommand": {
+                  "token": "comments-batch-2"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

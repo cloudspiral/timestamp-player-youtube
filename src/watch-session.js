@@ -1,4 +1,10 @@
 (() => {
+  const COMMENT_DISCOVERY_STATUSES = Object.freeze({
+    IDLE: "idle",
+    PENDING: "pending",
+    RETRY_WAIT: "retry-wait",
+    DONE: "done",
+  });
   const DEFAULT_RETRY_POLICIES = Object.freeze({
     readiness: Object.freeze({
       delays: Object.freeze([100, 250, 500, 1000, 2000, 3000]),
@@ -7,6 +13,10 @@
     launcher: Object.freeze({
       delays: Object.freeze([100, 250, 500, 1000, 2000, 3000]),
       maxElapsedMs: 10000,
+    }),
+    commentFetch: Object.freeze({
+      delays: Object.freeze([1000]),
+      maxElapsedMs: 5000,
     }),
   });
 
@@ -28,11 +38,18 @@
       retries: {
         readiness: createRetryState(),
         launcher: createRetryState(),
+        commentFetch: createRetryState(),
       },
       description: {
         fallbackReadyAt: 0,
         expanded: false,
         shouldCollapse: false,
+      },
+      commentDiscovery: {
+        outcome: null,
+        records: [],
+        status: COMMENT_DISCOVERY_STATUSES.IDLE,
+        tracks: [],
       },
       tracksLocked: false,
       autoOpenedCompact: false,
@@ -166,6 +183,13 @@
     retry.exhausted = false;
   }
 
+  function shouldLockSessionTracks(session, { descriptionTracksFound = false } = {}) {
+    return Boolean(
+      descriptionTracksFound
+      || session?.commentDiscovery?.status === COMMENT_DISCOVERY_STATUSES.DONE
+    );
+  }
+
   function disposeWatchSession(session, reason = "watch-session-ended") {
     if (!session || session.abortController.signal.aborted) {
       return;
@@ -179,6 +203,7 @@
   }
 
   globalThis.TimestampPlayerWatchSession = {
+    COMMENT_DISCOVERY_STATUSES,
     DEFAULT_RETRY_POLICIES,
     cancelSessionTask,
     createWatchSession,
@@ -187,5 +212,6 @@
     resetSessionRetry,
     scheduleSessionRetry,
     scheduleSessionTask,
+    shouldLockSessionTracks,
   };
 })();

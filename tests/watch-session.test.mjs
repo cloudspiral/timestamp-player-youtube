@@ -211,6 +211,65 @@ test("launcher retries are independent and can be reset without disturbing readi
   assert.equal(clock.timers.size, 0);
 });
 
+test("comment discovery retries once and is cancelled with its watch generation", async () => {
+  const {
+    DEFAULT_RETRY_POLICIES,
+    createWatchSession,
+    disposeWatchSession,
+    scheduleSessionRetry,
+  } = await loadWatchSession();
+  const clock = new FakeClock();
+  const session = createWatchSession({ generation: 1, videoId: "album", now: clock.now });
+  const runs = [];
+
+  assert.deepEqual(Array.from(DEFAULT_RETRY_POLICIES.commentFetch.delays), [1000]);
+  assert.equal(scheduleSessionRetry(session, "commentFetch", () => {
+    runs.push("retry");
+  }, clock.dependencies()), true);
+  assert.equal(scheduleSessionRetry(session, "commentFetch", () => {
+    runs.push("duplicate");
+  }, clock.dependencies()), false);
+
+  clock.advance(1000);
+  assert.deepEqual(runs, ["retry"]);
+  assert.equal(scheduleSessionRetry(session, "commentFetch", () => {
+    runs.push("second-retry");
+  }, clock.dependencies()), false);
+  assert.equal(session.retries.commentFetch.exhausted, true);
+
+  const cancelledSession = createWatchSession({ generation: 2, videoId: "next-album", now: clock.now });
+  scheduleSessionRetry(cancelledSession, "commentFetch", () => {
+    runs.push("stale-retry");
+  }, clock.dependencies());
+  disposeWatchSession(cancelledSession, "video-changed");
+  clock.advance(1000);
+
+  assert.deepEqual(runs, ["retry"]);
+  assert.equal(clock.timers.size, 0);
+});
+
+test("comment and native tracks stay provisional until session comment discovery settles", async () => {
+  const {
+    COMMENT_DISCOVERY_STATUSES,
+    createWatchSession,
+    shouldLockSessionTracks,
+  } = await loadWatchSession();
+  const session = createWatchSession({ generation: 1, videoId: "album" });
+  const nextSession = createWatchSession({ generation: 2, videoId: "next-album" });
+
+  assert.equal(session.commentDiscovery.status, COMMENT_DISCOVERY_STATUSES.IDLE);
+  assert.notEqual(session.commentDiscovery, nextSession.commentDiscovery);
+  assert.equal(shouldLockSessionTracks(session), false);
+  assert.equal(shouldLockSessionTracks(session, { descriptionTracksFound: true }), true);
+
+  session.commentDiscovery.status = COMMENT_DISCOVERY_STATUSES.PENDING;
+  assert.equal(shouldLockSessionTracks(session), false);
+  session.commentDiscovery.status = COMMENT_DISCOVERY_STATUSES.RETRY_WAIT;
+  assert.equal(shouldLockSessionTracks(session), false);
+  session.commentDiscovery.status = COMMENT_DISCOVERY_STATUSES.DONE;
+  assert.equal(shouldLockSessionTracks(session), true);
+});
+
 test("manifest loads the watch-session runtime before content orchestration", async () => {
   const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url), "utf8"));
   const scripts = manifest.content_scripts[0].js;

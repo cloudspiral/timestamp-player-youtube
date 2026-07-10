@@ -44,6 +44,7 @@
     parseCommentLikeCount,
   } = globalThis.TimestampPlayerCommentScoring;
   const {
+    COMMENT_FETCH_OUTCOMES,
     fetchCommentRecords,
   } = globalThis.TimestampPlayerCommentFetching;
   const {
@@ -79,12 +80,14 @@
     getWatchVideoId,
   } = globalThis.TimestampPlayerWatchRoute;
   const {
+    COMMENT_DISCOVERY_STATUSES,
     createWatchSession,
     disposeWatchSession,
     isWatchSessionCurrent,
     resetSessionRetry,
     scheduleSessionRetry,
     scheduleSessionTask,
+    shouldLockSessionTracks,
   } = globalThis.TimestampPlayerWatchSession;
 
   const state = {
@@ -103,7 +106,6 @@
     history: [],
     upcoming: [],
     trackCache: new Map(),
-    commentFetchCache: new Map(),
     playerPosition: null,
     playerSize: null,
     anchoredWidth: null,
@@ -453,6 +455,7 @@
     const quietDescriptionReadable = canReadQuietDescription(videoId);
     const candidates = getTimestampCandidates(videoId);
     let tracks = getTracksForSession(session, video.duration, candidates);
+    const descriptionTracksFound = tracks.length >= 2;
     if (tracks.length < 2 && candidates.length < 2 && !quietDescriptionReadable && shouldWaitForQuietDescriptionScan(session)) {
       scheduleReadinessRetry(session, "waiting-for-description");
       updateUi();
@@ -464,27 +467,26 @@
       return;
     }
 
-    let commentFetchPending = false;
     if (tracks.length < 2) {
-      const fetchedCommentTracks = getFetchedCommentTracksForSession(session, video.duration);
-      if (fetchedCommentTracks === null) {
-        commentFetchPending = true;
-        tracks = [];
-      } else if (fetchedCommentTracks.length >= COMMENT_MIN_TRACKS) {
-        tracks = fetchedCommentTracks;
-      } else {
-        tracks = getCommentTracksForVideo(videoId, video.duration);
-      }
+      const domCommentTracks = getCommentTracksForVideo(videoId, video.duration);
+      const fetchedCommentDiscovery = getFetchedCommentDiscoveryForSession(session, video.duration);
+      tracks = fetchedCommentDiscovery.tracks.length >= COMMENT_MIN_TRACKS
+        ? fetchedCommentDiscovery.tracks
+        : domCommentTracks;
     }
 
-    if (tracks.length < 2 && !commentFetchPending && shouldUseNativeTimestampFallback()) {
+    if (tracks.length < 2 && shouldUseNativeTimestampFallback()) {
       tracks = getTracksForSession(session, video.duration, getNativeTimestampCandidates(videoId));
     }
 
     if (tracks.length >= 2) {
-      tracks = lockTracksForSession(session, tracks);
       resetSessionRetry(session, "readiness");
-      session.phase = "ready";
+      if (shouldLockSessionTracks(session, { descriptionTracksFound })) {
+        tracks = lockTracksForSession(session, tracks);
+        session.phase = "ready";
+      } else {
+        session.phase = "provisional";
+      }
     } else {
       scheduleReadinessRetry(session, "discovering-sources");
     }
@@ -963,73 +965,87 @@
     return cacheTrackSourceForVideo(videoId, bestSource);
   }
 
-  function getFetchedCommentTracksForSession(session, duration) {
-    const { videoId } = session;
-    let cachedFetch = state.commentFetchCache.get(videoId);
-    if (
-      cachedFetch?.status === "pending"
-      && cachedFetch.generation !== session.generation
-    ) {
-      state.commentFetchCache.delete(videoId);
-      cachedFetch = null;
+  function getFetchedCommentDiscoveryForSession(session, duration) {
+    if (session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.IDLE) {
+      startCommentFetch(session, duration);
     }
-    if (cachedFetch?.status === "done") {
-      return cachedFetch.tracks;
-    }
-    if (cachedFetch?.status === "failed") {
-      return [];
-    }
-    if (cachedFetch?.status === "pending") {
-      return null;
-    }
-
-    startCommentFetch(session, duration);
-    return null;
+    return session.commentDiscovery;
   }
 
   function startCommentFetch(session, duration) {
     const { videoId } = session;
+    const discovery = session.commentDiscovery;
     if (typeof fetchCommentRecords !== "function") {
-      state.commentFetchCache.set(videoId, { status: "failed", tracks: [] });
-      return;
+      discovery.outcome = COMMENT_FETCH_OUTCOMES.UNSUPPORTED;
+      discovery.status = COMMENT_DISCOVERY_STATUSES.DONE;
+      return discovery;
     }
 
-    const fetchState = {
-      generation: session.generation,
-      status: "pending",
-      tracks: [],
-    };
-    state.commentFetchCache.set(videoId, fetchState);
-    fetchCommentRecords({ maxBatches: COMMENT_FETCH_BATCH_LIMIT, videoId })
-      .then((records) => {
-        if (!isCurrentSession(session)) {
-          discardStaleCommentFetch(videoId, fetchState);
-          return;
-        }
-        const bestSource = getBestTrackSource(getFetchedCommentTimestampSources(records), duration);
-        fetchState.status = "done";
-        fetchState.records = records;
-        fetchState.tracks = bestSource ? cacheTrackSourceForVideo(videoId, bestSource) : [];
-      })
-      .catch(() => {
-        if (!isCurrentSession(session)) {
-          discardStaleCommentFetch(videoId, fetchState);
-          return;
-        }
-        fetchState.status = "failed";
-        fetchState.tracks = [];
-      })
+    discovery.outcome = null;
+    discovery.status = COMMENT_DISCOVERY_STATUSES.PENDING;
+    fetchCommentRecords({
+      maxBatches: COMMENT_FETCH_BATCH_LIMIT,
+      signal: session.abortController.signal,
+      videoId,
+    })
+      .then((result) => finishCommentFetch(session, duration, result))
+      .catch(() => finishCommentFetch(session, duration, {
+        records: [],
+        retryable: true,
+        status: COMMENT_FETCH_OUTCOMES.TRANSIENT_ERROR,
+      }))
       .finally(() => {
         if (isCurrentSession(session) && !session.tracksLocked) {
           scheduleScan(session);
         }
       });
+    return discovery;
   }
 
-  function discardStaleCommentFetch(videoId, fetchState) {
-    if (state.commentFetchCache.get(videoId) === fetchState) {
-      state.commentFetchCache.delete(videoId);
+  function finishCommentFetch(session, duration, result) {
+    const { videoId } = session;
+    if (!isCurrentSession(session)) {
+      return;
     }
+
+    const discovery = session.commentDiscovery;
+    const records = Array.isArray(result?.records) ? result.records : [];
+    const bestSource = getBestTrackSource(getFetchedCommentTimestampSources(records), duration);
+    discovery.outcome = result?.status || COMMENT_FETCH_OUTCOMES.UNSUPPORTED;
+    if (records.length > 0 || discovery.records.length === 0) {
+      discovery.records = records;
+    }
+    if (bestSource) {
+      discovery.tracks = cacheTrackSourceForVideo(videoId, bestSource);
+    }
+
+    const retryable = shouldRetryCommentFetch(result);
+    const retryScheduled = retryable && scheduleSessionRetry(
+      session,
+      "commentFetch",
+      () => {
+        if (isCurrentSession(session)) {
+          startCommentFetch(session, duration);
+        }
+      }
+    );
+    discovery.status = retryScheduled
+      ? COMMENT_DISCOVERY_STATUSES.RETRY_WAIT
+      : COMMENT_DISCOVERY_STATUSES.DONE;
+    if (!retryScheduled && !retryable) {
+      resetSessionRetry(session, "commentFetch");
+    }
+  }
+
+  function shouldRetryCommentFetch(result) {
+    return Boolean(
+      result?.retryable
+      && (
+        result.status === COMMENT_FETCH_OUTCOMES.PARTIAL
+        || result.status === COMMENT_FETCH_OUTCOMES.TRANSIENT_ERROR
+        || result.status === COMMENT_FETCH_OUTCOMES.UNSUPPORTED
+      )
+    );
   }
 
   function getBestTrackSource(sources, duration) {

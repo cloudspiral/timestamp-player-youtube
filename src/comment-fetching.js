@@ -1,6 +1,23 @@
 (() => {
   const DEFAULT_MAX_COMMENT_BATCHES = 3;
+  const DEFAULT_COMMENT_FETCH_TIMEOUT_MS = 10000;
   const DEFAULT_NEXT_API_PATH = "/youtubei/v1/next";
+  const COMMENT_FETCH_OUTCOMES = Object.freeze({
+    SUCCESS: "success",
+    PARTIAL: "partial",
+    NO_RESULTS: "no-results",
+    TRANSIENT_ERROR: "transient-error",
+    UNSUPPORTED: "unsupported",
+    ABORTED: "aborted",
+  });
+  const CONTINUATION_ENVELOPE_KEYS = new Set([
+    "appendContinuationItemsAction",
+    "continuationContents",
+    "onResponseReceivedActions",
+    "onResponseReceivedCommands",
+    "onResponseReceivedEndpoints",
+    "reloadContinuationItemsCommand",
+  ]);
   const COMMENT_TEXT_KEYS = new Set([
     "contentText",
     "commentText",
@@ -10,58 +27,112 @@
     parseCommentLikeCount,
   } = globalThis.TimestampPlayerCommentScoring || {};
 
-  async function fetchCommentRecords({ maxBatches = DEFAULT_MAX_COMMENT_BATCHES, videoId = "" } = {}) {
-    const pageData = await getYouTubePageData(videoId);
-    const seenTokens = new Set();
-    const initialContinuation = findBestCommentContinuation(pageData.initialData, {
-      phase: "initial",
-      seenTokens,
-    });
-    if (!initialContinuation?.token || !pageData.config?.INNERTUBE_CONTEXT) {
-      return [];
-    }
-
+  async function fetchCommentRecords({
+    maxBatches = DEFAULT_MAX_COMMENT_BATCHES,
+    signal,
+    timeoutMs = DEFAULT_COMMENT_FETCH_TIMEOUT_MS,
+    videoId = "",
+  } = {}) {
     const records = [];
-    let continuation = initialContinuation;
-    for (let batchIndex = 0; batchIndex < maxBatches && continuation?.token; batchIndex += 1) {
-      seenTokens.add(continuation.token);
-      const response = await fetchContinuation(pageData.config, continuation);
-      const batchRecords = extractCommentRecords(response);
-      for (const record of batchRecords) {
-        records.push({
-          ...record,
-          order: records.length,
+    let batchesFetched = 0;
+    const boundedAbort = createBoundedAbortSignal(signal, timeoutMs);
+
+    try {
+      if (typeof globalThis.fetch !== "function") {
+        throw createCommentFetchFailure("unsupported", "fetch-unavailable");
+      }
+
+      const pageData = await getYouTubePageData(videoId, boundedAbort.signal);
+      if (!pageData.config?.INNERTUBE_CONTEXT) {
+        throw createCommentFetchFailure("unsupported", "missing-innertube-context");
+      }
+
+      const seenTokens = new Set();
+      const initialContinuation = findBestCommentContinuation(pageData.initialData, {
+        phase: "initial",
+        seenTokens,
+      });
+      if (!initialContinuation?.token) {
+        throw createCommentFetchFailure("unsupported", "missing-comment-continuation");
+      }
+
+      let continuation = initialContinuation;
+      const batchLimit = Math.max(1, Number(maxBatches) || DEFAULT_MAX_COMMENT_BATCHES);
+      for (let batchIndex = 0; batchIndex < batchLimit && continuation?.token; batchIndex += 1) {
+        seenTokens.add(continuation.token);
+        const response = await fetchContinuation(pageData.config, continuation, boundedAbort.signal);
+        if (!isSupportedContinuationResponse(response)) {
+          throw createCommentFetchFailure("unsupported", "unsupported-continuation-response");
+        }
+
+        batchesFetched += 1;
+        const batchRecords = extractCommentRecords(response);
+        for (const record of batchRecords) {
+          records.push({
+            ...record,
+            order: records.length,
+          });
+        }
+
+        continuation = findBestCommentContinuation(response, {
+          phase: "next",
+          seenTokens,
         });
       }
 
-      continuation = findBestCommentContinuation(response, {
-        phase: "next",
-        seenTokens,
+      return createCommentFetchResult(
+        records.length > 0 ? COMMENT_FETCH_OUTCOMES.SUCCESS : COMMENT_FETCH_OUTCOMES.NO_RESULTS,
+        records,
+        { batchesFetched }
+      );
+    } catch (error) {
+      const failure = classifyCommentFetchFailure(error, {
+        parentSignal: signal,
+        timedOut: boundedAbort.timedOut(),
       });
+      const status = failure.reason === "aborted"
+        ? COMMENT_FETCH_OUTCOMES.ABORTED
+        : records.length > 0
+          ? COMMENT_FETCH_OUTCOMES.PARTIAL
+          : failure.kind === "unsupported"
+            ? COMMENT_FETCH_OUTCOMES.UNSUPPORTED
+            : COMMENT_FETCH_OUTCOMES.TRANSIENT_ERROR;
+      return createCommentFetchResult(status, records, {
+        batchesFetched,
+        reason: failure.reason,
+        retryable: failure.reason !== "aborted" && !signal?.aborted,
+      });
+    } finally {
+      boundedAbort.cleanup();
     }
-
-    return records;
   }
 
-  async function getYouTubePageData(videoId = "") {
+  function createCommentFetchResult(status, records, {
+    batchesFetched = 0,
+    reason = "",
+    retryable = false,
+  } = {}) {
+    return {
+      status,
+      records,
+      batchesFetched,
+      reason,
+      retryable,
+    };
+  }
+
+  async function getYouTubePageData(videoId = "", signal) {
     const documentPageData = getYouTubePageDataFromScripts(getDocumentScriptTexts());
     if (!videoId || pageDataMatchesVideo(documentPageData.initialData, videoId)) {
       return documentPageData;
     }
 
-    try {
-      const fetchedPageData = await fetchWatchPageData(videoId);
-      if (pageDataMatchesVideo(fetchedPageData.initialData, videoId)) {
-        return fetchedPageData;
-      }
-    } catch (_error) {
-      // Fall through to the empty result below; stale script data is worse than no fetch.
+    const fetchedPageData = await fetchWatchPageData(videoId, signal);
+    if (pageDataMatchesVideo(fetchedPageData.initialData, videoId)) {
+      return fetchedPageData;
     }
 
-    return {
-      config: documentPageData.config,
-      initialData: null,
-    };
+    throw createCommentFetchFailure("unsupported", "stale-watch-page-data");
   }
 
   function getYouTubePageDataFromScripts(scriptTexts) {
@@ -71,17 +142,22 @@
     };
   }
 
-  async function fetchWatchPageData(videoId) {
+  async function fetchWatchPageData(videoId, signal) {
     const url = new URL("/watch", location.origin);
     url.searchParams.set("v", videoId);
-    const response = await fetch(url.toString(), {
+    const response = await fetchWithSignal(url.toString(), {
       credentials: "include",
-    });
+      signal,
+    }, signal);
     if (!response.ok) {
-      throw new Error(`Watch page fetch failed: ${response.status}`);
+      throw createHttpFailure(response.status, "watch-page");
     }
 
-    return getYouTubePageDataFromScripts(extractScriptTextsFromHtml(await response.text()));
+    const html = await waitForPromiseWithSignal(
+      Promise.resolve().then(() => response.text()),
+      signal
+    );
+    return getYouTubePageDataFromScripts(extractScriptTextsFromHtml(html));
   }
 
   function pageDataMatchesVideo(initialData, videoId) {
@@ -277,7 +353,7 @@
     }
   }
 
-  async function fetchContinuation(config, continuation) {
+  async function fetchContinuation(config, continuation, signal) {
     const url = new URL(continuation.apiUrl || DEFAULT_NEXT_API_PATH, location.origin);
     if (config.INNERTUBE_API_KEY && !url.searchParams.has("key")) {
       url.searchParams.set("key", config.INNERTUBE_API_KEY);
@@ -295,7 +371,7 @@
       headers["X-YouTube-Client-Version"] = String(config.INNERTUBE_CONTEXT_CLIENT_VERSION || client.clientVersion);
     }
 
-    const response = await fetch(url.toString(), {
+    const response = await fetchWithSignal(url.toString(), {
       method: "POST",
       credentials: "include",
       headers,
@@ -303,13 +379,46 @@
         context: config.INNERTUBE_CONTEXT,
         continuation: continuation.token,
       }),
-    });
+      signal,
+    }, signal);
 
     if (!response.ok) {
-      throw new Error(`Comment continuation fetch failed: ${response.status}`);
+      throw createHttpFailure(response.status, "comment-continuation");
     }
 
-    return response.json();
+    try {
+      return await waitForPromiseWithSignal(
+        Promise.resolve().then(() => response.json()),
+        signal
+      );
+    } catch (error) {
+      if (error?.commentFetchFailure || error?.name === "AbortError") {
+        throw error;
+      }
+      if (error?.name !== "SyntaxError") {
+        throw error;
+      }
+      throw createCommentFetchFailure("unsupported", "invalid-continuation-json");
+    }
+  }
+
+  function isSupportedContinuationResponse(root) {
+    if (!root || typeof root !== "object" || Array.isArray(root)) {
+      return false;
+    }
+
+    let supported = false;
+    walkObjects(root, [], (value, _ancestors, key) => {
+      if (
+        CONTINUATION_ENVELOPE_KEYS.has(key)
+        || value?.commentRenderer
+        || value?.commentViewModel
+        || value?.commentEntityPayload
+      ) {
+        supported = true;
+      }
+    });
+    return supported;
   }
 
   function extractCommentRecords(root) {
@@ -500,7 +609,103 @@
     }
   }
 
+  function createBoundedAbortSignal(parentSignal, timeoutMs) {
+    const controller = new AbortController();
+    const normalizedTimeoutMs = Math.max(0, Number(timeoutMs) || 0);
+    let timeoutId = null;
+    let didTimeOut = false;
+
+    const abortFromParent = () => {
+      if (!controller.signal.aborted) {
+        controller.abort(createCommentFetchFailure("transient", "aborted"));
+      }
+    };
+
+    if (parentSignal?.aborted) {
+      abortFromParent();
+    } else if (parentSignal) {
+      parentSignal.addEventListener("abort", abortFromParent, { once: true });
+    }
+
+    if (!controller.signal.aborted && normalizedTimeoutMs > 0) {
+      timeoutId = globalThis.setTimeout(() => {
+        didTimeOut = true;
+        controller.abort(createCommentFetchFailure("transient", "timeout"));
+      }, normalizedTimeoutMs);
+    }
+
+    return {
+      signal: controller.signal,
+      timedOut: () => didTimeOut,
+      cleanup() {
+        if (timeoutId !== null) {
+          globalThis.clearTimeout(timeoutId);
+        }
+        parentSignal?.removeEventListener("abort", abortFromParent);
+      },
+    };
+  }
+
+  function fetchWithSignal(url, options, signal) {
+    return waitForPromiseWithSignal(
+      Promise.resolve().then(() => globalThis.fetch(url, options)),
+      signal
+    );
+  }
+
+  function waitForPromiseWithSignal(promise, signal) {
+    if (signal?.aborted) {
+      return Promise.reject(signal.reason || createCommentFetchFailure("transient", "aborted"));
+    }
+
+    return new Promise((resolve, reject) => {
+      const rejectOnAbort = () => {
+        signal.removeEventListener("abort", rejectOnAbort);
+        reject(signal.reason || createCommentFetchFailure("transient", "aborted"));
+      };
+      signal?.addEventListener("abort", rejectOnAbort, { once: true });
+
+      Promise.resolve(promise)
+        .then(resolve, reject)
+        .finally(() => signal?.removeEventListener("abort", rejectOnAbort));
+    });
+  }
+
+  function createHttpFailure(status, requestType) {
+    const numericStatus = Number(status) || 0;
+    const kind = numericStatus === 408 || numericStatus === 429 || numericStatus >= 500
+      ? "transient"
+      : "unsupported";
+    return createCommentFetchFailure(kind, `${requestType}-http-${numericStatus || "unknown"}`);
+  }
+
+  function createCommentFetchFailure(kind, reason) {
+    const error = new Error(reason);
+    error.commentFetchFailure = true;
+    error.kind = kind;
+    error.reason = reason;
+    return error;
+  }
+
+  function classifyCommentFetchFailure(error, { parentSignal, timedOut } = {}) {
+    if (parentSignal?.aborted) {
+      return { kind: "transient", reason: "aborted" };
+    }
+    if (timedOut) {
+      return { kind: "transient", reason: "timeout" };
+    }
+    if (error?.commentFetchFailure) {
+      return { kind: error.kind, reason: error.reason };
+    }
+    if (error?.name === "AbortError") {
+      return { kind: "transient", reason: "aborted" };
+    }
+    return { kind: "transient", reason: "network-error" };
+  }
+
   globalThis.TimestampPlayerCommentFetching = {
+    COMMENT_FETCH_OUTCOMES,
+    DEFAULT_COMMENT_FETCH_TIMEOUT_MS,
     fetchCommentRecords,
   };
 })();
