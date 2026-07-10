@@ -427,3 +427,13 @@ test("every emitted track set satisfies the duration and ordering invariants", a
     assertTrackInvariants(findTracks(duration, makeCandidates(starts)), duration);
   }
 });
+
+test("shared track title quality ranks complete metadata above weak variants", async () => {
+  const { trackTitleQuality } = await loadTimestamps();
+
+  assert.equal(trackTitleQuality(""), 0);
+  assert.equal(trackTitleQuality("0:30"), 0);
+  assert.equal(trackTitleQuality("Detailed opening"), 100);
+  assert.ok(trackTitleQuality("Opening...") < trackTitleQuality("Detailed opening"));
+  assert.ok(trackTitleQuality("Opening / alternate") < trackTitleQuality("Detailed opening"));
+});

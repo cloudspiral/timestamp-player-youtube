@@ -68,7 +68,12 @@ test("the score combines start, coverage, titles, likes, and count deterministic
 });
 
 test("source trust applies fixed pinned and uploader bonuses", async () => {
-  const { scoreCommentTrackSource } = await loadCommentScoring();
+  const { COMMENT_SOURCE_TYPES, scoreCommentTrackSource } = await loadCommentScoring();
+  assert.equal(Object.isFrozen(COMMENT_SOURCE_TYPES), true);
+  assert.deepEqual(
+    { ...COMMENT_SOURCE_TYPES },
+    { PINNED: "pinned", UPLOADER: "uploader", REGULAR: "regular" }
+  );
   const regular = scoreCommentTrackSource(source({ sourceType: "regular" }));
   const uploader = scoreCommentTrackSource(source({ sourceType: "uploader" }));
   const pinned = scoreCommentTrackSource(source({ sourceType: "pinned" }));

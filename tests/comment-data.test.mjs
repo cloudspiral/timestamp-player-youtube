@@ -87,13 +87,13 @@ test("selects comment continuations and recognizes supported payload envelopes",
 
 test("runtime trusts only structural uploader metadata for fetched comments", async () => {
   const contentSource = await readFile(
-    new URL("../src/track-discovery.js", import.meta.url),
+    new URL("../src/fetched-comment-sources.js", import.meta.url),
     "utf8"
   );
   const sourceTypeFunction = contentSource.match(
     /function getFetchedCommentSourceType\(record\) \{[\s\S]*?\n  \}/
   )?.[0] || "";
 
-  assert.match(sourceTypeFunction, /record\.isUploader/);
+  assert.match(sourceTypeFunction, /record\?\.isUploader/);
   assert.doesNotMatch(sourceTypeFunction, /authorName|channelName|videoOwner/i);
 });

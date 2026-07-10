@@ -52,6 +52,7 @@
     observeTrackSourceOwnership,
     shouldConsiderNativeSource,
     trackSourceNeedsTitleEnrichment,
+    updateTrackSelectionDuration,
   } = globalThis.TimestampPlayerTrackSelection;
   const {
     COMMENT_DISCOVERY_STATUSES,
@@ -512,6 +513,7 @@
       return;
     }
     if (resolution.status === VIDEO_RESOLUTION_STATUSES.READY) {
+      synchronizeTrackSelectionDuration(session, resolution.element?.duration);
       resetSessionRetry(session, "mediaReadiness");
       scheduleScan(session, 0);
     } else {
@@ -574,7 +576,9 @@
       return;
     }
 
+    const duration = Number(video.duration);
     resetSessionRetry(session, "mediaReadiness");
+    synchronizeTrackSelectionDuration(session, duration);
     if (session.discovery.status !== DISCOVERY_STATUSES.READY) {
       transitionSessionDiscovery(
         session,
@@ -588,7 +592,7 @@
     const quietDescriptionReadable = trackDiscovery.canReadQuietDescription(videoId);
     const descriptionDiscovery = trackDiscovery.getDescriptionSourceResults(
       session,
-      video.duration,
+      duration,
       observation
     );
     awaitingSourceConfirmation = considerTrackSourceResults(
@@ -623,7 +627,7 @@
         : TRACK_SOURCE_STATUSES.PROVISIONAL;
       const domCommentDiscovery = trackDiscovery.getDomCommentSourceResults(
         session,
-        video.duration,
+        duration,
         observation,
         commentStatus
       );
@@ -638,7 +642,7 @@
       ) || awaitingSourceConfirmation;
       const fetchedCommentDiscovery = trackDiscovery.getFetchedCommentDiscoveryForSession(
         session,
-        video.duration
+        duration
       );
       if (fetchedCommentDiscovery.result) {
         awaitingSourceConfirmation = considerTrackSourceResults(
@@ -655,7 +659,7 @@
     if (shouldConsiderNativeSource(session.trackSelection)) {
       const nativeDiscovery = trackDiscovery.getNativeSourceDiscovery(
         session,
-        video.duration,
+        duration,
         observation
       );
       awaitingSourceConfirmation = considerTrackSourceResults(
@@ -768,6 +772,7 @@
       );
       const previous = session.trackSelection.current;
       const change = considerTrackSource(session.trackSelection, enrichedResult, {
+        duration: session.trackSelection.duration,
         generation: session.generation,
         videoId: session.videoId,
       });
@@ -785,6 +790,21 @@
       }
     }
     return awaitingOwnershipConfirmation;
+  }
+
+  function synchronizeTrackSelectionDuration(session, duration) {
+    if (
+      !isCurrentSession(session)
+      || !updateTrackSelectionDuration(session.trackSelection, duration)
+    ) {
+      return false;
+    }
+
+    resetSessionRetry(session, "sourceDiscovery");
+    state.playback = clearPlaybackOrder(state.playback);
+    state.tracks = [];
+    state.currentTrackIndex = -1;
+    return true;
   }
 
   function getSourceDecisionReason(change, previous) {

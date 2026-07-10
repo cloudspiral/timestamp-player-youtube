@@ -556,6 +556,7 @@
     normalizeTitleText,
     parseTimeParam,
     parseTimestampText,
+    trackTitleQuality,
     titleFromLineFragment,
   };
 })();

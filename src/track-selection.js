@@ -1,4 +1,7 @@
 (() => {
+  const {
+    trackTitleQuality,
+  } = globalThis.TimestampPlayerTimestamps;
   const TRACK_SOURCE_KINDS = Object.freeze({
     DESCRIPTION: "description",
     COMMENT: "comment",
@@ -22,9 +25,27 @@
   function createTrackSelectionState() {
     return {
       current: null,
+      duration: null,
       observation: 0,
       weakOwnershipObservations: new Map(),
     };
+  }
+
+  function updateTrackSelectionDuration(selection, duration) {
+    if (!selection || !Number.isFinite(duration) || duration <= 0) {
+      return false;
+    }
+    if (selection.duration === null) {
+      selection.duration = duration;
+      return false;
+    }
+    if (selection.duration === duration) {
+      return false;
+    }
+
+    selection.duration = duration;
+    selection.current = null;
+    return true;
   }
 
   function beginTrackSelectionObservation(selection) {
@@ -225,13 +246,17 @@
     });
   }
 
-  function isTrackSourceEligible(result, { generation, videoId } = {}) {
+  function isTrackSourceEligible(result, { duration, generation, videoId } = {}) {
+    const expectedDuration = Number.isFinite(duration) && duration > 0
+      ? duration
+      : result?.duration;
     return Boolean(
       result
       && result.generation === generation
       && result.videoId === videoId
+      && result.duration === expectedDuration
       && result.ownership?.confirmed === true
-      && hasValidTrackTimings(result.tracks)
+      && hasValidTrackTimings(result.tracks, expectedDuration)
     );
   }
 
@@ -248,16 +273,31 @@
     );
   }
 
-  function hasValidTrackTimings(tracks) {
-    if (!Array.isArray(tracks) || tracks.length < 2) {
+  function hasValidTrackTimings(tracks, duration) {
+    if (
+      !Array.isArray(tracks)
+      || tracks.length < 2
+      || !Number.isFinite(duration)
+      || duration <= 0
+    ) {
       return false;
     }
 
     return tracks.every((track, index) => {
-      if (!Number.isFinite(track?.start) || !Number.isFinite(track?.end) || track.start < 0 || track.end <= track.start) {
+      const nextTrack = tracks[index + 1];
+      if (
+        !Number.isFinite(track?.start)
+        || !Number.isFinite(track?.end)
+        || track.start < 0
+        || track.end <= track.start
+        || track.end > duration
+      ) {
         return false;
       }
-      return index === 0 || track.start > tracks[index - 1].start;
+      if (index > 0 && track.start <= tracks[index - 1].start) {
+        return false;
+      }
+      return nextTrack ? track.end === nextTrack.start : track.end === duration;
     });
   }
 
@@ -312,7 +352,7 @@
     let changed = false;
     const tracks = primary.tracks.map((track) => {
       const alternate = secondaryTracksByStart.get(track.start);
-      if (!alternate || titleQuality(alternate.title) <= titleQuality(track.title)) {
+      if (!alternate || trackTitleQuality(alternate.title) <= trackTitleQuality(track.title)) {
         return track;
       }
 
@@ -396,7 +436,7 @@
       quality: {
         coverage,
         firstStart,
-        titleScore: tracks.reduce((score, track) => score + titleQuality(track.title), 0),
+        titleScore: tracks.reduce((score, track) => score + trackTitleQuality(track.title), 0),
         trackCount: tracks.length,
       },
     };
@@ -445,25 +485,6 @@
       && left.every((track, index) => track.title === right[index]?.title);
   }
 
-  function titleQuality(title) {
-    const text = String(title || "").trim();
-    if (!text) {
-      return 0;
-    }
-
-    let score = 100;
-    if (/(?:\.{3}|…)$/.test(text)) {
-      score -= 18;
-    }
-    if (/[\/／]/.test(text)) {
-      score -= 25;
-    }
-    if (text.length > 80) {
-      score -= Math.min(35, Math.ceil((text.length - 80) / 5));
-    }
-    return Math.max(1, score);
-  }
-
   globalThis.TimestampPlayerTrackSelection = {
     OWNERSHIP_CONFIDENCE,
     TRACK_SOURCE_KINDS,
@@ -479,5 +500,6 @@
     observeTrackSourceOwnership,
     shouldConsiderNativeSource,
     trackSourceNeedsTitleEnrichment,
+    updateTrackSelectionDuration,
   };
 })();

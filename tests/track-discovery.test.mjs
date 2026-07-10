@@ -13,9 +13,10 @@ async function loadTrackDiscovery({
   }),
   nativeDiscovery = { candidates: [], hasMismatchedVideoId: false },
 } = {}) {
-  const [timestampSource, selectionSource, discoverySource] = await Promise.all([
+  const [timestampSource, selectionSource, fetchedSource, discoverySource] = await Promise.all([
     readFile(new URL("../src/timestamps.js", import.meta.url), "utf8"),
     readFile(new URL("../src/track-selection.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/fetched-comment-sources.js", import.meta.url), "utf8"),
     readFile(new URL("../src/track-discovery.js", import.meta.url), "utf8"),
   ]);
   const resetCalls = [];
@@ -31,12 +32,14 @@ async function loadTrackDiscovery({
       fetchCommentRecords: fetchImpl,
     },
     TimestampPlayerCommentScoring: {
+      COMMENT_SOURCE_TYPES: Object.freeze({
+        PINNED: "pinned",
+        REGULAR: "regular",
+        UPLOADER: "uploader",
+      }),
       scoreCommentTrackSource: ({ order, sourceType }) => {
         return 100 - order + (sourceType === "pinned" ? 50 : 0);
       },
-    },
-    TimestampPlayerDiscoveryCache: {
-      retainFetchedCommentResult: (current, incoming) => incoming || current,
     },
     TimestampPlayerNativeTimestamps: {
       getNativeTimestampDiscovery: () => nativeDiscovery,
@@ -53,6 +56,7 @@ async function loadTrackDiscovery({
   });
   vm.runInContext(timestampSource, context);
   vm.runInContext(selectionSource, context);
+  vm.runInContext(fetchedSource, context);
   vm.runInContext(discoverySource, context);
   return {
     api: context.TimestampPlayerTrackDiscovery,
@@ -76,6 +80,10 @@ function createSession(selection, { commentStatus = "idle" } = {}) {
       attempt: 0,
       attemptStartedAt: null,
       result: null,
+      resultDuration: null,
+      resultSeeds: null,
+      resultStatus: null,
+      seeds: [],
       status: commentStatus,
     },
     domSources: { ids: new WeakMap(), nextId: 1 },
@@ -206,6 +214,7 @@ test("fetched comment discovery starts immediately and settles into normalized t
 
   assert.equal(discovery.status, "done");
   assert.equal(controller.isCommentDiscoveryPending(session), false);
+  controller.getFetchedCommentDiscoveryForSession(session, 90);
   assert.equal(discovery.result.source.channel, "comment-api");
   assert.equal(discovery.result.source.kind, selection.TRACK_SOURCE_KINDS.COMMENT);
   assert.equal(discovery.result.tracks.length, 3);
@@ -213,6 +222,9 @@ test("fetched comment discovery starts immediately and settles into normalized t
   assert.equal(diagnostics.results, 1);
   assert.equal(scans, 1);
   assert.deepEqual(resetCalls.map(({ name }) => name), ["commentFetch"]);
+  const retainedState = JSON.stringify(session.commentDiscovery);
+  assert.doesNotMatch(retainedState, /"text":|authorName|authorChannelId/);
+  assert.doesNotMatch(retainedState, /0:00 Opening\\n0:30 Middle/);
 });
 
 test("pending fetches start once and stale completion cannot mutate a replaced session", async () => {
@@ -263,11 +275,12 @@ test("pending fetches start once and stale completion cannot mutate a replaced s
 
   assert.equal(first.status, "pending");
   assert.equal(first.result, null);
+  assert.deepEqual(Array.from(first.seeds), []);
   assert.equal(results, 0);
   assert.equal(scans, 0);
 });
 
-test("retryable comment results stay provisional and settle on one bounded retry", async () => {
+test("retryable comment results stay provisional and settle after one bounded retry", async () => {
   const outcomes = [
     {
       batchesFetched: 1,
@@ -318,6 +331,7 @@ test("retryable comment results stay provisional and settle on one bounded retry
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(discovery.status, "retry-wait");
+  controller.getFetchedCommentDiscoveryForSession(session, 90);
   assert.equal(discovery.result.status, selection.TRACK_SOURCE_STATUSES.PROVISIONAL);
   assert.equal(retryCallbacks.length, 1);
   retryCallbacks[0]();
@@ -325,12 +339,172 @@ test("retryable comment results stay provisional and settle on one bounded retry
 
   assert.equal(requestCount, 2);
   assert.equal(discovery.status, "done");
+  controller.getFetchedCommentDiscoveryForSession(session, 90);
   assert.equal(discovery.result.status, selection.TRACK_SOURCE_STATUSES.SETTLED);
   assert.deepEqual(
     Array.from(discovery.result.tracks, ({ title }) => title),
-    ["Complete one", "Complete two", "Complete three"]
+    ["Partial one", "Partial two", "Partial three"],
+    "an equal-scored later comment must not churn the established source"
   );
   assert.equal(scans, 2);
+});
+
+test("fetched seeds rebase to corrected durations without another network request", async () => {
+  let requests = 0;
+  let resolveFetch;
+  const { api, selection } = await loadTrackDiscovery({
+    fetchImpl: () => {
+      requests += 1;
+      return new Promise((resolve) => {
+        resolveFetch = () => resolve({
+          batchesFetched: 1,
+          reason: "complete",
+          records: [{
+            commentId: "duration-source",
+            order: 0,
+            text: "0:00 Opening\n0:30 Middle\n1:00 Finale\n2:00 Encore",
+          }],
+          retryable: false,
+          status: "success",
+        });
+      });
+    },
+  });
+  const session = createSession(selection);
+  const controller = createController(api, {
+    youtubeDom: { getQuietDescriptionRoots: () => [] },
+  });
+
+  controller.getFetchedCommentDiscoveryForSession(session, 90);
+  controller.getFetchedCommentDiscoveryForSession(session, 150);
+  resolveFetch();
+  await new Promise((resolve) => setImmediate(resolve));
+  const short = controller.getFetchedCommentDiscoveryForSession(session, 90).result;
+  const grown = controller.getFetchedCommentDiscoveryForSession(session, 150).result;
+  const tooShort = controller.getFetchedCommentDiscoveryForSession(session, 50).result;
+
+  assert.equal(requests, 1);
+  assert.equal(short.duration, 90);
+  assert.equal(short.tracks.at(-1).end, 90);
+  assert.equal(grown.duration, 150);
+  assert.deepEqual(Array.from(grown.tracks, ({ start }) => start), [0, 30, 60, 120]);
+  assert.equal(grown.tracks.at(-1).end, 150);
+  assert.equal(tooShort, null);
+  assert.equal(session.commentDiscovery.resultDuration, 50);
+  assert.ok(session.commentDiscovery.seeds.length > 0);
+});
+
+test("an empty final retry settles the viable provisional seed it already found", async () => {
+  const outcomes = [
+    {
+      batchesFetched: 1,
+      reason: "partial",
+      records: [{
+        commentId: "retained",
+        order: 0,
+        text: "0:00 Opening\n0:30 Middle\n1:00 Finale",
+      }],
+      retryable: true,
+      status: "partial",
+    },
+    {
+      batchesFetched: 1,
+      reason: "complete",
+      records: [],
+      retryable: false,
+      status: "success",
+    },
+  ];
+  let requestIndex = 0;
+  let retryCallback;
+  const { api, selection } = await loadTrackDiscovery({
+    fetchImpl: async () => outcomes[requestIndex++],
+  });
+  const session = createSession(selection);
+  const controller = createController(api, {
+    scheduleTrackedSessionRetry: (_session, _name, callback) => {
+      retryCallback = callback;
+      return true;
+    },
+    youtubeDom: { getQuietDescriptionRoots: () => [] },
+  });
+
+  controller.getFetchedCommentDiscoveryForSession(session, 90);
+  await new Promise((resolve) => setImmediate(resolve));
+  const provisional = controller.getFetchedCommentDiscoveryForSession(session, 90).result;
+  assert.equal(provisional.source.id, "retained");
+  assert.equal(provisional.status, selection.TRACK_SOURCE_STATUSES.PROVISIONAL);
+
+  retryCallback();
+  await new Promise((resolve) => setImmediate(resolve));
+  const settled = controller.getFetchedCommentDiscoveryForSession(session, 90).result;
+  assert.equal(settled.source.id, "retained");
+  assert.equal(settled.status, selection.TRACK_SOURCE_STATUSES.SETTLED);
+  assert.equal(session.commentDiscovery.seeds.length, 1);
+});
+
+test("a superseded same-session fetch attempt cannot commit out of order", async () => {
+  const resolvers = [];
+  const { api, selection } = await loadTrackDiscovery({
+    fetchImpl: () => new Promise((resolve) => resolvers.push(resolve)),
+  });
+  const session = createSession(selection);
+  const retryCallbacks = [];
+  let scans = 0;
+  const controller = createController(api, {
+    scheduleScan: () => {
+      scans += 1;
+      return true;
+    },
+    scheduleTrackedSessionRetry: (_session, _name, callback) => {
+      retryCallbacks.push(callback);
+      return true;
+    },
+    youtubeDom: { getQuietDescriptionRoots: () => [] },
+  });
+
+  controller.getFetchedCommentDiscoveryForSession(session, 90);
+  resolvers[0]({
+    batchesFetched: 1,
+    reason: "partial",
+    records: [],
+    retryable: true,
+    status: "partial",
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  retryCallbacks[0]();
+  retryCallbacks[0]();
+  assert.equal(session.commentDiscovery.attempt, 3);
+
+  resolvers[1]({
+    batchesFetched: 1,
+    reason: "late",
+    records: [{
+      commentId: "stale-attempt",
+      order: 0,
+      text: "0:00 Stale\n0:30 Stale\n1:00 Stale",
+    }],
+    retryable: false,
+    status: "success",
+  });
+  resolvers[2]({
+    batchesFetched: 1,
+    reason: "current",
+    records: [{
+      commentId: "current-attempt",
+      order: 0,
+      text: "0:00 Current\n0:30 Middle\n1:00 Finale",
+    }],
+    retryable: false,
+    status: "success",
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const result = controller.getFetchedCommentDiscoveryForSession(session, 90).result;
+  assert.equal(result.source.id, "current-attempt");
+  assert.equal(result.tracks[0].title, "Current");
+  assert.equal(session.commentDiscovery.seeds.length, 1);
+  assert.equal(scans, 2, "the superseded attempt must not schedule a follow-up scan");
 });
 
 test("DOM source IDs stay stable, wrong videos are rejected, and regular scans are bounded", async () => {
@@ -390,6 +564,7 @@ test("extension wiring loads track discovery after its sources and before conten
 
   assert.ok(discoveryIndex > scripts.indexOf("src/watch-session.js"));
   assert.ok(discoveryIndex > scripts.indexOf("src/youtube-dom.js"));
+  assert.ok(discoveryIndex > scripts.indexOf("src/fetched-comment-sources.js"));
   assert.ok(discoveryIndex < scripts.indexOf("src/content.js"));
   assert.match(contentSource, /createTrackDiscoveryController\(\{/);
   assert.match(contentSource, /trackDiscovery\.getDescriptionSourceResults\(/);

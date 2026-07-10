@@ -4,13 +4,15 @@ import test from "node:test";
 import vm from "node:vm";
 
 async function loadRuntime() {
-  const [cacheSource, discoveryCacheSource, selectionSource] = await Promise.all([
+  const [cacheSource, discoveryCacheSource, timestampsSource, selectionSource] = await Promise.all([
     readFile(new URL("../src/lru-cache.js", import.meta.url), "utf8"),
     readFile(new URL("../src/discovery-cache.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/timestamps.js", import.meta.url), "utf8"),
     readFile(new URL("../src/track-selection.js", import.meta.url), "utf8"),
   ]);
   const context = vm.createContext({});
   vm.runInContext(cacheSource, context);
+  vm.runInContext(timestampsSource, context);
   vm.runInContext(selectionSource, context);
   vm.runInContext(discoveryCacheSource, context);
   return {
@@ -104,97 +106,10 @@ test("only settled normalized title data is eligible for cross-video caching", a
   );
 });
 
-test("an empty or worse retry preserves the normalized best result and can settle it", async () => {
-  const { cache, selection } = await loadRuntime();
-  const previous = result(selection, {
-    sourceId: "best",
-    sourceScore: 50,
-    titles: ["One", "Two", "Three"],
-  });
-  const worse = result(selection, {
-    sourceId: "worse",
-    sourceScore: 10,
-    titles: ["Worse one", "Worse two", "Worse three"],
-  });
-
-  const retained = cache.retainFetchedCommentResult(
-    previous,
-    worse,
-    selection.TRACK_SOURCE_STATUSES.PROVISIONAL
-  );
-  assert.equal(retained.source.id, "best");
-  assert.equal(retained.status, selection.TRACK_SOURCE_STATUSES.PROVISIONAL);
-
-  const settled = cache.retainFetchedCommentResult(
-    retained,
-    null,
-    selection.TRACK_SOURCE_STATUSES.SETTLED
-  );
-  assert.equal(settled.source.id, "best");
-  assert.equal(settled.status, selection.TRACK_SOURCE_STATUSES.SETTLED);
-  assert.equal(cache.retainFetchedCommentResult(null, null), null);
-});
-
-test("a stronger retry wins while exact-start title enrichment is monotonic", async () => {
-  const { cache, selection } = await loadRuntime();
-  const previous = result(selection, {
-    sourceId: "previous",
-    sourceScore: 10,
-    titles: ["Detailed opening", "", "Finale"],
-  });
-  const stronger = result(selection, {
-    sourceId: "stronger",
-    sourceScore: 80,
-    titles: ["", "Middle", "Finale"],
-  });
-
-  const retained = cache.retainFetchedCommentResult(
-    previous,
-    stronger,
-    selection.TRACK_SOURCE_STATUSES.SETTLED
-  );
-  assert.equal(retained.source.id, "stronger");
-  assert.equal(retained.status, selection.TRACK_SOURCE_STATUSES.SETTLED);
-  assert.deepEqual(
-    retained.tracks.map(({ title }) => title),
-    ["Detailed opening", "Middle", "Finale"]
-  );
-});
-
-test("equal scores remain stable across distinct comments but allow one source to improve", async () => {
-  const { cache, selection } = await loadRuntime();
-  const first = result(selection, {
-    sourceId: "stable",
-    sourceScore: 25,
-    starts: [0, 90],
-    titles: ["Opening", "Finale"],
-  });
-  const distinct = result(selection, {
-    sourceId: "distinct",
-    sourceScore: 25,
-    starts: [0, 60, 120],
-    titles: ["Different", "Comment", "Run"],
-  });
-  assert.equal(
-    cache.retainFetchedCommentResult(first, distinct).source.id,
-    "stable",
-    "equal-scored comments retain the incumbent"
-  );
-
-  const expanded = result(selection, {
-    sourceId: "stable",
-    sourceScore: 25,
-    starts: [0, 60, 120],
-    titles: ["Opening", "Middle", "Finale"],
-  });
-  const improved = cache.retainFetchedCommentResult(first, expanded);
-  assert.equal(improved.source.id, "stable");
-  assert.equal(improved.tracks.length, 3);
-});
-
 test("runtime wiring bounds title retention and never stores raw fetched-comment records", async () => {
-  const [contentSource, trackDiscoverySource, manifest, packageJson, sessionSource] = await Promise.all([
+  const [contentSource, fetchedSource, trackDiscoverySource, manifest, packageJson, sessionSource] = await Promise.all([
     readFile(new URL("../src/content.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/fetched-comment-sources.js", import.meta.url), "utf8"),
     readFile(new URL("../src/track-discovery.js", import.meta.url), "utf8"),
     readFile(new URL("../manifest.json", import.meta.url), "utf8").then(JSON.parse),
     readFile(new URL("../package.json", import.meta.url), "utf8").then(JSON.parse),
@@ -213,7 +128,11 @@ test("runtime wiring bounds title retention and never stores raw fetched-comment
 
   assert.match(contentSource, /trackTitleCache: createTrackTitleCache\(\)/);
   assert.match(contentSource, /storeSettledTrackTitles\(state\.trackTitleCache, selectedResult\)/);
-  assert.match(trackDiscoverySource, /retainFetchedCommentResult\(/);
+  assert.match(trackDiscoverySource, /mergeFetchedCommentSeeds\(/);
+  assert.match(trackDiscoverySource, /selectFetchedCommentSource\(/);
+  assert.doesNotMatch(trackDiscoverySource, /retainFetchedCommentResult\(/);
+  assert.doesNotMatch(fetchedSource, /authorChannelId|authorName/);
+  assert.doesNotMatch(fetchedSource, /text:\s*(?:record|String)/);
   assert.doesNotMatch(trackDiscoverySource, /discovery\.records/);
   assert.doesNotMatch(
     sessionSource,

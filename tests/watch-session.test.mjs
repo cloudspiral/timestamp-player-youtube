@@ -4,13 +4,15 @@ import test from "node:test";
 import vm from "node:vm";
 
 async function loadWatchSession() {
-  const [discoveryStatusSource, trackSelectionSource, source] = await Promise.all([
+  const [discoveryStatusSource, timestampsSource, trackSelectionSource, source] = await Promise.all([
     readFile(new URL("../src/discovery-status.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/timestamps.js", import.meta.url), "utf8"),
     readFile(new URL("../src/track-selection.js", import.meta.url), "utf8"),
     readFile(new URL("../src/watch-session.js", import.meta.url), "utf8"),
   ]);
   const context = vm.createContext({ AbortController });
   vm.runInContext(discoveryStatusSource, context);
+  vm.runInContext(timestampsSource, context);
   vm.runInContext(trackSelectionSource, context);
   vm.runInContext(source, context);
   return {
@@ -81,6 +83,10 @@ test("creates an isolated pending discovery state instead of a write-only phase"
   assert.equal(session.discovery.reason, DISCOVERY_REASONS.STARTING);
   assert.equal(session.discovery.changedAt, 123);
   assert.equal(Object.isFrozen(session.discovery), true);
+  assert.deepEqual(Array.from(session.commentDiscovery.seeds), []);
+  assert.equal(session.commentDiscovery.resultDuration, null);
+  assert.equal(session.commentDiscovery.resultSeeds, null);
+  assert.equal(session.commentDiscovery.resultStatus, null);
 });
 
 test("disposal stops discovery before abort and keeps the first stop final", async () => {

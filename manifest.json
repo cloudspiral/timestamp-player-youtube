@@ -45,6 +45,7 @@
         "src/lru-cache.js",
         "src/watch-route.js",
         "src/track-selection.js",
+        "src/fetched-comment-sources.js",
         "src/discovery-status.js",
         "src/discovery-cache.js",
         "src/video-resolver.js",

@@ -2,12 +2,8 @@
   const COMMENT_MIN_TRACKS = 3;
   const COMMENT_FETCH_BATCH_LIMIT = 3;
   const REGULAR_COMMENT_SCAN_LIMIT = 30;
-  const COMMENT_SOURCE_TYPES = Object.freeze({
-    PINNED: "pinned",
-    UPLOADER: "uploader",
-    REGULAR: "regular",
-  });
   const {
+    COMMENT_SOURCE_TYPES,
     scoreCommentTrackSource,
   } = globalThis.TimestampPlayerCommentScoring;
   const {
@@ -15,17 +11,17 @@
     fetchCommentRecords,
   } = globalThis.TimestampPlayerCommentFetching;
   const {
-    retainFetchedCommentResult,
-  } = globalThis.TimestampPlayerDiscoveryCache;
+    createFetchedCommentSeeds,
+    mergeFetchedCommentSeeds,
+    selectFetchedCommentSource,
+  } = globalThis.TimestampPlayerFetchedCommentSources;
   const {
     getNativeTimestampDiscovery,
   } = globalThis.TimestampPlayerNativeTimestamps;
   const {
     findTracks,
-    getTextTimestampCandidates,
   } = globalThis.TimestampPlayerTimestamps;
   const {
-    OWNERSHIP_CONFIDENCE,
     TRACK_SOURCE_KINDS,
     TRACK_SOURCE_STATUSES,
     classifyNativeTrackSourceOwnership,
@@ -200,16 +196,45 @@
     }
 
     function getFetchedCommentDiscoveryForSession(session, duration) {
-      if (session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.IDLE) {
-        startCommentFetch(session, duration);
+      const discovery = session.commentDiscovery;
+      if (discovery.status === COMMENT_DISCOVERY_STATUSES.IDLE) {
+        startCommentFetch(session);
       }
-      return session.commentDiscovery;
+      refreshFetchedCommentResult(session, duration);
+      return discovery;
     }
 
-    function startCommentFetch(session, duration) {
+    function refreshFetchedCommentResult(session, duration) {
+      const discovery = session.commentDiscovery;
+      const sourceStatus = discovery.status === COMMENT_DISCOVERY_STATUSES.DONE
+        ? TRACK_SOURCE_STATUSES.SETTLED
+        : TRACK_SOURCE_STATUSES.PROVISIONAL;
+      if (
+        discovery.resultDuration === duration
+        && discovery.resultSeeds === discovery.seeds
+        && discovery.resultStatus === sourceStatus
+      ) {
+        return;
+      }
+
+      discovery.result = selectFetchedCommentSource({
+        duration,
+        generation: session.generation,
+        observation: session.trackSelection.observation,
+        seeds: discovery.seeds,
+        status: sourceStatus,
+        videoId: session.videoId,
+      });
+      discovery.resultDuration = duration;
+      discovery.resultSeeds = discovery.seeds;
+      discovery.resultStatus = sourceStatus;
+    }
+
+    function startCommentFetch(session) {
       const { videoId } = session;
       const discovery = session.commentDiscovery;
       discovery.attempt += 1;
+      const attempt = discovery.attempt;
       discovery.attemptStartedAt = Date.now();
       diagnostics.commentFetchStarted(session);
       if (typeof fetchCommentRecords !== "function") {
@@ -221,6 +246,10 @@
           status: COMMENT_FETCH_OUTCOMES.UNSUPPORTED,
         };
         discovery.status = COMMENT_DISCOVERY_STATUSES.DONE;
+        discovery.result = null;
+        discovery.resultDuration = null;
+        discovery.resultSeeds = null;
+        discovery.resultStatus = null;
         diagnostics.commentFetchResult(session, result, 0);
         discovery.attemptStartedAt = null;
         return discovery;
@@ -232,103 +261,58 @@
         signal: session.abortController.signal,
         videoId,
       })
-        .then((result) => finishCommentFetch(session, duration, result))
-        .catch(() => finishCommentFetch(session, duration, {
-          batchesFetched: 0,
-          reason: "unexpected-rejection",
-          records: [],
-          retryable: true,
-          status: COMMENT_FETCH_OUTCOMES.TRANSIENT_ERROR,
-        }))
+        .then(
+          (result) => finishCommentFetch(session, attempt, result),
+          () => finishCommentFetch(session, attempt, {
+            batchesFetched: 0,
+            reason: "unexpected-rejection",
+            records: [],
+            retryable: true,
+            status: COMMENT_FETCH_OUTCOMES.TRANSIENT_ERROR,
+          })
+        )
         .finally(() => {
-          if (isCurrentSession(session)) {
+          if (isCurrentSession(session) && discovery.attempt === attempt) {
             scheduleScan(session);
           }
         });
       return discovery;
     }
 
-    function finishCommentFetch(session, duration, result) {
-      if (!isCurrentSession(session)) {
+    function finishCommentFetch(session, attempt, result) {
+      if (!isCurrentSession(session) || session.commentDiscovery.attempt !== attempt) {
         return;
       }
 
       const discovery = session.commentDiscovery;
       const records = Array.isArray(result?.records) ? result.records : [];
+      const incomingSeeds = createFetchedCommentSeeds(records);
       const retryable = shouldRetryCommentFetch(result);
       const retryScheduled = retryable && scheduleTrackedSessionRetry(
         session,
         "commentFetch",
         () => {
           if (isCurrentSession(session)) {
-            startCommentFetch(session, duration);
+            startCommentFetch(session);
           }
         }
       );
       discovery.status = retryScheduled
         ? COMMENT_DISCOVERY_STATUSES.RETRY_WAIT
         : COMMENT_DISCOVERY_STATUSES.DONE;
-      const sourceStatus = retryScheduled
-        ? TRACK_SOURCE_STATUSES.PROVISIONAL
-        : TRACK_SOURCE_STATUSES.SETTLED;
-      const incomingResult = getBestFetchedCommentResult(
-        session,
-        records,
-        duration,
-        sourceStatus
+      discovery.seeds = mergeFetchedCommentSeeds(
+        discovery.seeds,
+        incomingSeeds
       );
-      discovery.result = retainFetchedCommentResult(
-        discovery.result,
-        incomingResult,
-        sourceStatus
-      );
+      discovery.result = null;
+      discovery.resultDuration = null;
+      discovery.resultSeeds = null;
+      discovery.resultStatus = null;
       if (!retryScheduled && !retryable) {
         resetSessionRetry(session, "commentFetch");
       }
-      diagnostics.commentFetchResult(session, result, incomingResult ? 1 : 0);
+      diagnostics.commentFetchResult(session, result, incomingSeeds.length > 0 ? 1 : 0);
       discovery.attemptStartedAt = null;
-    }
-
-    function getBestFetchedCommentResult(session, records, duration, status) {
-      const results = records.map((record) => {
-        const candidates = getTextTimestampCandidates(
-          record.text,
-          `fetched-comment:${record.order}`
-        );
-        const tracks = findTracks(duration, candidates, COMMENT_MIN_TRACKS);
-        if (tracks.length < COMMENT_MIN_TRACKS) {
-          return null;
-        }
-
-        const sourceType = getFetchedCommentSourceType(record);
-        const scoredSource = {
-          duration,
-          sourceType,
-          order: record.order,
-          likeCount: record.likeCount,
-          tracks,
-        };
-        return createTrackSourceResult({
-          channel: "comment-api",
-          duration,
-          generation: session.generation,
-          kind: TRACK_SOURCE_KINDS.COMMENT,
-          observation: session.trackSelection.observation,
-          ownership: {
-            confidence: OWNERSHIP_CONFIDENCE.STRONG,
-            evidence: "network-request",
-          },
-          sourceId: record.commentId || String(record.order),
-          sourceScore: scoreCommentTrackSource(scoredSource),
-          status,
-          tracks,
-          videoId: session.videoId,
-        });
-      }).filter(Boolean);
-
-      return results.reduce((best, candidate) => {
-        return !best || candidate.sourceScore > best.sourceScore ? candidate : best;
-      }, null);
     }
 
     function canReadQuietDescription(videoId) {
@@ -376,16 +360,6 @@
         || result.status === COMMENT_FETCH_OUTCOMES.UNSUPPORTED
       )
     );
-  }
-
-  function getFetchedCommentSourceType(record) {
-    if (record.isPinned) {
-      return COMMENT_SOURCE_TYPES.PINNED;
-    }
-    if (record.isUploader) {
-      return COMMENT_SOURCE_TYPES.UPLOADER;
-    }
-    return COMMENT_SOURCE_TYPES.REGULAR;
   }
 
   globalThis.TimestampPlayerTrackDiscovery = {

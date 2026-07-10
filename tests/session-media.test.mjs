@@ -495,6 +495,32 @@ test("content uses only READY session media and guards playback state before mut
   );
 });
 
+test("content clears stale playback and uses one duration snapshot for each ready scan", async () => {
+  const source = await readFile(new URL("../src/content.js", import.meta.url), "utf8");
+  const scanStart = source.indexOf("function scanPage(session)");
+  const scanEnd = source.indexOf("function maybeAutoOpenCompact", scanStart);
+  const scanSource = source.slice(scanStart, scanEnd);
+
+  assert.match(scanSource, /const duration = Number\(video\.duration\)/);
+  assert.equal(scanSource.match(/video\.duration/g)?.length, 1);
+  assert.match(scanSource, /getDescriptionSourceResults\([\s\S]*?duration,/);
+  assert.match(scanSource, /getDomCommentSourceResults\([\s\S]*?duration,/);
+  assert.match(scanSource, /getFetchedCommentDiscoveryForSession\([\s\S]*?duration\s*\)/);
+  assert.match(scanSource, /getNativeSourceDiscovery\([\s\S]*?duration,/);
+  assert.match(
+    source,
+    /function synchronizeTrackSelectionDuration[\s\S]*updateTrackSelectionDuration\(session\.trackSelection, duration\)[\s\S]*resetSessionRetry\(session, "sourceDiscovery"\)[\s\S]*clearPlaybackOrder\(state\.playback\)[\s\S]*state\.tracks = \[\][\s\S]*state\.currentTrackIndex = -1/
+  );
+  assert.match(
+    source,
+    /resolution\.status === VIDEO_RESOLUTION_STATUSES\.READY[\s\S]*synchronizeTrackSelectionDuration\(session, resolution\.element\?\.duration\)[\s\S]*scheduleScan\(session, 0\)/
+  );
+  assert.match(
+    source,
+    /considerTrackSource\(session\.trackSelection, enrichedResult, \{[\s\S]*duration: session\.trackSelection\.duration/
+  );
+});
+
 test("extension and package wiring load and verify media ownership before content", async () => {
   const [manifest, packageJson] = await Promise.all([
     readFile(new URL("../manifest.json", import.meta.url), "utf8").then(JSON.parse),

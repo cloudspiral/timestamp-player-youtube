@@ -4,23 +4,28 @@ import test from "node:test";
 import vm from "node:vm";
 
 async function loadTrackSelection() {
-  const source = await readFile(new URL("../src/track-selection.js", import.meta.url), "utf8");
+  const [timestampsSource, source] = await Promise.all([
+    readFile(new URL("../src/timestamps.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/track-selection.js", import.meta.url), "utf8"),
+  ]);
   const context = vm.createContext({});
+  vm.runInContext(timestampsSource, context);
   vm.runInContext(source, context);
   return context.TimestampPlayerTrackSelection;
 }
 
-function tracks(starts, titles = []) {
+function tracks(starts, titles = [], duration = 600) {
   return starts.map((start, index) => ({
     index,
     start,
-    end: starts[index + 1] ?? 600,
+    end: starts[index + 1] ?? duration,
     title: titles[index] || "",
   }));
 }
 
 function result(api, {
   channel,
+  duration = 600,
   generation = 1,
   kind,
   observation = 1,
@@ -34,7 +39,7 @@ function result(api, {
 } = {}) {
   return api.createTrackSourceResult({
     channel: channel || `${kind}-fixture`,
-    duration: 600,
+    duration,
     generation,
     kind,
     observation,
@@ -42,13 +47,14 @@ function result(api, {
     sourceId: sourceId || `${kind}-source`,
     sourceScore,
     status,
-    tracks: tracks(starts, titles),
+    tracks: tracks(starts, titles, duration),
     videoId,
   });
 }
 
-function consider(api, selection, candidate) {
+function consider(api, selection, candidate, duration = 600) {
   return api.considerTrackSource(selection, candidate, {
+    duration,
     generation: 1,
     videoId: "album",
   });
@@ -275,6 +281,51 @@ test("wrong videos, stale generations, and malformed timing sets are ineligible"
   malformed.tracks[1].start = malformed.tracks[0].start;
   assert.equal(consider(api, selection, malformed).accepted, false);
   assert.equal(selection.current, null);
+});
+
+test("duration revisions invalidate old intervals and reject stale or unbounded results", async () => {
+  const api = await loadTrackSelection();
+  const selection = api.createTrackSelectionState();
+
+  assert.equal(api.updateTrackSelectionDuration(selection, 90), false);
+  assert.equal(selection.duration, 90);
+  const short = result(api, {
+    duration: 90,
+    kind: api.TRACK_SOURCE_KINDS.DESCRIPTION,
+    starts: [0, 30, 60],
+  });
+  assert.equal(consider(api, selection, short, 90).accepted, true);
+  assert.equal(selection.current.tracks.at(-1).end, 90);
+  const ownershipEvidence = selection.weakOwnershipObservations;
+  ownershipEvidence.set("description:fixture", { count: 1 });
+
+  assert.equal(api.updateTrackSelectionDuration(selection, 150), true);
+  assert.equal(selection.duration, 150);
+  assert.equal(selection.current, null, "old-duration timing decisions must be discarded");
+  assert.equal(selection.weakOwnershipObservations, ownershipEvidence);
+  assert.equal(selection.weakOwnershipObservations.has("description:fixture"), true);
+  assert.equal(consider(api, selection, short, 150).accepted, false);
+
+  const grown = result(api, {
+    duration: 150,
+    kind: api.TRACK_SOURCE_KINDS.DESCRIPTION,
+    starts: [0, 30, 60, 120],
+  });
+  assert.equal(consider(api, selection, grown, 150).accepted, true);
+  assert.equal(selection.current.tracks.at(-1).end, 150);
+
+  const beyondDuration = result(api, {
+    duration: 150,
+    kind: api.TRACK_SOURCE_KINDS.DESCRIPTION,
+  });
+  beyondDuration.tracks.at(-1).end = 151;
+  selection.current = null;
+  assert.equal(consider(api, selection, beyondDuration, 150).accepted, false);
+
+  assert.equal(api.updateTrackSelectionDuration(selection, 150), false);
+  assert.equal(api.updateTrackSelectionDuration(selection, 0), false);
+  assert.equal(api.updateTrackSelectionDuration(selection, Number.NaN), false);
+  assert.equal(selection.duration, 150);
 });
 
 test("weak text-only ownership requires two consecutive scan observations", async () => {
