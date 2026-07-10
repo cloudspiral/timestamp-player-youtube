@@ -3,14 +3,14 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-async function loadWatchSession() {
+async function loadWatchSession(globals = {}) {
   const [discoveryStatusSource, timestampsSource, trackSelectionSource, source] = await Promise.all([
     readFile(new URL("../src/discovery-status.js", import.meta.url), "utf8"),
     readFile(new URL("../src/timestamps.js", import.meta.url), "utf8"),
     readFile(new URL("../src/track-selection.js", import.meta.url), "utf8"),
     readFile(new URL("../src/watch-session.js", import.meta.url), "utf8"),
   ]);
-  const context = vm.createContext({ AbortController });
+  const context = vm.createContext({ AbortController, ...globals });
   vm.runInContext(discoveryStatusSource, context);
   vm.runInContext(timestampsSource, context);
   vm.runInContext(trackSelectionSource, context);
@@ -20,6 +20,46 @@ async function loadWatchSession() {
     discoveryStatus: context.TimestampPlayerDiscoveryStatus,
   };
 }
+
+test("default browser timers keep the Window receiver when retries are cancelled", async () => {
+  const timers = new Map();
+  let nextTimerId = 1;
+  const timerGlobals = {
+    browserTimerGlobal: true,
+    setTimeout(callback, delay) {
+      if (this?.browserTimerGlobal !== true) {
+        throw new TypeError("Illegal invocation");
+      }
+      const timerId = nextTimerId;
+      nextTimerId += 1;
+      timers.set(timerId, { callback, delay });
+      return timerId;
+    },
+    clearTimeout(timerId) {
+      if (this?.browserTimerGlobal !== true) {
+        throw new TypeError("Illegal invocation");
+      }
+      timers.delete(timerId);
+    },
+  };
+  const {
+    createWatchSession,
+    resetSessionRetry,
+    scheduleSessionRetry,
+  } = await loadWatchSession(timerGlobals);
+  const session = createWatchSession({ generation: 1, videoId: "album" });
+
+  assert.equal(scheduleSessionRetry(
+    session,
+    "sourceDiscovery",
+    () => {},
+    { now: () => 0, policy: { delays: [100], maxElapsedMs: 1000 } }
+  ), true);
+  assert.equal(timers.size, 1);
+
+  assert.doesNotThrow(() => resetSessionRetry(session, "sourceDiscovery"));
+  assert.equal(timers.size, 0);
+});
 
 class FakeClock {
   now = 0;

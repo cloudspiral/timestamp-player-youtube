@@ -5,6 +5,14 @@
   ]);
   const DEFAULT_POLL_INTERVAL_MS = 1000;
 
+  function setGlobalInterval(callback, delay) {
+    return globalThis.setInterval(callback, delay);
+  }
+
+  function clearGlobalInterval(intervalId) {
+    globalThis.clearInterval(intervalId);
+  }
+
   function getWatchVideoId(urlValue) {
     let url;
     try {
@@ -28,8 +36,8 @@
     onLeave = () => {},
     onNavigate = () => {},
     pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-    setIntervalFn = globalThis.setInterval,
-    clearIntervalFn = globalThis.clearInterval,
+    setIntervalFn = setGlobalInterval,
+    clearIntervalFn = clearGlobalInterval,
   }) {
     let activeVideoId = null;
     let intervalId = null;

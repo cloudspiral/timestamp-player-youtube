@@ -3,12 +3,44 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-async function loadWatchRoute() {
+async function loadWatchRoute(globals = {}) {
   const source = await readFile(new URL("../src/watch-route.js", import.meta.url), "utf8");
-  const context = vm.createContext({ URL });
+  const context = vm.createContext({ URL, ...globals });
   vm.runInContext(source, context);
   return context.TimestampPlayerWatchRoute;
 }
+
+test("default route polling keeps the Window receiver during startup and cleanup", async () => {
+  const intervals = new Map();
+  let nextIntervalId = 1;
+  const intervalGlobals = {
+    browserTimerGlobal: true,
+    setInterval(callback, delay) {
+      if (this?.browserTimerGlobal !== true) {
+        throw new TypeError("Illegal invocation");
+      }
+      const intervalId = nextIntervalId;
+      nextIntervalId += 1;
+      intervals.set(intervalId, { callback, delay });
+      return intervalId;
+    },
+    clearInterval(intervalId) {
+      if (this?.browserTimerGlobal !== true) {
+        throw new TypeError("Illegal invocation");
+      }
+      intervals.delete(intervalId);
+    },
+  };
+  const { createWatchRouteController } = await loadWatchRoute(intervalGlobals);
+  const controller = createWatchRouteController({
+    getUrl: () => "https://www.youtube.com/",
+  });
+
+  assert.doesNotThrow(() => controller.start());
+  assert.equal(intervals.size, 1);
+  assert.doesNotThrow(() => controller.stop());
+  assert.equal(intervals.size, 0);
+});
 
 class FakeEventTarget {
   listeners = new Map();

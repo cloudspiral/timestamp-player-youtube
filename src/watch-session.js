@@ -33,6 +33,14 @@
     }),
   });
 
+  function setGlobalTimeout(callback, delay) {
+    return globalThis.setTimeout(callback, delay);
+  }
+
+  function clearGlobalTimeout(timerId) {
+    globalThis.clearTimeout(timerId);
+  }
+
   function createWatchSession({ generation, videoId, now = Date.now() }) {
     if (!Number.isInteger(generation) || generation < 1) {
       throw new TypeError("Watch session generation must be a positive integer");
@@ -203,8 +211,8 @@
   function scheduleSessionTask(session, taskName, callback, {
     delay = 0,
     now = Date.now,
-    setTimer = globalThis.setTimeout,
-    clearTimer = globalThis.clearTimeout,
+    setTimer = setGlobalTimeout,
+    clearTimer = clearGlobalTimeout,
   } = {}) {
     if (!session || session.abortController.signal.aborted) {
       return false;
@@ -255,8 +263,8 @@
   function scheduleSessionRetry(session, retryName, callback, {
     policy = DEFAULT_RETRY_POLICIES[retryName],
     now = Date.now,
-    setTimer = globalThis.setTimeout,
-    clearTimer = globalThis.clearTimeout,
+    setTimer = setGlobalTimeout,
+    clearTimer = clearGlobalTimeout,
   } = {}) {
     const retry = session?.retries[retryName];
     if (!retry || !policy || session.abortController.signal.aborted) {
