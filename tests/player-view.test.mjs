@@ -512,8 +512,10 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   assert.equal(elements.repeatButton.getAttribute("aria-pressed"), "true");
   assert.equal(elements.compactButton.getAttribute("aria-label"), "Compact player");
   assert.equal(elements.compactButton.getAttribute("aria-pressed"), "true");
+  assert.equal(elements.compactButton.title, "Expand player");
   assert.equal(elements.popoutButton.getAttribute("aria-label"), "Pop out player");
   assert.equal(elements.popoutButton.getAttribute("aria-pressed"), "false");
+  assert.equal(elements.popoutButton.title, "Pop out player");
   assert.equal(elements.trackEl.textContent, "Track: Opening");
   assert.equal(elements.trackEl.title, "Track: Opening");
   assert.equal(elements.trackEl.disabled, true, "compact current-track control has no action");
@@ -533,8 +535,10 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   assert.equal(elements.playPauseButton.disabled, true);
   assert.equal(elements.playPauseButton.getAttribute("aria-label"), "Play");
   assert.equal(elements.compactButton.disabled, true);
+  assert.equal(elements.compactButton.title, "Compact player");
   assert.equal(elements.popoutButton.getAttribute("aria-label"), "Pop out player");
   assert.equal(elements.popoutButton.getAttribute("aria-pressed"), "true");
+  assert.equal(elements.popoutButton.title, "Dock player");
   assert.equal(elements.trackEl.textContent, "No track selected");
   assert.equal(elements.trackEl.title, "");
   assert.equal(elements.countEl.textContent, "");
@@ -573,6 +577,46 @@ test("explicit-open focus chooses the active layout control without creating or 
   assert.equal(harness.controller.focusOpenControl(), false, "disabled layout controls are skipped");
   harness.controller.render({ tracksAvailable: true, visible: false });
   assert.equal(harness.controller.focusOpenControl(), false, "hidden panels are skipped");
+});
+
+test("layout toggle titles describe the next action while accessible names remain stable", async () => {
+  const harness = await createHarness();
+  const elements = harness.controller.render({
+    anchored: true,
+    anchoredCompact: false,
+    tracksAvailable: true,
+    visible: true,
+  });
+  assert.equal(elements.compactButton.title, "Compact player");
+  assert.equal(elements.popoutButton.title, "Pop out player");
+
+  harness.controller.render({
+    anchored: true,
+    anchoredCompact: true,
+    tracksAvailable: true,
+    visible: true,
+  });
+  assert.equal(elements.compactButton.title, "Expand player");
+  assert.equal(elements.compactButton.getAttribute("aria-label"), "Compact player");
+  assert.equal(elements.compactButton.getAttribute("aria-pressed"), "true");
+
+  harness.controller.render({
+    floating: true,
+    tracksAvailable: true,
+    visible: true,
+  });
+  assert.equal(elements.popoutButton.title, "Dock player");
+  assert.equal(elements.popoutButton.getAttribute("aria-label"), "Pop out player");
+  assert.equal(elements.popoutButton.getAttribute("aria-pressed"), "true");
+
+  harness.controller.render({
+    anchored: true,
+    anchoredCompact: false,
+    tracksAvailable: true,
+    visible: true,
+  });
+  assert.equal(elements.compactButton.title, "Compact player");
+  assert.equal(elements.popoutButton.title, "Pop out player");
 });
 
 test("render keeps discovered tracks visible while media controls are unavailable", async () => {

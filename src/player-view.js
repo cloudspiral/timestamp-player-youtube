@@ -244,7 +244,9 @@
       elements.nextButton.disabled = !controlsEnabled;
       elements.compactButton.disabled = !tracksAvailable || floating;
       elements.compactButton.setAttribute("aria-pressed", String(anchoredCompact));
+      elements.compactButton.title = anchoredCompact ? "Expand player" : "Compact player";
       elements.popoutButton.setAttribute("aria-pressed", String(floating));
+      elements.popoutButton.title = floating ? "Dock player" : "Pop out player";
 
       const track = tracks[currentTrackIndex];
       const trackLabel = track ? formatTrackLabel(track) : "No track selected";
