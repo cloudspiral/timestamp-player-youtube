@@ -1080,6 +1080,11 @@
       state.session.userClosedPanel = false;
     }
     updateUi();
+    if (isPlayerPanelVisible()) {
+      playerView.focusOpenControl({
+        floating: state.panelMode === PANEL_MODES.FLOATING,
+      });
+    }
   }
 
   function togglePanelMode() {

@@ -121,6 +121,7 @@ class FakeElement extends FakeEventTarget {
     this.classList = new FakeClassList();
     this.style = new FakeStyle();
     this.disabled = false;
+    this.focusCalls = [];
     this.hidden = false;
     this.id = "";
     this.max = "";
@@ -149,6 +150,11 @@ class FakeElement extends FakeEventTarget {
 
   getBoundingClientRect() {
     return { ...this.rect };
+  }
+
+  focus(options) {
+    this.focusCalls.push(options);
+    this.documentObject.activeElement = this;
   }
 
   set className(value) {
@@ -269,6 +275,7 @@ class FakeElement extends FakeEventTarget {
 
 class FakeDocument {
   constructor() {
+    this.activeElement = null;
     this.createdElements = [];
     this.documentElement = new FakeElement(this, "html");
   }
@@ -531,6 +538,41 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   assert.equal(elements.trackEl.textContent, "No track selected");
   assert.equal(elements.trackEl.title, "");
   assert.equal(elements.countEl.textContent, "");
+});
+
+test("explicit-open focus chooses the active layout control without creating or focusing hidden UI", async () => {
+  const harness = await createHarness();
+  assert.equal(harness.controller.focusOpenControl(), false);
+  assert.equal(harness.documentObject.createdElements.length, 0, "focus must not create a shell");
+
+  const elements = harness.controller.render({
+    anchored: true,
+    tracksAvailable: true,
+    visible: true,
+  });
+  assert.equal(harness.controller.focusOpenControl({ floating: false }), true);
+  assert.equal(harness.documentObject.activeElement, elements.compactButton);
+  assert.equal(elements.compactButton.focusCalls.length, 1);
+  assert.equal(elements.compactButton.focusCalls[0].preventScroll, true);
+
+  harness.controller.render({
+    floating: true,
+    tracksAvailable: true,
+    visible: true,
+  });
+  assert.equal(harness.controller.focusOpenControl({ floating: true }), true);
+  assert.equal(harness.documentObject.activeElement, elements.popoutButton);
+  assert.equal(elements.popoutButton.focusCalls.length, 1);
+  assert.equal(elements.popoutButton.focusCalls[0].preventScroll, true);
+
+  harness.controller.render({
+    anchored: true,
+    tracksAvailable: false,
+    visible: true,
+  });
+  assert.equal(harness.controller.focusOpenControl(), false, "disabled layout controls are skipped");
+  harness.controller.render({ tracksAvailable: true, visible: false });
+  assert.equal(harness.controller.focusOpenControl(), false, "hidden panels are skipped");
 });
 
 test("render keeps discovered tracks visible while media controls are unavailable", async () => {
@@ -860,9 +902,14 @@ test("launcher disclosure semantics and focus restoration stay user-driven", asy
     source,
     /function handlePlayerKeyDown[\s\S]*?event\.key !== "Escape"[\s\S]*?event\.defaultPrevented[\s\S]*?playerRoot\?\.contains\(event\.target\)[\s\S]*?closePlayer\(\)/
   );
+  assert.match(
+    source,
+    /function togglePlayerOpen[\s\S]*?updateUi\(\);[\s\S]*?isPlayerPanelVisible\(\)[\s\S]*?playerView\.focusOpenControl\(\{[\s\S]*?floating: state\.panelMode === PANEL_MODES\.FLOATING/
+  );
   const autoOpenStart = source.indexOf("function maybeAutoOpenCompact");
   const autoOpenEnd = source.indexOf("function tracksBelongToVideo", autoOpenStart);
   assert.doesNotMatch(source.slice(autoOpenStart, autoOpenEnd), /\.focus\(/);
+  assert.doesNotMatch(source.slice(autoOpenStart, autoOpenEnd), /focusOpenControl/);
 });
 
 test("player CSS exposes native range, focus-visible, hidden, and target-size affordances", async () => {

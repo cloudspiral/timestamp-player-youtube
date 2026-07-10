@@ -380,6 +380,18 @@
       return elements;
     }
 
+    function focusOpenControl({ floating = false } = {}) {
+      if (!elements?.root || elements.root.hidden) {
+        return false;
+      }
+      const target = floating ? elements.popoutButton : elements.compactButton;
+      if (!target || target.disabled || typeof target.focus !== "function") {
+        return false;
+      }
+      target.focus({ preventScroll: true });
+      return true;
+    }
+
     function scrollTrackIntoView(index) {
       const listElement = elements?.listEl;
       const item = getTrackRowForIndex(index);
@@ -421,6 +433,7 @@
     return {
       applySettings,
       ensure,
+      focusOpenControl,
       getElements,
       getTrackRowForIndex,
       render,
