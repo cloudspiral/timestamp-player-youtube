@@ -674,13 +674,13 @@ test("visible DOM comments and native moments are not gated on the network fetch
   assert.ok(descriptionWaitStart >= 0, "description readiness should remain explicit");
   assert.match(
     source.slice(descriptionWaitStart, domScanIndex),
-    /descriptionDiscovery\.results\.length === 0/,
-    "description expansion must be gated by viable parsed sources, not generic panel text"
+    /descriptionDiscovery\.results\.length === 0[\s\S]*?!quietDescriptionReadable/,
+    "description expansion must require neither a viable source nor a hydrated quiet body"
   );
-  assert.doesNotMatch(
-    source.slice(descriptionWaitStart, domScanIndex),
-    /quietDescriptionReadable|canReadQuietDescription/,
-    "a nonempty structured-description shell must not suppress the fallback expansion"
+  assert.match(
+    source,
+    /const quietDescriptionReadable = trackDiscovery\.canReadQuietDescription\(videoId\)/,
+    "actual quiet body content should avoid an unnecessary visible expand/collapse cycle"
   );
   assert.doesNotMatch(
     source.slice(descriptionWaitStart, domScanIndex),

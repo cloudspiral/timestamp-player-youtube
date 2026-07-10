@@ -606,6 +606,7 @@
     const observation = beginTrackSelectionObservation(session.trackSelection);
     let awaitingSourceConfirmation = false;
     let descriptionDiscoveryPending = false;
+    const quietDescriptionReadable = trackDiscovery.canReadQuietDescription(videoId);
     const descriptionDiscovery = trackDiscovery.getDescriptionSourceResults(
       session,
       duration,
@@ -626,6 +627,7 @@
     const descriptionNeedsHydration = (
       !descriptionSelected
       && descriptionDiscovery.results.length === 0
+      && !quietDescriptionReadable
     );
     if (descriptionNeedsHydration) {
       descriptionDiscoveryPending = true;

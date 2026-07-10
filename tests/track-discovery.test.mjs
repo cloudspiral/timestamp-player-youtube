@@ -120,11 +120,14 @@ test("description, visible-comment, and native discovery retain separate provena
   const session = createSession(selection);
   const descriptionRoot = {};
   const commentRoot = {};
+  const quietRoot = {};
   const youtubeDom = {
     classifyCommentRoot: () => ({ isPinned: true, isUploader: false }),
     getCommentRoots: () => [commentRoot],
     getDescriptionRoots: () => [descriptionRoot],
     getOwnershipEvidence: () => ({ linkedVideoIds: ["album"], shellVideoId: "" }),
+    getQuietDescriptionRoots: () => [quietRoot],
+    isDescriptionRootReadable: (root) => root === quietRoot,
     readCommentRoot: () => ({
       candidates: timestampCandidates("comment"),
       isPinned: true,
@@ -155,6 +158,7 @@ test("description, visible-comment, and native discovery retain separate provena
   assert.equal(comments.results[0].sourceScore, 150);
   assert.equal(native.result.source.kind, selection.TRACK_SOURCE_KINDS.NATIVE);
   assert.equal(native.result.status, selection.TRACK_SOURCE_STATUSES.PROVISIONAL);
+  assert.equal(controller.canReadQuietDescription("album"), true);
 });
 
 test("fetched comment discovery starts immediately and settles into normalized tracks", async () => {
