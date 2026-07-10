@@ -151,6 +151,7 @@
   }
 
   function handleChange(event) {
+    clearStatus();
     const customColorInput = customColorInputs.find(({ input }) => input === event.target);
     if (customColorInput) {
       checkRadio(customColorInput.colorSetting, "custom");
@@ -193,13 +194,19 @@
   }
 
   function showStatus(message, status, duration) {
+    clearStatus();
     statusEl.textContent = message;
     statusEl.setAttribute("data-status", status);
-    window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => {
-      statusEl.textContent = "";
-      statusEl.removeAttribute("data-status");
+      clearStatus();
     }, duration);
+  }
+
+  function clearStatus() {
+    window.clearTimeout(saveTimer);
+    saveTimer = null;
+    statusEl.textContent = "";
+    statusEl.removeAttribute("data-status");
   }
 
   init();

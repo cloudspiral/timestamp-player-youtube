@@ -285,3 +285,39 @@ test("failed save feedback remains visible materially longer than success feedba
   assert.equal(harness.status.textContent, "");
   assert.equal(harness.status.hasAttribute("data-status"), false);
 });
+
+test("a newer edit immediately clears stale success and failure feedback", async () => {
+  const harness = await createOptionsHarness();
+  harness.loadCallbacks[0](DEFAULT_SETTINGS);
+
+  harness.form.dispatch("change", { target: harness.autoShowInput });
+  harness.saveCalls[0].callback(true);
+  assert.equal(harness.status.textContent, "Saved");
+  harness.form.dispatch("change", { target: harness.autoShowInput });
+  assert.equal(harness.status.textContent, "");
+  assert.equal(harness.status.hasAttribute("data-status"), false);
+
+  harness.saveCalls[1].callback(false);
+  assert.equal(harness.status.textContent, "Could not save settings");
+  harness.form.dispatch("change", { target: harness.autoShowInput });
+  assert.equal(harness.status.textContent, "");
+  assert.equal(harness.status.hasAttribute("data-status"), false);
+});
+
+test("an older feedback timer cannot clear the latest save result", async () => {
+  const harness = await createOptionsHarness();
+  harness.loadCallbacks[0](DEFAULT_SETTINGS);
+  harness.form.dispatch("change", { target: harness.autoShowInput });
+  harness.saveCalls[0].callback(true);
+  harness.timers.advanceBy(1000);
+
+  harness.form.dispatch("change", { target: harness.autoShowInput });
+  harness.saveCalls[1].callback(true);
+  harness.timers.advanceBy(600);
+  assert.equal(harness.status.textContent, "Saved", "the first save's former deadline is inert");
+
+  harness.timers.advanceBy(999);
+  assert.equal(harness.status.textContent, "Saved");
+  harness.timers.advanceBy(1);
+  assert.equal(harness.status.textContent, "");
+});
