@@ -211,6 +211,23 @@
     return mergeTrackSourceTitles(liveResult, cachedResult);
   }
 
+  function createTrackTitleCacheEntry(result) {
+    if (!result?.videoId || !result?.source || !Array.isArray(result.tracks)) {
+      throw new TypeError("A track source result is required for title caching");
+    }
+
+    const tracks = result.tracks.map((track) => Object.freeze({
+      start: track.start,
+      title: String(track.title || ""),
+      titleSource: track.titleSource || null,
+    }));
+    return Object.freeze({
+      source: result.source,
+      tracks: Object.freeze(tracks),
+      videoId: result.videoId,
+    });
+  }
+
   function isTrackSourceEligible(result, { generation, videoId } = {}) {
     return Boolean(
       result
@@ -463,6 +480,7 @@
     considerTrackSource,
     createTrackSelectionState,
     createTrackSourceResult,
+    createTrackTitleCacheEntry,
     enrichTrackSourceFromCache,
     getTrackSourceKey,
     isTrackSourceEligible,

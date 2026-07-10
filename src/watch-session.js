@@ -55,7 +55,6 @@
       },
       commentDiscovery: {
         outcome: null,
-        records: [],
         result: null,
         status: COMMENT_DISCOVERY_STATUSES.IDLE,
       },

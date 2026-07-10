@@ -22,6 +22,11 @@
     fetchCommentRecords,
   } = globalThis.TimestampPlayerCommentFetching;
   const {
+    createTrackTitleCache,
+    retainFetchedCommentResult,
+    storeSettledTrackTitles,
+  } = globalThis.TimestampPlayerDiscoveryCache;
+  const {
     getNativeTimestampDiscovery,
     isNativeTimestampSectionElement,
   } = globalThis.TimestampPlayerNativeTimestamps;
@@ -122,7 +127,7 @@
     settings: { ...DEFAULT_SETTINGS },
     tracks: [],
     currentTrackIndex: -1,
-    trackCache: new Map(),
+    trackTitleCache: createTrackTitleCache(),
     pageObserver: null,
     pageObserverRoot: null,
     settingsChangeCleanup: null,
@@ -642,6 +647,7 @@
 
   function considerTrackSourceResults(session, results) {
     let awaitingOwnershipConfirmation = false;
+    const cachedTitles = state.trackTitleCache.get(session.videoId);
     for (const result of results) {
       const ownedResult = observeTrackSourceOwnership(session.trackSelection, result);
       if (!ownedResult) {
@@ -652,7 +658,7 @@
 
       const enrichedResult = enrichTrackSourceFromCache(
         ownedResult,
-        state.trackCache.get(session.videoId)
+        cachedTitles
       );
       considerTrackSource(session.trackSelection, enrichedResult, {
         generation: session.generation,
@@ -677,9 +683,7 @@
       state.playback = clearPlaybackOrder(state.playback);
     }
     state.tracks = tracks;
-    if (selectedResult) {
-      state.trackCache.set(session.videoId, selectedResult);
-    }
+    storeSettledTrackTitles(state.trackTitleCache, selectedResult);
     state.currentTrackIndex = getTrackAtTime(video.currentTime)?.index ?? -1;
   }
 
@@ -1234,9 +1238,6 @@
     const discovery = session.commentDiscovery;
     const records = Array.isArray(result?.records) ? result.records : [];
     discovery.outcome = result?.status || COMMENT_FETCH_OUTCOMES.UNSUPPORTED;
-    if (records.length > 0 || discovery.records.length === 0) {
-      discovery.records = records;
-    }
     const retryable = shouldRetryCommentFetch(result);
     const retryScheduled = retryable && scheduleSessionRetry(
       session,
@@ -1253,15 +1254,17 @@
     const sourceStatus = retryScheduled
       ? TRACK_SOURCE_STATUSES.PROVISIONAL
       : TRACK_SOURCE_STATUSES.SETTLED;
-    const bestResult = getBestFetchedCommentResult(
+    const incomingResult = getBestFetchedCommentResult(
       session,
-      discovery.records,
+      records,
       duration,
       sourceStatus
     );
-    if (bestResult) {
-      discovery.result = bestResult;
-    }
+    discovery.result = retainFetchedCommentResult(
+      discovery.result,
+      incomingResult,
+      sourceStatus
+    );
     if (!retryScheduled && !retryable) {
       resetSessionRetry(session, "commentFetch");
     }

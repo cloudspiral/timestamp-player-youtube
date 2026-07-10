@@ -447,3 +447,41 @@ test("cache can enrich a live exact-start result but cannot enter selection by i
   consider(api, selection, enriched);
   assert.equal(selection.current.source.id, "live-description");
 });
+
+test("title cache entries retain only immutable enrichment data", async () => {
+  const api = await loadTrackSelection();
+  const sourceResult = result(api, {
+    generation: 9,
+    kind: api.TRACK_SOURCE_KINDS.COMMENT,
+    sourceId: "fetched-comment",
+    status: api.TRACK_SOURCE_STATUSES.SETTLED,
+    titles: ["Cached one", "Cached two"],
+  });
+
+  const entry = api.createTrackTitleCacheEntry(sourceResult);
+
+  assert.deepEqual(Object.keys(entry).sort(), ["source", "tracks", "videoId"]);
+  assert.deepEqual(
+    entry.tracks.map((track) => Object.keys(track).sort()),
+    [
+      ["start", "title", "titleSource"],
+      ["start", "title", "titleSource"],
+    ]
+  );
+  assert.equal(entry.videoId, sourceResult.videoId);
+  assert.equal(entry.source, sourceResult.source);
+  assert.equal(Object.isFrozen(entry), true);
+  assert.equal(Object.isFrozen(entry.tracks), true);
+  assert.equal(entry.tracks.every(Object.isFrozen), true);
+  assert.equal("generation" in entry, false);
+  assert.equal("ownership" in entry, false);
+  assert.equal("status" in entry, false);
+
+  const live = result(api, {
+    kind: api.TRACK_SOURCE_KINDS.DESCRIPTION,
+    sourceId: "live-description",
+  });
+  const enriched = api.enrichTrackSourceFromCache(live, entry);
+  assert.deepEqual(enriched.tracks.map(({ title }) => title), ["Cached one", "Cached two"]);
+  assert.throws(() => api.createTrackTitleCacheEntry(null), /required for title caching/);
+});
