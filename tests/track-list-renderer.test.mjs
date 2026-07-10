@@ -39,6 +39,7 @@ class FakeElement {
     this.className = "";
     this.dataset = {};
     this.disabled = false;
+    this.focusCalls = [];
     this.textContent = "";
     this.title = "";
     this.type = "";
@@ -86,7 +87,8 @@ class FakeElement {
     return this.children.some((child) => child.contains(element));
   }
 
-  focus() {
+  focus(options) {
+    this.focusCalls.push(options);
     this.ownerDocument.activeElement = this;
   }
 
@@ -190,6 +192,95 @@ test("prefix expansion reuses existing buttons and creates only the added row", 
   assert.equal(document.createCount - initialCreateCount, 4, "one button and its three spans are added");
   assert.equal(document.activeElement, secondRow);
   assert.equal(listElement.children.length, 3);
+});
+
+test("focus follows a logical track when a source replacement changes its start key", async () => {
+  const api = await loadRenderer();
+  const { document, renderer } = createFixture(api);
+  renderer.renderCollection(tracks());
+  const originalMiddle = renderer.getRowForIndex(1);
+  originalMiddle.focus();
+
+  const replacementTracks = tracks().map((track) => ({ ...track }));
+  replacementTracks[1].start = 61;
+  renderer.renderCollection(replacementTracks);
+
+  const replacementMiddle = renderer.getRowForIndex(1);
+  assert.notEqual(replacementMiddle, originalMiddle);
+  assert.equal(document.activeElement, replacementMiddle);
+  assert.equal(replacementMiddle.focusCalls.length, 1);
+  assert.equal(replacementMiddle.focusCalls[0].preventScroll, true);
+});
+
+test("focus follows the logical index when an old start key is reused by another track", async () => {
+  const api = await loadRenderer();
+  const { document, renderer } = createFixture(api);
+  renderer.renderCollection(tracks());
+  const originalMiddle = renderer.getRowForIndex(1);
+  originalMiddle.focus();
+
+  renderer.renderCollection([
+    { end: 60, index: 0, start: 0, title: "Opening" },
+    { end: 90, index: 2, start: 60, title: "Inserted" },
+    { end: 180, index: 1, start: 90, title: "Moved middle" },
+  ]);
+
+  const replacementMiddle = renderer.getRowForIndex(1);
+  assert.equal(renderer.getRowForIndex(2), originalMiddle, "the start-key row is reused for another index");
+  assert.notEqual(replacementMiddle, originalMiddle);
+  assert.equal(document.activeElement, replacementMiddle);
+  assert.equal(replacementMiddle.focusCalls.length, 1);
+  assert.equal(replacementMiddle.focusCalls[0].preventScroll, true);
+});
+
+test("duplicate starts preserve focus on the corresponding logical row", async () => {
+  const api = await loadRenderer();
+  const { document, renderer } = createFixture(api);
+  renderer.renderCollection([
+    { end: 60, index: 0, start: 0, title: "First" },
+    { end: 90, index: 1, start: 60, title: "Middle A" },
+    { end: 120, index: 2, start: 60, title: "Middle B" },
+  ]);
+  const focused = renderer.getRowForIndex(2);
+  focused.focus();
+
+  renderer.renderCollection([
+    { end: 60, index: 0, start: 0, title: "First" },
+    { end: 91, index: 1, start: 61, title: "Middle A" },
+    { end: 120, index: 2, start: 61, title: "Middle B" },
+  ]);
+
+  const replacement = renderer.getRowForIndex(2);
+  assert.notEqual(replacement, focused);
+  assert.equal(document.activeElement, replacement);
+  assert.equal(replacement.focusCalls.length, 1);
+  assert.equal(replacement.focusCalls[0].preventScroll, true);
+});
+
+test("focus restoration is skipped for stable, removed, and disabled logical rows", async () => {
+  const api = await loadRenderer();
+  const { document, renderer } = createFixture(api);
+  renderer.renderCollection(tracks());
+  const stableMiddle = renderer.getRowForIndex(1);
+  stableMiddle.focus();
+  renderer.renderCollection(tracks(["Opening", "Renamed", "Finale"]));
+  assert.equal(document.activeElement, stableMiddle);
+  assert.equal(stableMiddle.focusCalls.length, 1, "stable keyed rows are not focused again");
+
+  renderer.renderCollection(tracks().slice(0, 1));
+  assert.equal(document.activeElement, null, "a removed logical index has no forced fallback");
+
+  renderer.renderCollection(tracks());
+  const nextMiddle = renderer.getRowForIndex(1);
+  nextMiddle.focus();
+  renderer.renderEnabled(false);
+  const shifted = tracks().map((track) => ({ ...track }));
+  shifted[1].start = 61;
+  renderer.renderCollection(shifted);
+  assert.equal(document.activeElement, null, "disabled replacement controls do not receive focus");
+
+  renderer.renderCollection([]);
+  assert.equal(document.activeElement, null);
 });
 
 test("active state updates only the old and new keyed rows", async () => {

@@ -27,6 +27,8 @@
         return false;
       }
 
+      const focusedRow = getFocusedRow(rowsByKey, document.activeElement);
+      const focusedTrackIndex = focusedRow?.trackIndex ?? null;
       const nextRows = new Map();
       for (const [position, descriptor] of descriptors.entries()) {
         const row = rowsByKey.get(descriptor.key) || createTrackRow(document);
@@ -49,6 +51,11 @@
 
       rowsByKey = nextRows;
       collectionSignature = nextSignature;
+      restoreReplacedRowFocus({
+        focusedRow,
+        focusedTrackIndex,
+        rowsByKey,
+      });
       return true;
     }
 
@@ -174,6 +181,40 @@
 
   function setRowEnabled(row, enabled) {
     row.item.disabled = !enabled;
+  }
+
+  function getFocusedRow(rowsByKey, activeElement) {
+    if (!activeElement) {
+      return null;
+    }
+    for (const row of rowsByKey.values()) {
+      if (row.item === activeElement || row.item.contains?.(activeElement)) {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  function restoreReplacedRowFocus({ focusedRow, focusedTrackIndex, rowsByKey }) {
+    if (!focusedRow || !Number.isInteger(focusedTrackIndex)) {
+      return false;
+    }
+
+    const focusedItemStillOwnsIndex = [...rowsByKey.values()].some((row) => {
+      return row === focusedRow && row.trackIndex === focusedTrackIndex;
+    });
+    if (focusedItemStillOwnsIndex) {
+      return false;
+    }
+
+    const replacement = [...rowsByKey.values()].find((row) => {
+      return row.trackIndex === focusedTrackIndex;
+    });
+    if (!replacement || replacement.item.disabled) {
+      return false;
+    }
+    replacement.item.focus?.({ preventScroll: true });
+    return true;
   }
 
   globalThis.TimestampPlayerTrackListRenderer = {
