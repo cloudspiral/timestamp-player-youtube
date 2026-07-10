@@ -322,7 +322,7 @@ test("observer configuration covers narrow visibility, text, and video-id hydrat
   }
   assert.match(
     contentSource,
-    /restorePlayerAfterLauncherSync[\s\S]*mountPlayerForMode\(inlineCompact\)[\s\S]*layoutPlayer\(\)/
+    /restorePlayerAfterLauncherSync[\s\S]*playerLayout\.prepareMount\(\{ inlineCompact \}\)[\s\S]*playerLayout\.layoutNow\(/
   );
 });
 
