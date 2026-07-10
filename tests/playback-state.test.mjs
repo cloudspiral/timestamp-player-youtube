@@ -85,6 +85,76 @@ test("repeat toggles one/off, rejects stale modes, and remains off without playa
   assert.equal(api.createPlaybackState({ repeatMode: "all" }).repeatMode, api.REPEAT_MODES.OFF);
 });
 
+test("boundary decisions trigger repeat and shuffle only at or after the exact track end", async () => {
+  const api = await loadPlaybackState();
+  const tracks = [
+    { end: 60, index: 0, start: 0 },
+    { end: 120, index: 1, start: 60 },
+  ];
+  const repeat = api.createPlaybackState({
+    repeatMode: api.REPEAT_MODES.ONE,
+    shuffleEnabled: true,
+  });
+  const shuffle = api.createPlaybackState({ shuffleEnabled: true });
+
+  assert.deepEqual(plain(api.getPlaybackPositionDecision(repeat, {
+    activeTrackIndex: 0,
+    currentTime: 59.999,
+    tracks,
+  })), {
+    boundaryAction: api.PLAYBACK_BOUNDARY_ACTIONS.NONE,
+    trackIndex: 0,
+  });
+  for (const currentTime of [60, 60.001]) {
+    assert.deepEqual(plain(api.getPlaybackPositionDecision(repeat, {
+      activeTrackIndex: 0,
+      currentTime,
+      tracks,
+    })), {
+      boundaryAction: api.PLAYBACK_BOUNDARY_ACTIONS.REPEAT_ONE,
+      trackIndex: 1,
+    });
+    assert.deepEqual(plain(api.getPlaybackPositionDecision(shuffle, {
+      activeTrackIndex: 0,
+      currentTime,
+      tracks,
+    })), {
+      boundaryAction: api.PLAYBACK_BOUNDARY_ACTIONS.SHUFFLE_NEXT,
+      trackIndex: 1,
+    });
+  }
+});
+
+test("seek decisions update the destination track without triggering boundary playback", async () => {
+  const api = await loadPlaybackState();
+  const tracks = [
+    { end: 60, index: 0, start: 0 },
+    { end: 120, index: 1, start: 60 },
+    { end: 180, index: 2, start: 120 },
+  ];
+  const repeatAndShuffle = api.createPlaybackState({
+    repeatMode: api.REPEAT_MODES.ONE,
+    shuffleEnabled: true,
+  });
+
+  for (const currentTime of [60, 120, 125]) {
+    const expectedTrackIndex = currentTime < 120 ? 1 : 2;
+    assert.deepEqual(plain(api.getPlaybackPositionDecision(repeatAndShuffle, {
+      activeTrackIndex: 0,
+      currentTime,
+      seeking: true,
+      tracks,
+    })), {
+      boundaryAction: api.PLAYBACK_BOUNDARY_ACTIONS.NONE,
+      trackIndex: expectedTrackIndex,
+    });
+  }
+
+  assert.equal(api.getTrackIndexAtTime(tracks, 180), -1);
+  assert.equal(api.getTrackIndexAtTime(tracks, NaN), -1);
+  assert.equal(api.getTrackIndexAtTime(null, 60), -1);
+});
+
 test("public sequential selection preserves next and previous boundary behavior", async () => {
   const api = await loadPlaybackState();
   const state = api.createPlaybackState();

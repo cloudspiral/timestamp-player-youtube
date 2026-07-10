@@ -1,4 +1,6 @@
 (() => {
+  const SAVE_FAILURE_STATUS_DURATION_MS = 6000;
+  const SAVE_SUCCESS_STATUS_DURATION_MS = 1600;
   const {
     COMPACT_PROGRESS_COLORS,
     COMPACT_PROGRESS_STYLES,
@@ -16,18 +18,21 @@
     {
       input: compactProgressCustomColorInput,
       colorSetting: "compactProgressColor",
-      customSetting: "compactProgressCustomColor",
     },
     {
       input: progressCustomColorInput,
       colorSetting: "progressColor",
-      customSetting: "progressCustomColor",
     },
   ];
   const statusEl = document.getElementById("save-status");
+  let isInitialized = false;
+  let pendingSaveRequest = null;
+  let saveGeneration = 0;
+  let saveInFlight = false;
   let saveTimer = null;
 
   function init() {
+    setFormLoading(true);
     renderSegmentedControl("progressTimeMode", PROGRESS_TIME_MODES);
     renderSegmentedControl("compactProgressStyle", COMPACT_PROGRESS_STYLES);
     renderSwatchControl("trackHighlightColor", TRACK_HIGHLIGHT_COLORS);
@@ -35,9 +40,25 @@
     renderSwatchControl("progressColor", COMPACT_PROGRESS_COLORS);
 
     loadSettings((settings) => {
+      if (isInitialized) {
+        return;
+      }
+
+      isInitialized = true;
       applySettings(settings);
       form.addEventListener("change", handleChange);
+      setFormLoading(false);
     });
+  }
+
+  function setFormLoading(isLoading) {
+    form.setAttribute("aria-busy", String(isLoading));
+    if (isLoading) {
+      form.setAttribute("inert", "");
+      return;
+    }
+
+    form.removeAttribute("inert");
   }
 
   function renderSegmentedControl(settingName, choices) {
@@ -136,8 +157,33 @@
       updateCustomColorPreview(customColorInput.colorSetting, customColorInput.input.value);
     }
 
-    saveSettings(readSettingsFromForm(), (saved) => {
-      showStatus(saved ? "Saved" : "Could not save settings");
+    const generation = saveGeneration + 1;
+    saveGeneration = generation;
+    pendingSaveRequest = {
+      generation,
+      settings: readSettingsFromForm(),
+    };
+    flushPendingSave();
+  }
+
+  function flushPendingSave() {
+    if (saveInFlight || !pendingSaveRequest) {
+      return;
+    }
+
+    const request = pendingSaveRequest;
+    pendingSaveRequest = null;
+    saveInFlight = true;
+    saveSettings(request.settings, (saved) => {
+      saveInFlight = false;
+      if (request.generation === saveGeneration && !pendingSaveRequest) {
+        showStatus(
+          saved ? "Saved" : "Could not save settings",
+          saved ? "success" : "error",
+          saved ? SAVE_SUCCESS_STATUS_DURATION_MS : SAVE_FAILURE_STATUS_DURATION_MS
+        );
+      }
+      flushPendingSave();
     });
   }
 
@@ -146,12 +192,14 @@
     customSwatch?.style.setProperty("--swatch-color", color);
   }
 
-  function showStatus(message) {
+  function showStatus(message, status, duration) {
     statusEl.textContent = message;
+    statusEl.setAttribute("data-status", status);
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => {
       statusEl.textContent = "";
-    }, 1600);
+      statusEl.removeAttribute("data-status");
+    }, duration);
   }
 
   init();

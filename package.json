@@ -29,6 +29,7 @@
     "test:playback-state": "node --test tests/playback-state.test.mjs",
     "test:player-layout": "node --test tests/player-layout.test.mjs",
     "test:player-view": "node --test tests/player-view.test.mjs",
+    "test:options": "node --test tests/options.test.mjs",
     "test:tooling": "node --test tests/check-javascript.test.mjs tests/prepare-package-sources.test.mjs tests/verify-package-sources.test.mjs",
     "test": "node --test",
     "check": "npm run check:js && npm run check:manifest && npm test",

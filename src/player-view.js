@@ -31,6 +31,7 @@
     compactProgressColors = {},
     compactProgressStyles = {},
     trackHighlightColors = {},
+    prefersReducedMotion = defaultPrefersReducedMotion,
     handlers = {},
   } = {}) {
     if (!documentObject || typeof createTrackListRenderer !== "function") {
@@ -38,6 +39,9 @@
     }
     if (typeof formatTimestamp !== "function" || typeof formatTrackLabel !== "function") {
       throw new TypeError("Player view formatters are required");
+    }
+    if (typeof prefersReducedMotion !== "function") {
+      throw new TypeError("Player view motion preference must be a function");
     }
 
     let elements = null;
@@ -376,6 +380,30 @@
       return elements;
     }
 
+    function scrollTrackIntoView(index) {
+      const listElement = elements?.listEl;
+      const item = getTrackRowForIndex(index);
+      if (
+        !listElement
+        || !item
+        || typeof listElement.getBoundingClientRect !== "function"
+        || typeof item.getBoundingClientRect !== "function"
+      ) {
+        return false;
+      }
+
+      const listRect = listElement.getBoundingClientRect();
+      const itemRect = item.getBoundingClientRect();
+      const top = Math.max(0, listElement.scrollTop + itemRect.top - listRect.top);
+      const behavior = safelyPrefersReducedMotion(prefersReducedMotion) ? "auto" : "smooth";
+      if (typeof listElement.scrollTo === "function") {
+        listElement.scrollTo({ behavior, top });
+      } else {
+        listElement.scrollTop = top;
+      }
+      return true;
+    }
+
     function releaseCurrentShell() {
       listenerCleanups.forEach((cleanup) => cleanup());
       listenerCleanups = [];
@@ -398,8 +426,21 @@
       render,
       renderProgress,
       renderTrackList,
+      scrollTrackIntoView,
       teardown,
     };
+  }
+
+  function defaultPrefersReducedMotion() {
+    return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  }
+
+  function safelyPrefersReducedMotion(preference) {
+    try {
+      return preference() === true;
+    } catch (_error) {
+      return false;
+    }
   }
 
   function clamp(value, minimum, maximum) {

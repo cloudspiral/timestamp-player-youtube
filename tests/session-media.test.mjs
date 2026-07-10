@@ -242,6 +242,49 @@ test("a READY current-watch video owns one direct listener set without scan chur
   assert.ok(events.every(([, video]) => video === fixture.video));
 });
 
+test("current media owns seeking and ended state while stale elements cannot mutate it", async () => {
+  const { media, sessions } = await loadRuntime();
+  const first = createWatchVideo();
+  const second = createWatchVideo();
+  const root = new FakeRoot([first.video]);
+  const session = sessions.createWatchSession({ generation: 1, videoId: "album" });
+  const events = [];
+
+  resolve(media, session, root, ({ event }) => events.push(event.type));
+  first.video.dispatch("seeking");
+  assert.equal(session.media.seeking, true);
+  assert.equal(session.media.ended, false);
+
+  first.video.dispatch("seeked");
+  assert.equal(session.media.seeking, false);
+  assert.equal(session.media.ended, false);
+
+  first.video.dispatch("ended");
+  assert.equal(session.media.seeking, false);
+  assert.equal(session.media.ended, true);
+  const firstEndedEventCount = events.length;
+  first.video.dispatch("ended");
+  assert.equal(events.length, firstEndedEventCount, "duplicate ended events are coalesced");
+
+  first.video.dispatch("play");
+  assert.equal(session.media.ended, false);
+  first.video.dispatch("ended");
+  assert.equal(session.media.ended, true);
+
+  first.video.isConnected = false;
+  root.videos = [first.video, second.video];
+  resolve(media, session, root, ({ event }) => events.push(event.type));
+  assert.equal(session.media.seeking, false);
+  assert.equal(session.media.ended, false);
+
+  const eventCount = events.length;
+  first.video.dispatch("seeking");
+  first.video.dispatch("ended");
+  assert.equal(events.length, eventCount);
+  assert.equal(session.media.seeking, false);
+  assert.equal(session.media.ended, false);
+});
+
 test("midroll ad transitions preserve the bound element but gate READY access", async () => {
   const { media, mutations, resolver, sessions } = await loadRuntime();
   const fixture = createWatchVideo();
@@ -414,8 +457,9 @@ test("content uses only READY session media and guards playback state before mut
   assert.doesNotMatch(source, /querySelector\(\s*["']video/);
   assert.doesNotMatch(
     source,
-    /document\.(?:add|remove)EventListener\(\s*["'](?:timeupdate|play|pause)["']/
+    /document\.(?:add|remove)EventListener\(\s*["'](?:timeupdate|seeking|seeked|ended|play|pause)["']/
   );
+  assert.doesNotMatch(source, /TRACK_END_GRACE_SECONDS/);
   assert.match(source, /resolveAndBindSessionMedia\(session, \{/);
   assert.match(source, /onMedia: \(\) => scheduleMediaRefresh\(session\)/);
   assert.match(
@@ -429,6 +473,22 @@ test("content uses only READY session media and guards playback state before mut
   assert.match(
     source,
     /function handleSessionMediaEvent[\s\S]*?session\.media\.binding !== binding[\s\S]*?getReadySessionVideo\(session\) !== video/
+  );
+  assert.match(
+    source,
+    /event\.type === "seeking" \|\| event\.type === "seeked"[\s\S]*?handlePlaybackPosition\(video, session, \{ seekTransition: true \}\)/
+  );
+  assert.match(
+    source,
+    /event\.type === "timeupdate" \|\| event\.type === "ended"[\s\S]*?playbackEnded: event\.type === "ended"/
+  );
+  assert.match(
+    source,
+    /getPlaybackPositionDecision\(state\.playback,[\s\S]*?seeking,[\s\S]*?tracks: state\.tracks/
+  );
+  assert.match(
+    source,
+    /if \(playbackEnded\) \{[\s\S]*?updateUi\(\);[\s\S]*?\} else \{[\s\S]*?updateProgress\(video\);/
   );
 });
 

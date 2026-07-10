@@ -16,7 +16,7 @@
         </div>
       </header>
 
-      <form id="settings-form" class="settings-form">
+      <form id="settings-form" class="settings-form" aria-busy="true" inert>
         <section class="settings-section" aria-labelledby="behavior-heading">
           <div class="section-heading">
             <h2 id="behavior-heading">Behavior</h2>
@@ -74,7 +74,7 @@
           </fieldset>
         </section>
 
-        <p id="save-status" class="save-status" role="status" aria-live="polite"></p>
+        <p id="save-status" class="save-status" role="status" aria-live="polite" aria-atomic="true"></p>
       </form>
     </main>
 

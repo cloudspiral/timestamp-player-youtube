@@ -54,6 +54,15 @@ body {
   gap: 18px;
 }
 
+.settings-form[inert] {
+  opacity: 0.68;
+  cursor: progress;
+}
+
+.settings-form[inert] :is(input, label) {
+  cursor: progress;
+}
+
 .settings-section {
   display: grid;
   gap: 26px;
@@ -234,6 +243,14 @@ body {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.save-status[data-status="success"] {
+  color: #82d9aa;
+}
+
+.save-status[data-status="error"] {
+  color: #ff9bad;
 }
 
 @media (max-width: 540px) {

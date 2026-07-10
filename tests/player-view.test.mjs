@@ -125,6 +125,9 @@ class FakeElement extends FakeEventTarget {
     this.id = "";
     this.max = "";
     this.min = "";
+    this.rect = { top: 0 };
+    this.scrollCalls = [];
+    this.scrollTop = 0;
     this.step = "";
     this.textContent = "";
     this.title = "";
@@ -142,6 +145,10 @@ class FakeElement extends FakeEventTarget {
 
   get className() {
     return [...this.classList.values].join(" ");
+  }
+
+  getBoundingClientRect() {
+    return { ...this.rect };
   }
 
   set className(value) {
@@ -232,6 +239,11 @@ class FakeElement extends FakeEventTarget {
     }
   }
 
+  scrollTo(options) {
+    this.scrollCalls.push({ ...options });
+    this.scrollTop = options.top;
+  }
+
   setAttribute(name, value) {
     const stringValue = String(value);
     this.attributes.set(name, stringValue);
@@ -306,7 +318,7 @@ function formatTimestamp(seconds) {
   return `${minutes}:${String(wholeSeconds % 60).padStart(2, "0")}`;
 }
 
-async function createHarness({ handlers = {} } = {}) {
+async function createHarness({ handlers = {}, prefersReducedMotion = () => false } = {}) {
   const { playerView: runtime, progressTimeModeValues } = await runtimePromise;
   const documentObject = new FakeDocument();
   const rendererRecords = [];
@@ -317,7 +329,7 @@ async function createHarness({ handlers = {} } = {}) {
       collectionCalls: [],
       dependencies,
       enabledCalls: [],
-      row: { kind: "track-row" },
+      row: new FakeElement(documentObject, "button"),
     };
     rendererRecords.push(record);
     return {
@@ -363,6 +375,7 @@ async function createHarness({ handlers = {} } = {}) {
     formatTimestamp,
     formatTrackLabel: (track) => `Track: ${track.title}`,
     handlers,
+    prefersReducedMotion,
     trackHighlightColors,
   });
   return { controller, documentObject, progressTimeModeValues, rendererRecords, runtime };
@@ -615,6 +628,31 @@ test("progress rendering preserves remaining, duration, and reset presentations"
   assert.equal(elements.progressSlider.title, "");
 });
 
+test("track scrolling follows the user's reduced-motion preference", async () => {
+  for (const [preference, expectedBehavior] of [
+    [() => false, "smooth"],
+    [() => true, "auto"],
+    [() => { throw new Error("unavailable preference API"); }, "smooth"],
+  ]) {
+    const harness = await createHarness({
+      prefersReducedMotion: preference,
+    });
+    harness.controller.ensure();
+    const elements = harness.controller.getElements();
+    const row = harness.rendererRecords[0].row;
+    elements.listEl.scrollTop = 25;
+    elements.listEl.rect = { top: 100 };
+    row.rect = { top: 160 };
+
+    assert.equal(harness.controller.scrollTrackIntoView(4), true);
+    assert.equal(harness.rendererRecords[0].requestedIndex, 4);
+    assert.deepEqual(elements.listEl.scrollCalls, [{
+      behavior: expectedBehavior,
+      top: 85,
+    }]);
+  }
+});
+
 test("the polite live region announces track identity changes only while visible", async () => {
   const harness = await createHarness();
   const tracks = [
@@ -772,7 +810,8 @@ test("content delegates stable shell, settings, rendering, and list ownership to
     source,
     /function updateProgress[\s\S]*?ensurePlayerUi\(\);[\s\S]*?playerView\.renderProgress\(\{/
   );
-  assert.match(source, /playerView\.getTrackRowForIndex\(currentIndex\)/);
+  assert.match(source, /playerView\.scrollTrackIntoView\(currentIndex\)/);
+  assert.doesNotMatch(source, /\.scrollTo\(\{[\s\S]*?behavior: "smooth"/);
   assert.doesNotMatch(source, /function ensureUi\b/);
   assert.doesNotMatch(source, /function applySettingsToUi\b/);
   assert.doesNotMatch(source, /function renderTrackList\b/);

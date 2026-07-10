@@ -1,6 +1,6 @@
 (() => {
   const TRACKLIST_ANCHOR_SECONDS = 120;
-  const TRACK_BOUNDARY_GAP_SECONDS = 0.2;
+  const NEAR_DUPLICATE_BOUNDARY_SECONDS = 0.2;
   const TIMESTAMP_EPSILON_SECONDS = 0.000001;
   const TITLE_LOOKAHEAD_LINE_LIMIT = 4;
   const TIMESTAMP_PATTERN = /\b\d{1,2}:\d{2}(?::\d{2})?\b/g;
@@ -28,7 +28,7 @@
       return {
         index,
         start: candidate.start,
-        end: next ? Math.min(duration, next.start - TRACK_BOUNDARY_GAP_SECONDS) : duration,
+        end: next ? Math.min(duration, next.start) : duration,
         title: candidate.title,
       };
     });
@@ -91,10 +91,11 @@
   }
 
   function pickBestIncreasingCandidateRun(candidates) {
+    const boundaryCandidates = coalesceAdjacentNearDuplicateCandidates(candidates);
     const runs = [];
     let currentRun = [];
 
-    for (const candidate of candidates) {
+    for (const candidate of boundaryCandidates) {
       const previous = currentRun[currentRun.length - 1];
       if (!previous || candidate.start > previous.start) {
         currentRun.push(candidate);
@@ -106,8 +107,7 @@
 
     runs.push(currentRun);
 
-    const coalescedRuns = runs.map(coalesceNearDuplicateCandidates);
-    const viableRuns = coalescedRuns.filter((run) => run.length >= 2);
+    const viableRuns = runs.filter((run) => run.length >= 2);
     const anchoredRuns = viableRuns.filter((run) => run[0].start <= TRACKLIST_ANCHOR_SECONDS);
     if (anchoredRuns.length) {
       return anchoredRuns.sort(compareCandidateRuns)[0];
@@ -120,21 +120,40 @@
     return [];
   }
 
-  function coalesceNearDuplicateCandidates(candidates) {
+  function coalesceAdjacentNearDuplicateCandidates(candidates) {
     const coalesced = [];
+    let clusterMaximum = null;
+    let clusterMinimum = null;
     for (const candidate of candidates) {
       const previous = coalesced[coalesced.length - 1];
+      const nextClusterMinimum = previous
+        ? Math.min(clusterMinimum, candidate.start)
+        : candidate.start;
+      const nextClusterMaximum = previous
+        ? Math.max(clusterMaximum, candidate.start)
+        : candidate.start;
       if (
         previous
-        && candidate.start - previous.start <= TRACK_BOUNDARY_GAP_SECONDS + TIMESTAMP_EPSILON_SECONDS
+        && nextClusterMaximum - nextClusterMinimum
+          <= NEAR_DUPLICATE_BOUNDARY_SECONDS + TIMESTAMP_EPSILON_SECONDS
       ) {
-        if (trackTitleQuality(candidate.title) > trackTitleQuality(previous.title)) {
-          coalesced[coalesced.length - 1] = { ...previous, title: candidate.title };
-        }
+        const earlierCandidate = candidate.start < previous.start ? candidate : previous;
+        const richerTitle = trackTitleQuality(candidate.title) > trackTitleQuality(previous.title)
+          ? candidate.title
+          : previous.title;
+        coalesced[coalesced.length - 1] = {
+          ...earlierCandidate,
+          sourceOrder: Math.min(previous.sourceOrder, candidate.sourceOrder),
+          title: richerTitle,
+        };
+        clusterMinimum = nextClusterMinimum;
+        clusterMaximum = nextClusterMaximum;
         continue;
       }
 
       coalesced.push(candidate);
+      clusterMinimum = candidate.start;
+      clusterMaximum = candidate.start;
     }
     return coalesced;
   }
@@ -232,7 +251,7 @@
 
   function lineContainingTimestamp(text, timestamp) {
     const lines = text.split(/\r?\n/);
-    return lines.find((entry) => entry.includes(timestamp)) || "";
+    return lines.find((entry) => findExactTimestampMatch(entry, timestamp)) || "";
   }
 
   function titleFromLineFragment(line, timestamp) {
@@ -242,13 +261,14 @@
     }
 
     const normalizedLine = normalizeTitleText(line);
-    const timestampIndex = normalizedLine.indexOf(timestamp);
-    if (timestampIndex === -1) {
+    const timestampMatch = findExactTimestampMatch(normalizedLine, timestamp);
+    if (!timestampMatch) {
       return "";
     }
 
+    const timestampIndex = timestampMatch.index;
     const beforeTimestamp = normalizedLine.slice(0, timestampIndex);
-    const afterTimestamp = normalizedLine.slice(timestampIndex + timestamp.length);
+    const afterTimestamp = normalizedLine.slice(timestampIndex + timestampMatch[0].length);
     const beforeTitle = stripTimestampAdjacency(beforeTimestamp, "before");
     const afterTitle = stripTimestampAdjacency(afterTimestamp, "after");
 
@@ -439,8 +459,10 @@
   function cleanTrackTitle(title) {
     const cleaned = normalizeTitleText(title)
       .replace(/\s+\/\s*(?:original|vocal|lyrics|arrange|arrangement|source)\b.*$/i, "")
-      .replace(/^[\s()[\]{}#"']*(?:track\s*)?\d{1,3}[\s.)\]:：\-–—]+/i, "")
-      .replace(/^\s*(?:track\s*)?\d{1,3}[\s.)\]-]+/i, "")
+      .replace(
+        /^[\s()[\]{}#"']*(?:track\s*)?\d{1,3}(?:(?:\.(?!\d))|[\s)\]}:：\-–—])+/i,
+        ""
+      )
       .replace(/\s*(?:\.{3}|…)\s*more$/i, "")
       .trim();
 
@@ -487,6 +509,16 @@
       .replace(/\u3000/g, " ")
       .replace(/[ \t]+/g, " ")
       .trim();
+  }
+
+  function findExactTimestampMatch(line, timestamp) {
+    const timestampText = normalizeTitleText(timestamp);
+    if (!timestampText) {
+      return null;
+    }
+
+    return [...normalizeTitleText(line).matchAll(TIMESTAMP_PATTERN)]
+      .find((match) => match[0] === timestampText) || null;
   }
 
   function trimAfterEmbeddedTimestamp(text) {

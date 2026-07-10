@@ -90,7 +90,9 @@
       return createCommentFetchResult(status, records, {
         batchesFetched,
         reason: failure.reason,
-        retryable: failure.reason !== "aborted" && !signal?.aborted,
+        retryable: failure.reason !== "aborted"
+          && failure.reason !== "unsafe-continuation-api-url"
+          && !signal?.aborted,
       });
     } finally {
       boundedAbort.cleanup();
@@ -275,7 +277,9 @@
   }
 
   async function fetchContinuation(config, continuation, signal) {
-    const url = new URL(continuation.apiUrl || DEFAULT_NEXT_API_PATH, location.origin);
+    const url = resolveContinuationApiUrl(
+      continuation.apiUrl || DEFAULT_NEXT_API_PATH
+    );
     if (config.INNERTUBE_API_KEY && !url.searchParams.has("key")) {
       url.searchParams.set("key", config.INNERTUBE_API_KEY);
     }
@@ -295,6 +299,7 @@
     const response = await fetchWithSignal(url.toString(), {
       method: "POST",
       credentials: "include",
+      redirect: "error",
       headers,
       body: JSON.stringify({
         context: config.INNERTUBE_CONTEXT,
@@ -321,6 +326,41 @@
       }
       throw createCommentFetchFailure("unsupported", "invalid-continuation-json");
     }
+  }
+
+  function resolveContinuationApiUrl(apiUrl) {
+    const rawApiUrl = typeof apiUrl === "string" ? apiUrl.trim() : "";
+    if (!rawApiUrl || rawApiUrl.includes("\\") || /^[\\/]{2}/.test(rawApiUrl)) {
+      throw createCommentFetchFailure("unsupported", "unsafe-continuation-api-url");
+    }
+
+    let currentOrigin;
+    let url;
+    try {
+      currentOrigin = new URL(location.origin);
+      url = new URL(rawApiUrl, `${currentOrigin.origin}/`);
+    } catch (_error) {
+      throw createCommentFetchFailure("unsupported", "unsafe-continuation-api-url");
+    }
+
+    if (
+      currentOrigin.protocol !== "https:"
+      || !isYouTubeHostname(currentOrigin.hostname)
+      || url.protocol !== "https:"
+      || url.origin !== currentOrigin.origin
+      || url.username
+      || url.password
+      || !url.pathname.startsWith("/youtubei/")
+    ) {
+      throw createCommentFetchFailure("unsupported", "unsafe-continuation-api-url");
+    }
+    return url;
+  }
+
+  function isYouTubeHostname(hostname) {
+    const normalizedHostname = String(hostname || "").toLowerCase();
+    return normalizedHostname === "youtube.com"
+      || normalizedHostname.endsWith(".youtube.com");
   }
 
   function createBoundedAbortSignal(parentSignal, timeoutMs) {
@@ -421,5 +461,6 @@
     COMMENT_FETCH_OUTCOMES,
     DEFAULT_COMMENT_FETCH_TIMEOUT_MS,
     fetchCommentRecords,
+    resolveContinuationApiUrl,
   };
 })();

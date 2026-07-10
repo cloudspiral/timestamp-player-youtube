@@ -6,7 +6,6 @@
   const COMMENT_MIN_TRACKS = 3;
   const COMMENT_FETCH_BATCH_LIMIT = 3;
   const REGULAR_COMMENT_SCAN_LIMIT = 30;
-  const TRACK_END_GRACE_SECONDS = 0.35;
   const PREVIOUS_RESTART_SECONDS = 3;
   const COMMENT_SOURCE_TYPES = {
     PINNED: "pinned",
@@ -109,9 +108,12 @@
     createPlayerViewController,
   } = globalThis.TimestampPlayerPlayerView;
   const {
+    PLAYBACK_BOUNDARY_ACTIONS,
     REPEAT_MODES,
     clearPlaybackOrder,
     createPlaybackState,
+    getPlaybackPositionDecision,
+    getTrackIndexAtTime,
     recordTrackSelection,
     selectNextTrack,
     selectPreviousTrack,
@@ -1601,8 +1603,15 @@
       return;
     }
 
-    if (event.type === "timeupdate") {
-      handleTimeUpdate(video);
+    if (event.type === "seeking" || event.type === "seeked") {
+      handlePlaybackPosition(video, session, { seekTransition: true });
+      return;
+    }
+
+    if (event.type === "timeupdate" || event.type === "ended") {
+      handlePlaybackPosition(video, session, {
+        playbackEnded: event.type === "ended",
+      });
       return;
     }
 
@@ -1611,38 +1620,58 @@
     }
   }
 
-  function handleTimeUpdate(video) {
-    if (video !== getReadySessionVideo()) {
+  function handlePlaybackPosition(video, session = state.session, {
+    playbackEnded = false,
+    seekTransition = false,
+  } = {}) {
+    if (
+      !isCurrentSession(session)
+      || video !== getReadySessionVideo(session)
+    ) {
       return;
     }
 
-    if (!tracksBelongToVideo()) {
+    if (!tracksBelongToVideo(session.videoId)) {
       updateUi();
       return;
     }
 
-    const currentTrack = getTrackAtTime(video.currentTime);
-    if (currentTrack && currentTrack.index !== state.currentTrackIndex) {
-      state.currentTrackIndex = currentTrack.index;
+    const seeking = seekTransition || session.media.seeking;
+    const decision = getPlaybackPositionDecision(state.playback, {
+      activeTrackIndex: state.currentTrackIndex,
+      currentTime: video.currentTime,
+      seeking,
+      tracks: state.tracks,
+    });
+    if (decision.boundaryAction === PLAYBACK_BOUNDARY_ACTIONS.REPEAT_ONE) {
+      playTrack(state.currentTrackIndex, { recordHistory: false });
+      return;
+    }
+    if (decision.boundaryAction === PLAYBACK_BOUNDARY_ACTIONS.SHUFFLE_NEXT) {
+      playNextTrack({
+        currentIndex: state.currentTrackIndex,
+        previousIndex: state.currentTrackIndex,
+      });
+      return;
+    }
+
+    let nextTrackIndex = state.currentTrackIndex;
+    if (decision.trackIndex >= 0) {
+      nextTrackIndex = decision.trackIndex;
+    } else if (seeking) {
+      nextTrackIndex = -1;
+    }
+    if (nextTrackIndex !== state.currentTrackIndex) {
+      state.currentTrackIndex = nextTrackIndex;
       updateUi();
       return;
     }
 
-    const activeTrack = state.tracks[state.currentTrackIndex];
-    if (activeTrack && video.currentTime >= activeTrack.end - TRACK_END_GRACE_SECONDS) {
-      if (state.playback.repeatMode === REPEAT_MODES.ONE) {
-        playTrack(activeTrack.index, { recordHistory: false });
-        return;
-      } else if (state.playback.shuffleEnabled) {
-        playNextTrack({
-          currentIndex: activeTrack.index,
-          previousIndex: activeTrack.index,
-        });
-        return;
-      }
+    if (playbackEnded) {
+      updateUi();
+    } else {
+      updateProgress(video);
     }
-
-    updateProgress(video);
   }
 
   function handleFullscreenChange() {
@@ -1659,7 +1688,8 @@
       return null;
     }
 
-    return state.tracks.find((track) => time >= track.start && time < track.end) || null;
+    const trackIndex = getTrackIndexAtTime(state.tracks, time);
+    return trackIndex >= 0 ? state.tracks[trackIndex] : null;
   }
 
   function getProgressTrack(video) {
@@ -1703,21 +1733,7 @@
       return;
     }
 
-    const elements = playerView.getElements();
-    const item = playerView.getTrackRowForIndex(currentIndex);
-    if (!elements?.listEl || !item) {
-      return;
-    }
-
-    const { listEl } = elements;
-    const listRect = listEl.getBoundingClientRect();
-    const itemRect = item.getBoundingClientRect();
-    const targetTop = listEl.scrollTop + itemRect.top - listRect.top;
-
-    listEl.scrollTo({
-      top: Math.max(0, targetTop),
-      behavior: "smooth",
-    });
+    playerView.scrollTrackIntoView(currentIndex);
   }
 
   function updateProgress(video = getReadySessionVideo()) {

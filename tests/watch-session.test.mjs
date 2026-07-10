@@ -200,17 +200,21 @@ test("each watch session starts with isolated empty media ownership", async () =
       binding: session.media.binding,
       closed: session.media.closed,
       element: session.media.element,
+      ended: session.media.ended,
       releaseListeners: session.media.releaseListeners,
       resolution: session.media.resolution,
       revision: session.media.revision,
+      seeking: session.media.seeking,
     },
     {
       binding: null,
       closed: false,
       element: null,
+      ended: false,
       releaseListeners: null,
       resolution: null,
       revision: 0,
+      seeking: false,
     }
   );
 });
@@ -246,11 +250,15 @@ test("replacing media releases the old listeners once and stale bindings cannot 
   );
   assert.deepEqual(releases, []);
 
+  session.media.ended = true;
+  session.media.seeking = true;
   const secondBinding = bindSessionMedia(session, secondElement, releaseSecond);
   assert.deepEqual(releases, ["first"]);
   assert.equal(session.media.element, secondElement);
+  assert.equal(session.media.ended, false);
   assert.equal(session.media.resolution, null);
   assert.equal(session.media.revision, 2);
+  assert.equal(session.media.seeking, false);
   assert.equal(isSessionMediaCurrent(session, firstBinding), false);
   assert.equal(isSessionMediaCurrent(session, secondBinding), true);
 
@@ -259,7 +267,9 @@ test("replacing media releases the old listeners once and stale bindings cannot 
   session.media.resolution = { reason: "current-watch-player", status: "ready" };
   assert.equal(clearSessionMedia(session, secondBinding), true);
   assert.deepEqual(releases, ["first", "second"]);
+  assert.equal(session.media.ended, false);
   assert.equal(session.media.resolution, null);
+  assert.equal(session.media.seeking, false);
   assert.equal(clearSessionMedia(session, secondBinding), false);
   assert.deepEqual(releases, ["first", "second"]);
   disposeWatchSession(session);
@@ -279,11 +289,15 @@ test("rebinding the same element replaces its listener generation and disposal r
   const releases = [];
   const firstBinding = bindSessionMedia(session, element, () => releases.push("first"));
   session.media.resolution = { reason: "video-duration-unavailable", status: "waiting" };
+  session.media.ended = true;
+  session.media.seeking = true;
   const secondBinding = bindSessionMedia(session, element, () => releases.push("second"));
 
   assert.deepEqual(releases, ["first"]);
+  assert.equal(session.media.ended, false);
   assert.notEqual(secondBinding, firstBinding);
   assert.equal(session.media.resolution, null);
+  assert.equal(session.media.seeking, false);
   assert.equal(secondBinding.revision, firstBinding.revision + 1);
   assert.equal(isSessionMediaCurrent(session, firstBinding), false);
   assert.equal(isSessionMediaCurrent(session, secondBinding), true);
@@ -299,6 +313,8 @@ test("rebinding the same element replaces its listener generation and disposal r
   assert.equal(session.media.releaseListeners, null);
   assert.equal(session.media.resolution, null);
   assert.equal(session.media.closed, true);
+  assert.equal(session.media.ended, false);
+  assert.equal(session.media.seeking, false);
 });
 
 test("disposal closes media before teardown so reentrant and late stale bindings release immediately", async () => {

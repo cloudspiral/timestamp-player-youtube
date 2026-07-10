@@ -9,7 +9,7 @@ async function readJsonFixture(name) {
   return JSON.parse(await readFile(fixtureUrl(name), "utf8"));
 }
 
-async function loadCommentFetching({ fetchImpl, pageFixture } = {}) {
+async function loadCommentFetching({ fetchImpl, locationFixture, pageFixture } = {}) {
   const [commentDataSource, commentFetchingSource, commentScoringSource] = await Promise.all([
     readFile(new URL("../src/comment-data.js", import.meta.url), "utf8"),
     readFile(new URL("../src/comment-fetching.js", import.meta.url), "utf8"),
@@ -30,7 +30,7 @@ async function loadCommentFetching({ fetchImpl, pageFixture } = {}) {
     fetch: fetchImpl || (() => {
       throw new Error("Unexpected fixture fetch");
     }),
-    location: {
+    location: locationFixture || {
       href: "https://www.youtube.com/watch?v=fixture-video",
       origin: "https://www.youtube.com",
     },
@@ -40,6 +40,13 @@ async function loadCommentFetching({ fetchImpl, pageFixture } = {}) {
   vm.runInContext(commentDataSource, context);
   vm.runInContext(commentFetchingSource, context);
   return context.TimestampPlayerCommentFetching;
+}
+
+function setInitialContinuationApiUrl(pageFixture, apiUrl) {
+  pageFixture.initialData.contents.commentsSection
+    .continuationItemRenderer.continuationEndpoint
+    .commandMetadata.webCommandMetadata.apiUrl = apiUrl;
+  return pageFixture;
 }
 
 function jsonResponse(body, { ok = true, status = 200 } = {}) {
@@ -90,8 +97,210 @@ test("fetches paginated comments and reports a typed success outcome", async () 
   assert.equal(JSON.parse(requests[0].options.body).continuation, "comments-batch-1");
   assert.equal(JSON.parse(requests[1].options.body).continuation, "comments-batch-2");
   assert.ok(requests.every(({ options }) => options.signal instanceof AbortSignal));
+  assert.ok(requests.every(({ options }) => options.redirect === "error"));
 });
 
+test("resolves only same-origin HTTPS YouTube continuation API URLs", async () => {
+  const runtime = await loadCommentFetching();
+  const validCases = new Map([
+    [
+      "/youtubei/v1/next",
+      "https://www.youtube.com/youtubei/v1/next",
+    ],
+    [
+      "youtubei/v1/next?feature=comments",
+      "https://www.youtube.com/youtubei/v1/next?feature=comments",
+    ],
+    [
+      "https://www.youtube.com/youtubei/v1/next?feature=absolute",
+      "https://www.youtube.com/youtubei/v1/next?feature=absolute",
+    ],
+  ]);
+  for (const [apiUrl, expected] of validCases) {
+    assert.equal(runtime.resolveContinuationApiUrl(apiUrl).toString(), expected);
+  }
+
+  const musicRuntime = await loadCommentFetching({
+    locationFixture: {
+      href: "https://music.youtube.com/watch?v=fixture-video",
+      origin: "https://music.youtube.com",
+    },
+  });
+  assert.equal(
+    musicRuntime.resolveContinuationApiUrl("youtubei/v1/next").toString(),
+    "https://music.youtube.com/youtubei/v1/next"
+  );
+  assert.equal(
+    musicRuntime.resolveContinuationApiUrl(
+      "https://music.youtube.com/youtubei/v1/next?source=absolute"
+    ).toString(),
+    "https://music.youtube.com/youtubei/v1/next?source=absolute"
+  );
+  assert.throws(
+    () => musicRuntime.resolveContinuationApiUrl(
+      "https://www.youtube.com/youtubei/v1/next"
+    ),
+    (error) => error.kind === "unsupported"
+      && error.reason === "unsafe-continuation-api-url"
+  );
+
+  const unsafeCases = [
+    "//www.youtube.com/youtubei/v1/next",
+    "//attacker.example/youtubei/v1/next",
+    "https://m.youtube.com/youtubei/v1/next",
+    "https://attacker.example/youtubei/v1/next",
+    "http://www.youtube.com/youtubei/v1/next",
+    "https://user@www.youtube.com/youtubei/v1/next",
+    "/watch?next=/youtubei/v1/next",
+    "/youtubei.evil/v1/next",
+    "/youtubei\\v1\\next",
+    "https:\\attacker.example\\youtubei\\v1\\next",
+    "javascript:alert(1)",
+    "",
+    null,
+  ];
+  for (const apiUrl of unsafeCases) {
+    assert.throws(
+      () => runtime.resolveContinuationApiUrl(apiUrl),
+      (error) => {
+        assert.equal(error.commentFetchFailure, true);
+        assert.equal(error.kind, "unsupported");
+        assert.equal(error.reason, "unsafe-continuation-api-url");
+        return true;
+      },
+      String(apiUrl)
+    );
+  }
+
+  for (const locationFixture of [
+    {
+      href: "http://www.youtube.com/watch?v=fixture-video",
+      origin: "http://www.youtube.com",
+    },
+    {
+      href: "https://example.com/watch?v=fixture-video",
+      origin: "https://example.com",
+    },
+  ]) {
+    const unsafeRuntime = await loadCommentFetching({ locationFixture });
+    assert.throws(
+      () => unsafeRuntime.resolveContinuationApiUrl("/youtubei/v1/next"),
+      (error) => error.kind === "unsupported"
+        && error.reason === "unsafe-continuation-api-url"
+    );
+  }
+});
+
+test("never fetches rejected continuation URLs and returns a typed unsupported result", async () => {
+  const unsafeApiUrls = [
+    "//attacker.example/youtubei/v1/next",
+    "https://m.youtube.com/youtubei/v1/next",
+    "https://attacker.example/youtubei/v1/next",
+    "http://www.youtube.com/youtubei/v1/next",
+    "/watch?next=/youtubei/v1/next",
+    "/youtubei\\v1\\next",
+  ];
+
+  for (const apiUrl of unsafeApiUrls) {
+    const pageFixture = setInitialContinuationApiUrl(
+      await readJsonFixture("initial-page"),
+      apiUrl
+    );
+    const requests = [];
+    const runtime = await loadCommentFetching({
+      pageFixture,
+      fetchImpl: async (...request) => {
+        requests.push(request);
+        return jsonResponse(await readJsonFixture("batch-empty"));
+      },
+    });
+
+    const result = await runtime.fetchCommentRecords({ videoId: "fixture-video" });
+
+    assert.equal(result.status, runtime.COMMENT_FETCH_OUTCOMES.UNSUPPORTED, apiUrl);
+    assert.equal(result.reason, "unsafe-continuation-api-url", apiUrl);
+    assert.equal(result.retryable, false, apiUrl);
+    assert.equal(result.batchesFetched, 0, apiUrl);
+    assert.equal(requests.length, 0, `fetch must not run for ${apiUrl}`);
+  }
+});
+
+test("rejects an unsafe later continuation without issuing a second credentialed request", async () => {
+  const firstBatch = await readJsonFixture("batch-with-continuation");
+  firstBatch.onResponseReceivedEndpoints[0]
+    .appendContinuationItemsAction.continuationItems[1]
+    .continuationItemRenderer.continuationEndpoint
+    .commandMetadata.webCommandMetadata.apiUrl =
+      "https://attacker.example/youtubei/v1/next";
+  const requests = [];
+  const runtime = await loadCommentFetching({
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return jsonResponse(firstBatch);
+    },
+  });
+
+  const result = await runtime.fetchCommentRecords({ videoId: "fixture-video" });
+
+  assert.equal(result.status, runtime.COMMENT_FETCH_OUTCOMES.PARTIAL);
+  assert.equal(result.reason, "unsafe-continuation-api-url");
+  assert.equal(result.retryable, false);
+  assert.equal(result.batchesFetched, 1);
+  assert.equal(result.records.length, 1);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.credentials, "include");
+  assert.equal(new URL(requests[0].url).origin, "https://www.youtube.com");
+});
+
+test("fetches valid Watch and Music same-origin continuation URLs without redirects", async () => {
+  const emptyBatch = await readJsonFixture("batch-empty");
+  const cases = [
+    {
+      apiUrl: "youtubei/v1/next?source=relative",
+      origin: "https://www.youtube.com",
+    },
+    {
+      apiUrl: "https://www.youtube.com/youtubei/v1/next?source=absolute",
+      origin: "https://www.youtube.com",
+    },
+    {
+      apiUrl: "youtubei/v1/next?source=music-relative",
+      origin: "https://music.youtube.com",
+    },
+    {
+      apiUrl: "https://music.youtube.com/youtubei/v1/next?source=music-absolute",
+      origin: "https://music.youtube.com",
+    },
+  ];
+  for (const { apiUrl, origin } of cases) {
+    const pageFixture = setInitialContinuationApiUrl(
+      await readJsonFixture("initial-page"),
+      apiUrl
+    );
+    const requests = [];
+    const runtime = await loadCommentFetching({
+      locationFixture: {
+        href: `${origin}/watch?v=fixture-video`,
+        origin,
+      },
+      pageFixture,
+      fetchImpl: async (url, options) => {
+        requests.push({ url, options });
+        return jsonResponse(emptyBatch);
+      },
+    });
+
+    const result = await runtime.fetchCommentRecords({ videoId: "fixture-video" });
+
+    assert.equal(result.status, runtime.COMMENT_FETCH_OUTCOMES.NO_RESULTS, apiUrl);
+    assert.equal(requests.length, 1, apiUrl);
+    const requestUrl = new URL(requests[0].url);
+    assert.equal(requestUrl.origin, origin);
+    assert.equal(requestUrl.pathname, "/youtubei/v1/next");
+    assert.equal(requests[0].options.credentials, "include");
+    assert.equal(requests[0].options.redirect, "error");
+  }
+});
 
 test("extracts only schema-backed metadata and merges richer duplicates across batches", async () => {
   const firstBatch = await readJsonFixture("metadata-batch-with-continuation");

@@ -4,6 +4,11 @@
     OFF: "off",
     ONE: "one",
   });
+  const PLAYBACK_BOUNDARY_ACTIONS = Object.freeze({
+    NONE: "none",
+    REPEAT_ONE: "repeat-one",
+    SHUFFLE_NEXT: "shuffle-next",
+  });
 
   function createPlaybackState({
     history = [],
@@ -53,6 +58,46 @@
         ? REPEAT_MODES.OFF
         : repeatMode,
     };
+  }
+
+  function getPlaybackPositionDecision(state, {
+    activeTrackIndex = -1,
+    currentTime = NaN,
+    seeking = false,
+    tracks = [],
+  } = {}) {
+    const safeTracks = Array.isArray(tracks) ? tracks : [];
+    const trackIndex = getTrackIndexAtTime(safeTracks, currentTime);
+    const trackEnd = safeTracks[activeTrackIndex]?.end;
+    let boundaryAction = PLAYBACK_BOUNDARY_ACTIONS.NONE;
+
+    if (
+      !seeking
+      && Number.isFinite(currentTime)
+      && Number.isFinite(trackEnd)
+      && currentTime >= trackEnd
+    ) {
+      if (state?.repeatMode === REPEAT_MODES.ONE) {
+        boundaryAction = PLAYBACK_BOUNDARY_ACTIONS.REPEAT_ONE;
+      } else if (state?.shuffleEnabled === true) {
+        boundaryAction = PLAYBACK_BOUNDARY_ACTIONS.SHUFFLE_NEXT;
+      }
+    }
+
+    return { boundaryAction, trackIndex };
+  }
+
+  function getTrackIndexAtTime(tracks, currentTime) {
+    if (!Array.isArray(tracks) || !Number.isFinite(currentTime)) {
+      return -1;
+    }
+
+    return tracks.findIndex((track) => {
+      return Number.isFinite(track?.start)
+        && Number.isFinite(track?.end)
+        && currentTime >= track.start
+        && currentTime < track.end;
+    });
   }
 
   function selectNextTrack(state, {
@@ -187,9 +232,12 @@
   }
 
   globalThis.TimestampPlayerPlaybackState = {
+    PLAYBACK_BOUNDARY_ACTIONS,
     REPEAT_MODES,
     clearPlaybackOrder,
     createPlaybackState,
+    getPlaybackPositionDecision,
+    getTrackIndexAtTime,
     recordTrackSelection,
     selectNextTrack,
     selectPreviousTrack,

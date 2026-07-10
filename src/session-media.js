@@ -11,6 +11,9 @@
 
   const SESSION_MEDIA_EVENTS = Object.freeze([
     "timeupdate",
+    "seeking",
+    "seeked",
+    "ended",
     "play",
     "pause",
     "loadedmetadata",
@@ -58,7 +61,10 @@
         isSessionMediaCurrent(session, binding)
         && event.currentTarget === element
       ) {
-        onEvent({ binding, event, session, video: element });
+        const shouldForward = updateMediaEventState(session.media, event.type);
+        if (shouldForward) {
+          onEvent({ binding, event, session, video: element });
+        }
       }
     };
     for (const eventName of SESSION_MEDIA_EVENTS) {
@@ -79,6 +85,35 @@
       session.media.resolution = resolution;
     }
     return resolution;
+  }
+
+  function updateMediaEventState(media, eventType) {
+    if (eventType === "seeking") {
+      media.seeking = true;
+      media.ended = false;
+      return true;
+    }
+    if (eventType === "seeked") {
+      media.seeking = false;
+      return true;
+    }
+    if (eventType === "ended") {
+      if (media.ended) {
+        return false;
+      }
+      media.seeking = false;
+      media.ended = true;
+      return true;
+    }
+    if (eventType === "play" || eventType === "loadedmetadata") {
+      media.ended = false;
+      return true;
+    }
+    if (eventType === "emptied") {
+      media.seeking = false;
+      media.ended = false;
+    }
+    return true;
   }
 
   function getReadySessionVideo(session) {

@@ -43,6 +43,11 @@ function assertTrackInvariants(tracks, duration) {
     assert.ok(track.end <= duration, "track ends should not exceed the video duration");
     if (index > 0) {
       assert.ok(tracks[index - 1].start < track.start, "track starts should increase");
+      assert.equal(
+        tracks[index - 1].end,
+        track.start,
+        "adjacent tracks should share one exact playback boundary"
+      );
     }
   }
 
@@ -115,6 +120,59 @@ test("preserves existing timestamp title parsing behavior", async () => {
   assert.equal(timestamps.cleanTrackTitle("01. Downtown Drive"), "Downtown Drive");
   assert.equal(timestamps.titleFromLineFragment("0:00 - 0:58 Introduction", "0:00"), "Introduction");
   assert.equal(timestamps.cleanTrackTitle('"Heroes"'), '"Heroes"');
+});
+
+test("matches complete timestamp tokens when locating lines and extracting titles", async () => {
+  const {
+    lineContainingTimestamp,
+    titleFromLineFragment,
+  } = await loadTimestamps();
+  const cases = [
+    {
+      timestamp: "1:00",
+      text: "11:00 Wrong line\n1:00 Right line",
+      expectedLine: "1:00 Right line",
+      expectedTitle: "Right line",
+    },
+    {
+      timestamp: "1:00",
+      text: "1:00:00 Wrong line\n1:00 Exact clock",
+      expectedLine: "1:00 Exact clock",
+      expectedTitle: "Exact clock",
+    },
+    {
+      timestamp: "0:09",
+      text: "10:09 Wrong line\n0:09 Short intro",
+      expectedLine: "0:09 Short intro",
+      expectedTitle: "Short intro",
+    },
+  ];
+
+  for (const { timestamp, text, expectedLine, expectedTitle } of cases) {
+    assert.equal(lineContainingTimestamp(text, timestamp), expectedLine, timestamp);
+    assert.equal(titleFromLineFragment(expectedLine, timestamp), expectedTitle, timestamp);
+  }
+
+  assert.equal(lineContainingTimestamp("11:00 Only a longer token", "1:00"), "");
+  assert.equal(titleFromLineFragment("11:00 Only a longer token", "1:00"), "");
+});
+
+test("preserves decimal-leading titles while still removing explicit track numbers", async () => {
+  const { cleanTrackTitle } = await loadTimestamps();
+  const cases = [
+    ["99.9% Pure", "99.9% Pure"],
+    ["3.14159", "3.14159"],
+    ["3.14159 Theme", "3.14159 Theme"],
+    ["0.5 Seconds", "0.5 Seconds"],
+    ["01. Downtown Drive", "Downtown Drive"],
+    ["2) Second Movement", "Second Movement"],
+    ["Track 03: Finale", "Finale"],
+    ["[04] Encore", "Encore"],
+  ];
+
+  for (const [title, expected] of cases) {
+    assert.equal(cleanTrackTitle(title), expected, title);
+  }
 });
 
 test("parses valid clock boundaries without treating two-part minutes as an hour field", async () => {
@@ -252,8 +310,8 @@ test("builds bounded intervals while preserving titles and source order", async 
   const tracks = findTracks(120, makeCandidates([0, 30, 90], ["Intro", "Middle", "Finale"]));
 
   assert.deepEqual(trackSnapshot(tracks), [
-    { index: 0, start: 0, end: 29.8, title: "Intro" },
-    { index: 1, start: 30, end: 89.8, title: "Middle" },
+    { index: 0, start: 0, end: 30, title: "Intro" },
+    { index: 1, start: 30, end: 90, title: "Middle" },
     { index: 2, start: 90, end: 120, title: "Finale" },
   ]);
   assertTrackInvariants(tracks, 120);
@@ -275,6 +333,61 @@ test("coalesces exact and near-duplicate boundaries using the richer title", asy
   const separatedTracks = findTracks(60, makeCandidates([0, 0.5, 10]));
   assert.deepEqual(trackStarts(separatedTracks), [0, 0.5, 10]);
   assertTrackInvariants(separatedTracks, 60);
+});
+
+test("coalesces adjacent near-duplicate boundaries before increasing-run selection", async () => {
+  const { findTracks } = await loadTimestamps();
+  const cases = [
+    {
+      starts: [0, 10.1, 10, 20],
+      titles: ["Intro", "Richer boundary title", "", "Finale"],
+      expectedStarts: [0, 10, 20],
+      expectedMiddleTitle: "Richer boundary title",
+    },
+    {
+      starts: [0.2, 0, 10],
+      titles: ["Opening", "", "Finale"],
+      expectedStarts: [0, 10],
+      expectedMiddleTitle: "Finale",
+    },
+    {
+      starts: [0, 0.2000005, 10],
+      titles: ["", "Opening", "Finale"],
+      expectedStarts: [0, 10],
+      expectedMiddleTitle: "Finale",
+    },
+  ];
+
+  for (const {
+    starts,
+    titles,
+    expectedStarts,
+    expectedMiddleTitle,
+  } of cases) {
+    const tracks = findTracks(60, makeCandidates(starts, titles));
+    assert.deepEqual(trackStarts(tracks), expectedStarts, starts.join(","));
+    assert.equal(tracks[1].title, expectedMiddleTitle, starts.join(","));
+    assertTrackInvariants(tracks, 60);
+  }
+
+  const separatedTracks = findTracks(60, makeCandidates([0, 0.20001, 10]));
+  assert.deepEqual(trackStarts(separatedTracks), [0, 0.20001, 10]);
+  assertTrackInvariants(separatedTracks, 60);
+});
+
+test("near-duplicate clustering never bridges a wider chain transitively", async () => {
+  const { findTracks } = await loadTimestamps();
+
+  const increasingChain = findTracks(60, makeCandidates([0, 0.2, 0.4, 10]));
+  assert.deepEqual(trackStarts(increasingChain), [0, 0.4, 10]);
+  assertTrackInvariants(increasingChain, 60);
+
+  const descendingChain = findTracks(
+    60,
+    makeCandidates([0, 10.6, 10.4, 10.2, 10, 20, 30, 40])
+  );
+  assert.deepEqual(trackStarts(descendingChain), [10, 20, 30, 40]);
+  assertTrackInvariants(descendingChain, 60);
 });
 
 test("applies duration tolerance and minimum track count after normalization", async () => {

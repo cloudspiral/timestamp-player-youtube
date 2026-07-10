@@ -90,9 +90,11 @@
       binding: null,
       closed: false,
       element: null,
+      ended: false,
       releaseListeners: null,
       resolution: null,
       revision: 0,
+      seeking: false,
     };
   }
 
@@ -162,8 +164,10 @@
     const releaseListeners = media.releaseListeners;
     media.binding = null;
     media.element = null;
+    media.ended = false;
     media.releaseListeners = null;
     media.resolution = null;
+    media.seeking = false;
     return releaseListeners;
   }
 
