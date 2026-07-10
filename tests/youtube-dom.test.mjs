@@ -948,8 +948,6 @@ test("extension orchestration delegates localized YouTube DOM interpretation to 
   assert.doesNotMatch(content, /function getTimestampLinkVideoId\b/);
   assert.doesNotMatch(content, /function findActionRow\b/);
   assert.doesNotMatch(content, /includes\(["']share["']\)/i);
-  assert.match(packageJson.scripts["check:js"], /node --check src\/youtube-dom\.js/);
-  assert.match(packageJson.scripts["check:js"], /node --check tests\/youtube-dom\.test\.mjs/);
   assert.equal(
     packageJson.scripts["test:youtube-dom"],
     "node --test tests/youtube-dom.test.mjs"

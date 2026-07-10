@@ -8,13 +8,19 @@ browser DOM package is required for the fast suite.
 ```sh
 npm test
 npm run check
+npm run verify:packages
 npm run lint:firefox
+npm run smoke:chrome
 ```
 
 - `npm test` uses Node's native discovery to run every `*.test.mjs` file.
 - `npm run check` adds JavaScript syntax and manifest validation.
 - `npm run lint:firefox` prepares both package trees and validates the Firefox
   package with `web-ext`.
+- `npm run verify:packages` proves the generated manifests, referenced assets,
+  runtime file coverage, and copied bytes match the source tree.
+- `npm run smoke:chrome` loads the generated Chrome extension and exercises a
+  cold non-watch to watch SPA transition without a document reload.
 
 Every major area also has a targeted script, such as `npm run test:timestamps`,
 `npm run test:watch-session`, or `npm run test:settings`. Targeted scripts are
@@ -34,8 +40,14 @@ Use the smallest test layer that proves the behavior:
 2. Small fake DOM nodes for selector/extraction behavior and stable rendering.
 3. JSON fixtures for YouTube response parsing and continuation behavior.
 4. Fake clocks and abort signals for retry, timeout, and navigation races.
-5. A packaged-browser smoke test for route injection and real extension loading
-   (planned release coverage; not part of the fast suite yet).
+5. The packaged Chrome smoke for route injection and real extension loading.
+
+The browser smoke is intentionally separate from the fast `npm run check`
+suite. It requires Chrome or Chromium and OpenSSL; set `CHROME_BIN` when the
+browser executable is outside the standard macOS, Linux, or Windows locations.
+The test maps `www.youtube.com` to an ephemeral local HTTPS fixture, starts on a
+non-watch page, navigates with `history.pushState`, and passes only if the
+packaged extension inserts the Tracklist launcher without a reload.
 
 The fake DOMs are intentionally local to their test files. They implement only
 the methods used by the production helper, which keeps failures readable and
@@ -85,6 +97,7 @@ Automated fixtures complement rather than replace the real-world catalog in
 - Anchored, compact, floating, fullscreen, shuffle, and repeat behavior.
 - A long tracklist and keyboard focus while the active track changes.
 
-Generated Chrome and Firefox packages are linted/built by the release tooling.
-An automated unpacked-browser smoke remains planned; until it lands, use the
-manual route and package checks above for real-browser release validation.
+Generated Chrome and Firefox packages are verified byte-for-byte, Firefox is
+linted with `web-ext`, and the Chrome package is loaded by the automated cold-SPA
+smoke. Continue using the real-world catalog above for YouTube layout and media
+behavior that a synthetic fixture cannot represent.

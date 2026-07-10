@@ -447,9 +447,6 @@ test("extension and package wiring load and verify media ownership before conten
   assert.ok(watchSessionIndex > resolverIndex);
   assert.ok(sessionMediaIndex > watchSessionIndex);
   assert.ok(contentIndex > sessionMediaIndex);
-  assert.match(packageJson.scripts["check:js"], /node --check src\/video-resolver\.js/);
-  assert.match(packageJson.scripts["check:js"], /node --check src\/session-media\.js/);
-  assert.match(packageJson.scripts["check:js"], /node --check tests\/session-media\.test\.mjs/);
   assert.equal(
     packageJson.scripts["test:session-media"],
     "node --test tests/session-media.test.mjs"

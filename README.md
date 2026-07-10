@@ -18,15 +18,22 @@ Additional settings can be found in extension options.
 
 ## Running Locally
 
+Install the locked tooling and generate browser-specific package directories:
+
+```sh
+npm ci
+npm run prepare:packages
+```
+
 ### Chrome or Brave
 
 1. Clone this repository.
 2. Open your browser's extensions URL, e.g. `brave://extensions`.
 3. Enable Developer mode.
 4. Click Load unpacked.
-5. Select this repository folder.
+5. Select the generated `dist/chrome` folder.
 6. Ensure the extension is enabled. Click Reload on the
-extension card after making any code changes.
+extension card after regenerating package sources for any code changes.
 7. Refresh the YouTube tab being tested.
 
 ### Firefox
@@ -34,15 +41,15 @@ extension card after making any code changes.
 1. Clone this repository.
 2. Open `about:debugging#/runtime/this-firefox`.
 3. Click Load Temporary Add-on.
-4. Select this repository's `manifest.json`.
+4. Select `dist/firefox/manifest.json`.
 5. Refresh the YouTube tab being tested after loading or reloading the add-on.
 
 ## Packaging
 
-Install release tooling once:
+Install the locked release tooling:
 
 ```sh
-npm install
+npm ci
 ```
 
 Run checks:
@@ -59,6 +66,22 @@ Lint the Firefox package:
 ```sh
 npm run lint:firefox
 ```
+
+Verify that generated package files exactly match their source counterparts and
+that every copied runtime file is referenced:
+
+```sh
+npm run verify:packages
+```
+
+Run the packaged Chrome cold-navigation smoke test:
+
+```sh
+npm run smoke:chrome
+```
+
+The smoke requires Chrome or Chromium plus OpenSSL. Set `CHROME_BIN` if the
+browser is not installed in a standard location.
 
 Build Chrome and Firefox upload packages:
 

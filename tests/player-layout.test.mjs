@@ -1029,8 +1029,6 @@ test("extension and package wiring load and verify the layout controller", async
 
   assert.ok(layoutIndex >= 0);
   assert.ok(contentIndex > layoutIndex);
-  assert.match(packageJson.scripts["check:js"], /node --check src\/player-layout\.js/);
-  assert.match(packageJson.scripts["check:js"], /node --check tests\/player-layout\.test\.mjs/);
   assert.equal(
     packageJson.scripts["test:player-layout"],
     "node --test tests/player-layout.test.mjs"

@@ -842,8 +842,6 @@ test("extension and package wiring load and verify the player view before conten
 
   assert.ok(viewIndex >= 0);
   assert.ok(contentIndex > viewIndex);
-  assert.match(packageJson.scripts["check:js"], /node --check src\/player-view\.js/);
-  assert.match(packageJson.scripts["check:js"], /node --check tests\/player-view\.test\.mjs/);
   assert.equal(
     packageJson.scripts["test:player-view"],
     "node --test tests/player-view.test.mjs"

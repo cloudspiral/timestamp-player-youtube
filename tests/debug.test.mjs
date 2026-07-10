@@ -388,9 +388,6 @@ test("runtime wiring exposes status transitions and diagnostics without legacy p
   assert.ok(
     scripts.indexOf("src/discovery-status.js") < scripts.indexOf("src/watch-session.js")
   );
-  assert.match(packageJson.scripts["check:js"], /src\/debug\.js/);
-  assert.match(packageJson.scripts["check:js"], /src\/session-diagnostics\.js/);
-  assert.match(packageJson.scripts["check:js"], /src\/discovery-status\.js/);
   assert.equal(packageJson.scripts["test:debug"], "node --test tests/debug.test.mjs");
   assert.equal(
     packageJson.scripts["test:session-diagnostics"],

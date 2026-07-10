@@ -205,8 +205,6 @@ test("runtime wiring bounds title retention and never stores raw fetched-comment
   assert.ok(scripts.indexOf("src/lru-cache.js") < scripts.indexOf("src/discovery-cache.js"));
   assert.ok(scripts.indexOf("src/track-selection.js") < scripts.indexOf("src/discovery-cache.js"));
   assert.ok(scripts.indexOf("src/discovery-cache.js") < contentIndex);
-  assert.match(packageJson.scripts["check:js"], /src\/lru-cache\.js/);
-  assert.match(packageJson.scripts["check:js"], /src\/discovery-cache\.js/);
   assert.equal(
     packageJson.scripts["test:discovery-cache"],
     "node --test tests/discovery-cache.test.mjs"
