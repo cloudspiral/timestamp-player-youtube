@@ -64,6 +64,7 @@ test("content bootstrapped off-watch activates after same-document navigation to
 
   assert.equal(controller.isActive(), true);
   assert.deepEqual(enteredRoutes.map(({ videoId }) => videoId), ["first-album"]);
+  assert.equal(enteredRoutes[0].previousUrl, "https://www.youtube.com/");
   assert.equal(navigatedRoutes.length, 0);
 
   document.dispatch("yt-navigate-finish");

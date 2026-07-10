@@ -45,7 +45,7 @@
 
       if (!previousVideoId && videoId) {
         activeVideoId = videoId;
-        onEnter({ url, videoId });
+        onEnter({ previousUrl, url, videoId });
         return;
       }
 

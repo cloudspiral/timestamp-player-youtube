@@ -78,9 +78,19 @@
     createWatchRouteController,
     getWatchVideoId,
   } = globalThis.TimestampPlayerWatchRoute;
+  const {
+    createWatchSession,
+    disposeWatchSession,
+    isWatchSessionCurrent,
+    resetSessionRetry,
+    scheduleSessionRetry,
+    scheduleSessionTask,
+  } = globalThis.TimestampPlayerWatchSession;
 
   const state = {
     watchPageActive: false,
+    session: null,
+    nextSessionGeneration: 0,
     shuffleEnabled: false,
     repeatMode: REPEAT_MODES.OFF,
     progressTimeMode: DEFAULT_SETTINGS.progressTimeMode,
@@ -92,16 +102,8 @@
     currentTrackIndex: -1,
     history: [],
     upcoming: [],
-    currentVideoId: null,
-    tracksVideoId: null,
-    descriptionExpandedVideoId: null,
-    descriptionFallbackVideoId: null,
-    descriptionFallbackReadyAt: 0,
-    shouldCollapseDescriptionVideoId: null,
     trackCache: new Map(),
     commentFetchCache: new Map(),
-    lockedTrackVideoId: null,
-    scanTimer: null,
     playerPosition: null,
     playerSize: null,
     anchoredWidth: null,
@@ -110,8 +112,6 @@
     playerLayoutFrame: null,
     pageObserver: null,
     settingsChangeCleanup: null,
-    autoOpenedCompactVideoId: null,
-    userClosedPanelVideoId: null,
   };
 
   let root;
@@ -157,7 +157,7 @@
     watchRouteController.start();
   }
 
-  function activateWatchPage() {
+  function activateWatchPage({ previousUrl, videoId }) {
     if (state.watchPageActive) {
       return;
     }
@@ -178,7 +178,7 @@
     document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
     window.addEventListener("resize", schedulePlayerLayout);
     window.visualViewport?.addEventListener("resize", schedulePlayerLayout);
-    scanPage();
+    beginWatchSession(videoId, previousUrl ? SCAN_DELAY_MS : 0);
   }
 
   function deactivateWatchPage() {
@@ -191,10 +191,7 @@
     state.pageObserver = null;
     state.settingsChangeCleanup?.();
     state.settingsChangeCleanup = null;
-    if (state.scanTimer !== null) {
-      clearTimeout(state.scanTimer);
-      state.scanTimer = null;
-    }
+    endWatchSession("left-watch-route");
     if (state.playerLayoutFrame !== null) {
       cancelAnimationFrame(state.playerLayoutFrame);
       state.playerLayoutFrame = null;
@@ -206,7 +203,6 @@
     document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
     window.removeEventListener("resize", schedulePlayerLayout);
     window.visualViewport?.removeEventListener("resize", schedulePlayerLayout);
-    resetVideoState(null);
     removeWatchPageUi();
   }
 
@@ -289,7 +285,7 @@
       return;
     }
     applySettingsToUi();
-    maybeAutoOpenCompact(getCurrentVideoId());
+    maybeAutoOpenCompact(state.session);
     updateUi();
   }
 
@@ -329,40 +325,54 @@
     return colorName === "custom" ? customColor : colorChoice.color;
   }
 
-  function handleNavigation() {
-    syncVideoStateWithUrl();
-    scheduleScan();
+  function handleNavigation({ videoId }) {
+    beginWatchSession(videoId, SCAN_DELAY_MS);
+  }
+
+  function beginWatchSession(videoId, initialScanDelay = 0) {
+    endWatchSession("watch-video-changed");
+    const now = Date.now();
+    const session = createWatchSession({
+      generation: state.nextSessionGeneration + 1,
+      videoId,
+      now,
+    });
+    state.nextSessionGeneration = session.generation;
+    session.description.fallbackReadyAt = now + DESCRIPTION_EXPAND_FALLBACK_DELAY_MS;
+    state.session = session;
+    resetSessionViewState();
+    // YouTube keeps the previous watch DOM around briefly during soft navigation.
+    // Preserve the settling delay there so stale roots cannot immediately lock
+    // themselves to the new video generation. A direct document load is ready
+    // enough to scan immediately.
+    scheduleScan(session, initialScanDelay);
     updateUi();
   }
 
-  function syncVideoStateWithUrl() {
-    const videoId = getCurrentVideoId();
-    if (state.currentVideoId !== videoId || (state.tracksVideoId && state.tracksVideoId !== videoId)) {
-      resetVideoState(videoId);
-      return true;
-    }
-
-    return false;
+  function endWatchSession(reason) {
+    const session = state.session;
+    state.session = null;
+    disposeWatchSession(session, reason);
+    resetSessionViewState();
   }
 
-  function resetVideoState(videoId) {
+  function resetSessionViewState() {
     state.shuffleEnabled = false;
     state.repeatMode = REPEAT_MODES.OFF;
     state.panelOpen = false;
     state.panelMode = PANEL_MODES.ANCHORED;
     state.anchoredCompact = false;
     state.tracks = [];
-    state.currentVideoId = videoId;
-    state.tracksVideoId = null;
     state.currentTrackIndex = -1;
     resetPlaybackOrder();
-    state.descriptionExpandedVideoId = null;
-    state.descriptionFallbackVideoId = null;
-    state.descriptionFallbackReadyAt = 0;
-    state.shouldCollapseDescriptionVideoId = null;
-    state.lockedTrackVideoId = null;
-    state.autoOpenedCompactVideoId = null;
-    state.userClosedPanelVideoId = null;
+  }
+
+  function isCurrentSession(session) {
+    return isWatchSessionCurrent(session, {
+      activeSession: state.session,
+      activeVideoId: getCurrentVideoId(),
+      watchPageActive: state.watchPageActive,
+    });
   }
 
   function handlePageMutations(mutations) {
@@ -379,80 +389,84 @@
       return;
     }
 
-    if (syncVideoStateWithUrl()) {
-      updateUi();
-    }
-    scheduleScan();
+    scheduleScan(state.session);
   }
 
-  function scheduleScan() {
-    if (!state.watchPageActive || state.scanTimer) {
-      return;
+  function scheduleScan(session, delay = SCAN_DELAY_MS) {
+    if (!isCurrentSession(session)) {
+      return false;
     }
 
-    state.scanTimer = setTimeout(() => {
-      state.scanTimer = null;
-      scanPage();
-    }, SCAN_DELAY_MS);
+    return scheduleSessionTask(session, "scan", () => scanPage(session), { delay });
   }
 
-  function scanPage() {
-    if (!state.watchPageActive) {
-      return;
+  function scheduleReadinessRetry(session, phase) {
+    if (!isCurrentSession(session)) {
+      return false;
     }
 
-    const videoIdChanged = syncVideoStateWithUrl();
-    if (videoIdChanged) {
-      updateUi();
+    session.phase = phase;
+    const scheduled = scheduleSessionRetry(
+      session,
+      "readiness",
+      () => scanPage(session)
+    );
+    if (!scheduled && session.retries.readiness.exhausted) {
+      session.phase = "readiness-exhausted";
+    }
+    return scheduled;
+  }
+
+  function scanPage(session) {
+    if (!isCurrentSession(session)) {
+      return;
     }
 
     const video = getVideo();
-    const videoId = getCurrentVideoId();
+    const videoId = session.videoId;
 
-    if (!video || !videoId) {
-      resetVideoState(null);
+    if (!video) {
+      scheduleReadinessRetry(session, "waiting-for-video");
       updateUi("Open a YouTube video");
       return;
     }
 
     if (!Number.isFinite(video.duration) || video.duration <= 0) {
-      scheduleScan();
+      scheduleReadinessRetry(session, "waiting-for-duration");
       updateUi();
       return;
     }
 
-    prepareDescriptionFallback(videoId);
+    session.phase = "discovering";
 
-    const lockedTracks = getLockedTracksForVideo(videoId);
+    const lockedTracks = getLockedTracksForSession(session);
     if (lockedTracks) {
-      if (abortStaleScan(videoId)) {
-        return;
-      }
-
-      applyTracksForVideo(videoId, video, lockedTracks);
-      maybeAutoOpenCompact(videoId);
-      collapseDescriptionIfNeeded(videoId);
+      applyTracksForSession(session, video, lockedTracks);
+      maybeAutoOpenCompact(session);
+      collapseDescriptionIfNeeded(session);
+      resetSessionRetry(session, "readiness");
+      session.phase = "ready";
       updateUi();
       return;
     }
 
     const quietDescriptionReadable = canReadQuietDescription(videoId);
     const candidates = getTimestampCandidates(videoId);
-    let tracks = getTracksForVideo(videoId, video.duration, candidates);
-    if (tracks.length < 2 && candidates.length < 2 && !quietDescriptionReadable && shouldWaitForQuietDescriptionScan()) {
-      scheduleScan();
+    let tracks = getTracksForSession(session, video.duration, candidates);
+    if (tracks.length < 2 && candidates.length < 2 && !quietDescriptionReadable && shouldWaitForQuietDescriptionScan(session)) {
+      scheduleReadinessRetry(session, "waiting-for-description");
       updateUi();
       return;
     }
 
-    if (tracks.length < 2 && candidates.length < 2 && !quietDescriptionReadable && expandDescriptionIfAvailable(videoId)) {
+    if (tracks.length < 2 && candidates.length < 2 && !quietDescriptionReadable && expandDescriptionIfAvailable(session)) {
       updateUi("Reading description...");
       return;
     }
 
     let commentFetchPending = false;
     if (tracks.length < 2) {
-      const fetchedCommentTracks = getFetchedCommentTracksForVideo(videoId, video.duration);
+      const fetchedCommentTracks = getFetchedCommentTracksForSession(session, video.duration);
       if (fetchedCommentTracks === null) {
         commentFetchPending = true;
         tracks = [];
@@ -464,43 +478,36 @@
     }
 
     if (tracks.length < 2 && !commentFetchPending && shouldUseNativeTimestampFallback()) {
-      tracks = getTracksForVideo(videoId, video.duration, getNativeTimestampCandidates(videoId));
-    }
-
-    if (abortStaleScan(videoId)) {
-      return;
+      tracks = getTracksForSession(session, video.duration, getNativeTimestampCandidates(videoId));
     }
 
     if (tracks.length >= 2) {
-      tracks = lockTracksForVideo(videoId, tracks);
+      tracks = lockTracksForSession(session, tracks);
+      resetSessionRetry(session, "readiness");
+      session.phase = "ready";
+    } else {
+      scheduleReadinessRetry(session, "discovering-sources");
     }
 
-    applyTracksForVideo(videoId, video, tracks);
-    maybeAutoOpenCompact(videoId);
-    collapseDescriptionIfNeeded(videoId);
+    if (!isCurrentSession(session)) {
+      return;
+    }
+
+    applyTracksForSession(session, video, tracks);
+    maybeAutoOpenCompact(session);
+    collapseDescriptionIfNeeded(session);
     updateUi();
   }
 
-  function abortStaleScan(videoId) {
-    if (videoId === getCurrentVideoId()) {
-      return false;
-    }
-
-    syncVideoStateWithUrl();
-    scheduleScan();
-    updateUi();
-    return true;
-  }
-
-  function maybeAutoOpenCompact(videoId) {
+  function maybeAutoOpenCompact(session = state.session) {
     if (
-      !videoId
+      !isCurrentSession(session)
       || !state.settings.autoShowCompact
       || state.panelOpen
-      || !tracksBelongToVideo(videoId)
-      || state.lockedTrackVideoId !== videoId
-      || state.autoOpenedCompactVideoId === videoId
-      || state.userClosedPanelVideoId === videoId
+      || !tracksBelongToVideo(session.videoId)
+      || !session.tracksLocked
+      || session.autoOpenedCompact
+      || session.userClosedPanel
     ) {
       return;
     }
@@ -508,33 +515,37 @@
     state.panelOpen = true;
     state.panelMode = PANEL_MODES.ANCHORED;
     state.anchoredCompact = true;
-    state.autoOpenedCompactVideoId = videoId;
+    session.autoOpenedCompact = true;
   }
 
   function tracksBelongToVideo(videoId = getCurrentVideoId()) {
-    return state.tracks.length >= 2 && state.tracksVideoId === videoId;
+    const session = state.session;
+    return state.tracks.length >= 2
+      && isCurrentSession(session)
+      && session.videoId === videoId;
   }
 
-  function getLockedTracksForVideo(videoId) {
-    if (state.lockedTrackVideoId !== videoId) {
+  function getLockedTracksForSession(session) {
+    if (!session.tracksLocked) {
       return null;
     }
 
-    return state.trackCache.get(videoId) || null;
+    return state.trackCache.get(session.videoId) || null;
   }
 
-  function lockTracksForVideo(videoId, tracks) {
-    state.trackCache.set(videoId, tracks);
-    state.lockedTrackVideoId = videoId;
+  function lockTracksForSession(session, tracks) {
+    state.trackCache.set(session.videoId, tracks);
+    session.tracksLocked = true;
     return tracks;
   }
 
-  function applyTracksForVideo(videoId, video, tracks) {
+  function applyTracksForSession(session, video, tracks) {
+    if (!isCurrentSession(session)) {
+      return;
+    }
     if (tracksChanged(state.tracks, tracks)) {
       resetPlaybackOrder();
     }
-    state.currentVideoId = videoId;
-    state.tracksVideoId = tracks.length >= 2 ? videoId : null;
     state.tracks = tracks;
     state.currentTrackIndex = getTrackAtTime(video.currentTime)?.index ?? -1;
   }
@@ -552,21 +563,21 @@
     return previousTracks.some((track, index) => track.start !== nextTracks[index]?.start);
   }
 
-  function getTracksForVideo(videoId, duration, candidates = getTimestampCandidates(videoId)) {
+  function getTracksForSession(session, duration, candidates = getTimestampCandidates(session.videoId)) {
     const tracks = findTracks(duration, candidates);
-    const cachedTracks = state.trackCache.get(videoId);
+    const cachedTracks = state.trackCache.get(session.videoId);
 
     if (tracks.length >= 2) {
       const mergedTracks = mergeCachedTrackTitles(tracks, cachedTracks);
       const bestTracks = chooseBetterTrackSet(mergedTracks, cachedTracks);
-      state.trackCache.set(videoId, bestTracks);
+      state.trackCache.set(session.videoId, bestTracks);
       return bestTracks;
     }
 
     // Cached tracks are only a continuity fallback after this video has already
     // been confirmed in the current page view. During YouTube SPA navigation,
     // old DOM can briefly linger, and auto-show should never open from cache alone.
-    return state.lockedTrackVideoId === videoId ? cachedTracks || [] : [];
+    return session.tracksLocked ? cachedTracks || [] : [];
   }
 
   function mergeCachedTrackTitles(tracks, cachedTracks) {
@@ -599,21 +610,12 @@
     return getWatchVideoId(location.href);
   }
 
-  function prepareDescriptionFallback(videoId) {
-    if (state.descriptionFallbackVideoId === videoId) {
-      return;
-    }
-
-    state.descriptionFallbackVideoId = videoId;
-    state.descriptionFallbackReadyAt = Date.now() + DESCRIPTION_EXPAND_FALLBACK_DELAY_MS;
+  function shouldWaitForQuietDescriptionScan(session) {
+    return Date.now() < session.description.fallbackReadyAt;
   }
 
-  function shouldWaitForQuietDescriptionScan() {
-    return Date.now() < state.descriptionFallbackReadyAt;
-  }
-
-  function expandDescriptionIfAvailable(videoId) {
-    if (state.descriptionExpandedVideoId === videoId) {
+  function expandDescriptionIfAvailable(session) {
+    if (session.description.expanded) {
       return false;
     }
 
@@ -622,15 +624,15 @@
       return false;
     }
 
-    state.descriptionExpandedVideoId = videoId;
-    state.shouldCollapseDescriptionVideoId = videoId;
+    session.description.expanded = true;
+    session.description.shouldCollapse = true;
     expandButton.click();
-    scheduleScan();
+    scheduleScan(session);
     return true;
   }
 
-  function collapseDescriptionIfNeeded(videoId) {
-    if (state.shouldCollapseDescriptionVideoId !== videoId) {
+  function collapseDescriptionIfNeeded(session) {
+    if (!session.description.shouldCollapse) {
       return;
     }
 
@@ -639,7 +641,7 @@
       return;
     }
 
-    state.shouldCollapseDescriptionVideoId = null;
+    session.description.shouldCollapse = false;
     collapseButton.click();
   }
 
@@ -689,13 +691,13 @@
       movePlayerToOverlayRoot();
       launcherButton?.remove();
       compactHost?.remove();
-      return;
+      return true;
     }
 
     ensureLauncherButton();
     const actionRow = findActionRow();
     if (!actionRow) {
-      return;
+      return false;
     }
 
     if (!actionRow.contains(launcherButton)) {
@@ -706,6 +708,20 @@
     launcherButton.setAttribute("aria-pressed", String(state.panelOpen));
     launcherButton.setAttribute("aria-label", state.panelOpen ? "Hide tracklist" : "Open tracklist");
     launcherButton.title = state.panelOpen ? "Hide tracklist" : "Show tracklist";
+    return true;
+  }
+
+  function syncLauncherRetry(session, tracksAvailable, launcherAttached) {
+    if (!tracksAvailable || launcherAttached) {
+      resetSessionRetry(session, "launcher");
+      return;
+    }
+
+    scheduleSessionRetry(session, "launcher", () => {
+      if (isCurrentSession(session)) {
+        updateUi();
+      }
+    });
   }
 
   function ensureLauncherButton() {
@@ -947,8 +963,16 @@
     return cacheTrackSourceForVideo(videoId, bestSource);
   }
 
-  function getFetchedCommentTracksForVideo(videoId, duration) {
-    const cachedFetch = state.commentFetchCache.get(videoId);
+  function getFetchedCommentTracksForSession(session, duration) {
+    const { videoId } = session;
+    let cachedFetch = state.commentFetchCache.get(videoId);
+    if (
+      cachedFetch?.status === "pending"
+      && cachedFetch.generation !== session.generation
+    ) {
+      state.commentFetchCache.delete(videoId);
+      cachedFetch = null;
+    }
     if (cachedFetch?.status === "done") {
       return cachedFetch.tracks;
     }
@@ -959,34 +983,53 @@
       return null;
     }
 
-    startCommentFetch(videoId, duration);
+    startCommentFetch(session, duration);
     return null;
   }
 
-  function startCommentFetch(videoId, duration) {
+  function startCommentFetch(session, duration) {
+    const { videoId } = session;
     if (typeof fetchCommentRecords !== "function") {
       state.commentFetchCache.set(videoId, { status: "failed", tracks: [] });
       return;
     }
 
-    const fetchState = { status: "pending", tracks: [] };
+    const fetchState = {
+      generation: session.generation,
+      status: "pending",
+      tracks: [],
+    };
     state.commentFetchCache.set(videoId, fetchState);
     fetchCommentRecords({ maxBatches: COMMENT_FETCH_BATCH_LIMIT, videoId })
       .then((records) => {
+        if (!isCurrentSession(session)) {
+          discardStaleCommentFetch(videoId, fetchState);
+          return;
+        }
         const bestSource = getBestTrackSource(getFetchedCommentTimestampSources(records), duration);
         fetchState.status = "done";
         fetchState.records = records;
         fetchState.tracks = bestSource ? cacheTrackSourceForVideo(videoId, bestSource) : [];
       })
       .catch(() => {
+        if (!isCurrentSession(session)) {
+          discardStaleCommentFetch(videoId, fetchState);
+          return;
+        }
         fetchState.status = "failed";
         fetchState.tracks = [];
       })
       .finally(() => {
-        if (getCurrentVideoId() === videoId && state.lockedTrackVideoId !== videoId) {
-          scheduleScan();
+        if (isCurrentSession(session) && !session.tracksLocked) {
+          scheduleScan(session);
         }
       });
+  }
+
+  function discardStaleCommentFetch(videoId, fetchState) {
+    if (state.commentFetchCache.get(videoId) === fetchState) {
+      state.commentFetchCache.delete(videoId);
+    }
   }
 
   function getBestTrackSource(sources, duration) {
@@ -1555,7 +1598,9 @@
 
   function closePlayer() {
     state.panelOpen = false;
-    state.userClosedPanelVideoId = getCurrentVideoId();
+    if (state.session) {
+      state.session.userClosedPanel = true;
+    }
     updateUi();
   }
 
@@ -1566,7 +1611,9 @@
     }
 
     state.panelOpen = true;
-    state.userClosedPanelVideoId = null;
+    if (state.session) {
+      state.session.userClosedPanel = false;
+    }
     updateUi();
   }
 
@@ -2556,7 +2603,8 @@
   }
 
   function updateUi() {
-    if (!state.watchPageActive) {
+    const session = state.session;
+    if (!isCurrentSession(session)) {
       return;
     }
 
@@ -2570,7 +2618,8 @@
     const isHiddenByFullscreen = isFullscreenActive() && state.panelMode === PANEL_MODES.ANCHORED;
     const isVisible = tracksAvailable && state.panelOpen && !isHiddenByFullscreen;
     const isInlineCompact = isVisible && isAnchoredCompact;
-    syncLauncher(tracksAvailable);
+    const launcherAttached = syncLauncher(tracksAvailable);
+    syncLauncherRetry(session, tracksAvailable, launcherAttached);
     const mountedInlineCompact = mountPlayerForMode(isInlineCompact);
     root.classList.toggle("is-shuffle-enabled", state.shuffleEnabled);
     root.classList.toggle("is-repeat-enabled", state.repeatMode === REPEAT_MODES.ONE);
