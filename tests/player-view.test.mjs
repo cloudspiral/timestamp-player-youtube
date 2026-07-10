@@ -3,13 +3,17 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const runtimePromise = readFile(
-  new URL("../src/player-view.js", import.meta.url),
-  "utf8"
-).then((source) => {
+const runtimePromise = Promise.all([
+  readFile(new URL("../src/settings.js", import.meta.url), "utf8"),
+  readFile(new URL("../src/player-view.js", import.meta.url), "utf8"),
+]).then(([settingsSource, playerViewSource]) => {
   const context = vm.createContext({});
-  vm.runInContext(source, context);
-  return context.TimestampPlayerPlayerView;
+  vm.runInContext(settingsSource, context);
+  vm.runInContext(playerViewSource, context);
+  return {
+    playerView: context.TimestampPlayerPlayerView,
+    progressTimeModeValues: context.TimestampPlayerSettings.PROGRESS_TIME_MODE_VALUES,
+  };
 });
 const contentSourcePromise = readFile(
   new URL("../src/content.js", import.meta.url),
@@ -303,7 +307,7 @@ function formatTimestamp(seconds) {
 }
 
 async function createHarness({ handlers = {} } = {}) {
-  const runtime = await runtimePromise;
+  const { playerView: runtime, progressTimeModeValues } = await runtimePromise;
   const documentObject = new FakeDocument();
   const rendererRecords = [];
   const createTrackListRenderer = (dependencies) => {
@@ -361,7 +365,7 @@ async function createHarness({ handlers = {} } = {}) {
     handlers,
     trackHighlightColors,
   });
-  return { controller, documentObject, rendererRecords, runtime };
+  return { controller, documentObject, progressTimeModeValues, rendererRecords, runtime };
 }
 
 test("ensure constructs and binds one stable player shell", async () => {
@@ -562,7 +566,7 @@ test("progress rendering preserves remaining, duration, and reset presentations"
     active: true,
     duration: 100,
     elapsed: 25,
-    timeMode: harness.runtime.PROGRESS_TIME_MODES.REMAINING,
+    timeMode: harness.progressTimeModeValues.REMAINING,
   });
   const elements = harness.controller.getElements();
   assert.equal(elements.progressElapsedEl.textContent, "0:25");
@@ -580,7 +584,7 @@ test("progress rendering preserves remaining, duration, and reset presentations"
     active: true,
     duration: 100,
     elapsed: 150,
-    timeMode: harness.runtime.PROGRESS_TIME_MODES.DURATION,
+    timeMode: harness.progressTimeModeValues.DURATION,
   });
   assert.equal(elements.progressElapsedEl.textContent, "1:40");
   assert.equal(elements.progressRemainingEl.textContent, "1:40");
@@ -600,7 +604,7 @@ test("progress rendering preserves remaining, duration, and reset presentations"
 
   harness.controller.renderProgress({
     active: false,
-    timeMode: harness.runtime.PROGRESS_TIME_MODES.DURATION,
+    timeMode: harness.progressTimeModeValues.DURATION,
   });
   assert.equal(elements.progressElapsedEl.textContent, "0:00");
   assert.equal(elements.progressRemainingEl.textContent, "0:00");
@@ -834,13 +838,15 @@ test("player CSS exposes native range, focus-visible, hidden, and target-size af
   assert.doesNotMatch(css, /\.ts-progress-fill|\.ts-progress-thumb|aria-disabled/);
 });
 
-test("extension and package wiring load and verify the player view before content", async () => {
+test("extension wiring loads canonical settings before the player view and content", async () => {
   const [manifest, packageJson] = await Promise.all([manifestPromise, packagePromise]);
   const scripts = manifest.content_scripts[0].js;
+  const settingsIndex = scripts.indexOf("src/settings.js");
   const viewIndex = scripts.indexOf("src/player-view.js");
   const contentIndex = scripts.indexOf("src/content.js");
 
-  assert.ok(viewIndex >= 0);
+  assert.ok(settingsIndex >= 0);
+  assert.ok(viewIndex > settingsIndex);
   assert.ok(contentIndex > viewIndex);
   assert.equal(
     packageJson.scripts["test:player-view"],

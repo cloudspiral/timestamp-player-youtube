@@ -1,9 +1,8 @@
 (() => {
   const ROOT_ID = "timestamp-player-root";
-  const PROGRESS_TIME_MODES = Object.freeze({
-    DURATION: "duration",
-    REMAINING: "remaining",
-  });
+  const {
+    PROGRESS_TIME_MODE_VALUES,
+  } = globalThis.TimestampPlayerSettings;
   const REQUIRED_ELEMENTS = Object.freeze({
     dragHandle: ".ts-drag-handle",
     resizeHandle: ".ts-resize-handle",
@@ -267,7 +266,7 @@
       active = false,
       duration = 0,
       elapsed = 0,
-      timeMode = PROGRESS_TIME_MODES.REMAINING,
+      timeMode = PROGRESS_TIME_MODE_VALUES.REMAINING,
     } = {}) {
       ensure();
       if (!active) {
@@ -302,7 +301,7 @@
     }
 
     function renderProgressRightTime(remainingLabel, durationLabel, timeMode) {
-      const showingDuration = timeMode === PROGRESS_TIME_MODES.DURATION;
+      const showingDuration = timeMode === PROGRESS_TIME_MODE_VALUES.DURATION;
       elements.progressRemainingEl.textContent = showingDuration ? durationLabel : `-${remainingLabel}`;
       elements.progressRemainingEl.setAttribute("aria-pressed", String(showingDuration));
     }
@@ -408,7 +407,6 @@
   }
 
   globalThis.TimestampPlayerPlayerView = {
-    PROGRESS_TIME_MODES,
     ROOT_ID,
     createPlayerViewController,
   };

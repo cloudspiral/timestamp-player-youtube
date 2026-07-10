@@ -50,6 +50,7 @@
     COMPACT_PROGRESS_COLORS,
     COMPACT_PROGRESS_STYLES,
     DEFAULT_SETTINGS,
+    PROGRESS_TIME_MODE_VALUES,
     TRACK_HIGHLIGHT_COLORS,
     addSettingsChangeListener,
     loadSettings,
@@ -104,7 +105,6 @@
     createPlayerLayoutController,
   } = globalThis.TimestampPlayerPlayerLayout;
   const {
-    PROGRESS_TIME_MODES,
     ROOT_ID: PLAYER_ROOT_ID,
     createPlayerViewController,
   } = globalThis.TimestampPlayerPlayerView;
@@ -113,7 +113,6 @@
     clearPlaybackOrder,
     createPlaybackState,
     recordTrackSelection,
-    resetPlaybackState,
     selectNextTrack,
     selectPreviousTrack,
     toggleRepeat: togglePlaybackRepeat,
@@ -125,7 +124,6 @@
     session: null,
     nextSessionGeneration: 0,
     playback: createPlaybackState(),
-    progressTimeMode: DEFAULT_SETTINGS.progressTimeMode,
     panelOpen: false,
     panelMode: PANEL_MODES.ANCHORED,
     anchoredCompact: false,
@@ -300,7 +298,6 @@
 
   function setSettings(settings) {
     state.settings = normalizeSettings(settings);
-    state.progressTimeMode = state.settings.progressTimeMode;
     playerLayout.hydrate(state.settings);
     if (!state.watchPageActive) {
       return;
@@ -364,7 +361,7 @@
   }
 
   function resetSessionViewState() {
-    state.playback = resetPlaybackState();
+    state.playback = createPlaybackState();
     state.panelOpen = false;
     state.panelMode = PANEL_MODES.ANCHORED;
     state.anchoredCompact = false;
@@ -681,10 +678,7 @@
       }
     }
 
-    if (
-      shouldConsiderNativeSource(session.trackSelection)
-      && shouldUseNativeTimestampFallback()
-    ) {
+    if (shouldConsiderNativeSource(session.trackSelection)) {
       const nativeDiscovery = getNativeSourceDiscovery(
         session,
         video.duration,
@@ -1079,12 +1073,6 @@
     return { candidateCount, results };
   }
 
-  function shouldUseNativeTimestampFallback() {
-    // Keep native YouTube Key moments as an isolated fallback so a future source
-    // preference can disable it without changing the rest of the scan pipeline.
-    return true;
-  }
-
   function getNativeSourceDiscovery(session, duration, observation) {
     const discovery = getNativeTimestampDiscovery(session.videoId);
     const candidateCount = discovery.candidates.length;
@@ -1476,11 +1464,12 @@
 
   function toggleProgressTimeMode(event) {
     event.preventDefault();
-    state.progressTimeMode =
-      state.progressTimeMode === PROGRESS_TIME_MODES.REMAINING
-        ? PROGRESS_TIME_MODES.DURATION
-        : PROGRESS_TIME_MODES.REMAINING;
-    saveSettings({ progressTimeMode: state.progressTimeMode });
+    const progressTimeMode =
+      state.settings.progressTimeMode === PROGRESS_TIME_MODE_VALUES.REMAINING
+        ? PROGRESS_TIME_MODE_VALUES.DURATION
+        : PROGRESS_TIME_MODE_VALUES.REMAINING;
+    state.settings = { ...state.settings, progressTimeMode };
+    saveSettings({ progressTimeMode });
     updateProgress();
   }
 
@@ -1632,7 +1621,7 @@
       return;
     }
 
-    const currentTrack = getCurrentTrack(video.currentTime);
+    const currentTrack = getTrackAtTime(video.currentTime);
     if (currentTrack && currentTrack.index !== state.currentTrackIndex) {
       state.currentTrackIndex = currentTrack.index;
       updateUi();
@@ -1650,9 +1639,6 @@
           previousIndex: activeTrack.index,
         });
         return;
-      } else if (state.playback.repeatMode === REPEAT_MODES.ALL && activeTrack.index === state.tracks.length - 1) {
-        playTrack(0, { previousIndex: activeTrack.index });
-        return;
       }
     }
 
@@ -1666,10 +1652,6 @@
 
   function isFullscreenActive() {
     return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
-  }
-
-  function getCurrentTrack(time) {
-    return getTrackAtTime(time);
   }
 
   function getTrackAtTime(time) {
@@ -1744,7 +1726,7 @@
     if (!video || !track) {
       playerView.renderProgress({
         active: false,
-        timeMode: state.progressTimeMode,
+        timeMode: state.settings.progressTimeMode,
       });
       return;
     }
@@ -1755,7 +1737,7 @@
       active: true,
       duration,
       elapsed,
-      timeMode: state.progressTimeMode,
+      timeMode: state.settings.progressTimeMode,
     });
   }
 

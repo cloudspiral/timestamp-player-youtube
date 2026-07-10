@@ -14,7 +14,7 @@ function plain(value) {
   return structuredClone(value);
 }
 
-test("creates isolated default state and resets modes plus order", async () => {
+test("creates isolated default playback state", async () => {
   const api = await loadPlaybackState();
   const first = api.createPlaybackState();
   const second = api.createPlaybackState();
@@ -27,7 +27,6 @@ test("creates isolated default state and resets modes plus order", async () => {
   });
   assert.notEqual(first.history, second.history);
   assert.notEqual(first.upcoming, second.upcoming);
-  assert.deepEqual(plain(api.resetPlaybackState(first)), plain(second));
 });
 
 test("clearing playback order preserves shuffle and repeat modes without mutating input", async () => {
@@ -75,7 +74,7 @@ test("shuffle toggling preserves the existing asymmetric reset behavior", async 
   assert.deepEqual(plain(disabled.upcoming), []);
 });
 
-test("repeat toggles one/off and remains off without a playable track list", async () => {
+test("repeat toggles one/off, rejects stale modes, and remains off without playable tracks", async () => {
   const api = await loadPlaybackState();
   const off = api.createPlaybackState();
   const one = api.toggleRepeat(off, 3);
@@ -83,18 +82,43 @@ test("repeat toggles one/off and remains off without a playable track list", asy
   assert.equal(one.repeatMode, api.REPEAT_MODES.ONE);
   assert.equal(api.toggleRepeat(one, 3).repeatMode, api.REPEAT_MODES.OFF);
   assert.equal(api.toggleRepeat(off, 1).repeatMode, api.REPEAT_MODES.OFF);
+  assert.equal(api.createPlaybackState({ repeatMode: "all" }).repeatMode, api.REPEAT_MODES.OFF);
 });
 
-test("sequential next and previous preserve boundary and repeat-all behavior", async () => {
+test("public sequential selection preserves next and previous boundary behavior", async () => {
   const api = await loadPlaybackState();
+  const state = api.createPlaybackState();
 
-  assert.equal(api.getNextSequentialTrackIndex(1, 3, false), -1);
-  assert.equal(api.getNextSequentialTrackIndex(-1, 3, true), 0);
-  assert.equal(api.getNextSequentialTrackIndex(2, 3, true), 0);
-  assert.equal(api.getPreviousSequentialTrackIndex(2, 3, true), 1);
-  assert.equal(api.getPreviousSequentialTrackIndex(0, 3, true, api.REPEAT_MODES.OFF), 0);
-  assert.equal(api.getPreviousSequentialTrackIndex(0, 3, true, api.REPEAT_MODES.ALL), 2);
-  assert.equal(api.getPreviousSequentialTrackIndex(0, 3, false, api.REPEAT_MODES.ALL), -1);
+  assert.equal(api.selectNextTrack(state, {
+    currentIndex: 1,
+    trackCount: 3,
+    tracksAvailable: false,
+  }).index, -1);
+  assert.equal(api.selectNextTrack(state, {
+    currentIndex: -1,
+    trackCount: 3,
+    tracksAvailable: true,
+  }).index, 0);
+  assert.equal(api.selectNextTrack(state, {
+    currentIndex: 2,
+    trackCount: 3,
+    tracksAvailable: true,
+  }).index, 0);
+  assert.equal(api.selectPreviousTrack(state, {
+    currentIndex: 2,
+    trackCount: 3,
+    tracksAvailable: true,
+  }).index, 1);
+  assert.equal(api.selectPreviousTrack(state, {
+    currentIndex: 0,
+    trackCount: 3,
+    tracksAvailable: true,
+  }).index, 0);
+  assert.equal(api.selectPreviousTrack(state, {
+    currentIndex: 0,
+    trackCount: 3,
+    tracksAvailable: false,
+  }).index, -1);
 });
 
 test("shuffle refill is deterministic, excludes current, and consumes one cycle", async () => {
@@ -175,8 +199,22 @@ test("history records valid changes, removes selected upcoming tracks, and caps 
       trackCount: 4,
     });
   }
-  assert.equal(state.history.length, api.MAX_HISTORY_LENGTH);
+  assert.equal(state.history.length, 100);
   assert.deepEqual(plain(state.history.slice(-4)), [1, 2, 3, 0]);
+});
+
+test("keeps playback implementation details private", async () => {
+  const api = await loadPlaybackState();
+
+  for (const name of [
+    "MAX_HISTORY_LENGTH",
+    "getNextSequentialTrackIndex",
+    "getPreviousSequentialTrackIndex",
+    "queueTrackNext",
+    "resetPlaybackState",
+  ]) {
+    assert.equal(Object.hasOwn(api, name), false, `${name} should remain internal`);
+  }
 });
 
 test("recordHistory false still removes a manually selected track from upcoming", async () => {

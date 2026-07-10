@@ -2,7 +2,6 @@
   const MAX_HISTORY_LENGTH = 100;
   const REPEAT_MODES = Object.freeze({
     OFF: "off",
-    ALL: "all",
     ONE: "one",
   });
 
@@ -18,10 +17,6 @@
       shuffleEnabled: shuffleEnabled === true,
       upcoming: [...upcoming],
     };
-  }
-
-  function resetPlaybackState() {
-    return createPlaybackState();
   }
 
   function clearPlaybackOrder(state) {
@@ -102,12 +97,7 @@
   } = {}) {
     if (!state.shuffleEnabled) {
       return {
-        index: getPreviousSequentialTrackIndex(
-          currentIndex,
-          trackCount,
-          tracksAvailable,
-          state.repeatMode
-        ),
+        index: getPreviousSequentialTrackIndex(currentIndex, tracksAvailable),
         state,
       };
     }
@@ -173,17 +163,12 @@
     return (currentIndex + 1) % trackCount;
   }
 
-  function getPreviousSequentialTrackIndex(
-    currentIndex,
-    trackCount,
-    tracksAvailable,
-    repeatMode = REPEAT_MODES.OFF
-  ) {
+  function getPreviousSequentialTrackIndex(currentIndex, tracksAvailable) {
     if (!tracksAvailable) {
       return -1;
     }
     if (currentIndex <= 0) {
-      return repeatMode === REPEAT_MODES.ALL ? trackCount - 1 : 0;
+      return 0;
     }
     return currentIndex - 1;
   }
@@ -202,15 +187,10 @@
   }
 
   globalThis.TimestampPlayerPlaybackState = {
-    MAX_HISTORY_LENGTH,
     REPEAT_MODES,
     clearPlaybackOrder,
     createPlaybackState,
-    getNextSequentialTrackIndex,
-    getPreviousSequentialTrackIndex,
-    queueTrackNext,
     recordTrackSelection,
-    resetPlaybackState,
     selectNextTrack,
     selectPreviousTrack,
     toggleRepeat,

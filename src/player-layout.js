@@ -129,15 +129,14 @@
     }
 
     function prepareMount({ inlineCompact = false } = {}) {
+      movePlayerToOverlayRoot();
       if (inlineCompact) {
-        movePlayerToOverlayRoot();
         removeEmptyCompactHost();
         clearPlayerSize();
         clearRootPosition();
         return true;
       }
 
-      movePlayerToOverlayRoot();
       return false;
     }
 

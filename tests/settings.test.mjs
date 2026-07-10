@@ -42,6 +42,22 @@ function createChangeEvent() {
   };
 }
 
+test("defines progress-time values once and derives option metadata from them", async () => {
+  const api = await loadSettings();
+
+  assert.deepEqual(plain(api.PROGRESS_TIME_MODE_VALUES), {
+    DURATION: "duration",
+    REMAINING: "remaining",
+  });
+  assert.deepEqual(
+    Object.keys(api.PROGRESS_TIME_MODES).sort(),
+    Object.values(api.PROGRESS_TIME_MODE_VALUES).sort()
+  );
+  assert.equal(api.DEFAULT_SETTINGS.progressTimeMode, api.PROGRESS_TIME_MODE_VALUES.DURATION);
+  assert.equal(Object.isFrozen(api.PROGRESS_TIME_MODE_VALUES), true);
+  assert.equal(Object.isFrozen(api.PROGRESS_TIME_MODES), true);
+});
+
 test("normalizes enums, colors, booleans, and persisted geometry", async () => {
   const api = await loadSettings();
   const input = {

@@ -1,4 +1,8 @@
 (() => {
+  const PROGRESS_TIME_MODE_VALUES = Object.freeze({
+    DURATION: "duration",
+    REMAINING: "remaining",
+  });
   const DEFAULT_SETTINGS = {
     autoShowCompact: false,
     compactProgressColor: "red",
@@ -8,7 +12,7 @@
     floatingPlayerSize: null,
     progressColor: "red",
     progressCustomColor: "#ff0033",
-    progressTimeMode: "duration",
+    progressTimeMode: PROGRESS_TIME_MODE_VALUES.DURATION,
     anchoredPlayerSize: null,
     compactPlayerWidth: null,
     trackHighlightColor: "purple",
@@ -27,14 +31,14 @@
     },
   };
 
-  const PROGRESS_TIME_MODES = {
-    duration: {
+  const PROGRESS_TIME_MODES = Object.freeze({
+    [PROGRESS_TIME_MODE_VALUES.DURATION]: Object.freeze({
       label: "Track duration",
-    },
-    remaining: {
+    }),
+    [PROGRESS_TIME_MODE_VALUES.REMAINING]: Object.freeze({
       label: "Time remaining",
-    },
-  };
+    }),
+  });
 
   const COMPACT_PROGRESS_COLORS = {
     red: {
@@ -298,6 +302,7 @@
     COMPACT_PROGRESS_COLORS,
     COMPACT_PROGRESS_STYLES,
     DEFAULT_SETTINGS,
+    PROGRESS_TIME_MODE_VALUES,
     PROGRESS_TIME_MODES,
     TRACK_HIGHLIGHT_COLORS,
     loadSettings,
