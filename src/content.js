@@ -89,6 +89,7 @@
   } = globalThis.TimestampPlayerVideoResolver;
   const {
     getReadySessionVideo: getBoundReadySessionVideo,
+    hasMediaResolutionChanged,
     resolveAndBindSessionMedia,
   } = globalThis.TimestampPlayerSessionMedia;
   const {
@@ -516,20 +517,19 @@
       return;
     }
 
-    const previousElement = session.media.element;
-    const previousStatus = session.media.resolution?.status || null;
+    const previousResolution = session.media.resolution;
     const resolution = resolveSessionMedia(session);
     if (!resolution || !isCurrentSession(session)) {
       return;
     }
 
-    const mediaChanged = previousElement !== resolution.element
-      || previousStatus !== resolution.status;
+    const mediaChanged = hasMediaResolutionChanged(previousResolution, resolution);
+    if (!mediaChanged) {
+      return;
+    }
     if (resolution.status === VIDEO_RESOLUTION_STATUSES.READY) {
       resetSessionRetry(session, "mediaReadiness");
-      if (mediaChanged) {
-        scheduleScan(session, 0);
-      }
+      scheduleScan(session, 0);
     } else {
       resetSessionRetry(session, "sourceDiscovery");
       transitionToMediaDiscoveryState(session, resolution.status);

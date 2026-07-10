@@ -136,9 +136,29 @@
     return media.element;
   }
 
+  function hasMediaResolutionChanged(previous, current) {
+    if (
+      previous?.element !== current?.element
+      || previous?.status !== current?.status
+      || previous?.reason !== current?.reason
+    ) {
+      return true;
+    }
+
+    const previousDescriptor = previous?.descriptor;
+    const currentDescriptor = current?.descriptor;
+    for (const key of ["currentSrc", "duration", "musicVideoId", "readyState", "shellVideoId"]) {
+      if (!Object.is(previousDescriptor?.[key], currentDescriptor?.[key])) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   globalThis.TimestampPlayerSessionMedia = {
     SESSION_MEDIA_EVENTS,
     getReadySessionVideo,
+    hasMediaResolutionChanged,
     resolveAndBindSessionMedia,
   };
 })();

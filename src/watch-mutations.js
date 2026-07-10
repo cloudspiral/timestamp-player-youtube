@@ -8,7 +8,11 @@
   });
   const WATCH_MUTATION_ROOT_SELECTOR = "ytd-page-manager, ytmusic-app-layout";
   const DIRECT_MATCH_ONLY_SELECTORS = new Set([
+    "#movie_player",
+    ".html5-video-player",
     "ytd-watch-flexy",
+    "ytd-player",
+    "ytmusic-player",
     "ytmusic-player-page",
     "#player-page",
   ]);

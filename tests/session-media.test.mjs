@@ -517,3 +517,45 @@ test("extension and package wiring load and verify media ownership before conten
     "node --test tests/session-media.test.mjs"
   );
 });
+
+test("media resolution snapshots ignore churn but detect ownership and metadata changes", async () => {
+  const { media } = await loadRuntime();
+  const element = {};
+  const base = {
+    descriptor: {
+      currentSrc: "blob:album",
+      duration: 600,
+      musicVideoId: "",
+      readyState: 4,
+      shellVideoId: "album",
+    },
+    element,
+    reason: "current-watch-player",
+    status: "ready",
+  };
+
+  assert.equal(media.hasMediaResolutionChanged(base, {
+    ...base,
+    descriptor: { ...base.descriptor },
+  }), false);
+  for (const changed of [
+    { ...base, element: {} },
+    { ...base, reason: "current-music-player" },
+    { ...base, status: "waiting-for-duration" },
+    { ...base, descriptor: { ...base.descriptor, currentSrc: "blob:replacement" } },
+    { ...base, descriptor: { ...base.descriptor, duration: 601 } },
+    { ...base, descriptor: { ...base.descriptor, readyState: 1 } },
+    { ...base, descriptor: { ...base.descriptor, shellVideoId: "other" } },
+  ]) {
+    assert.equal(media.hasMediaResolutionChanged(base, changed), true);
+  }
+
+  const metadataPending = {
+    ...base,
+    descriptor: { ...base.descriptor, duration: NaN },
+  };
+  assert.equal(media.hasMediaResolutionChanged(metadataPending, {
+    ...metadataPending,
+    descriptor: { ...metadataPending.descriptor },
+  }), false, "unchanged NaN metadata must not look like perpetual churn");
+});

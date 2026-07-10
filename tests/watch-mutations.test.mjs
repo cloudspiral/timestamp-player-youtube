@@ -345,6 +345,34 @@ test("player mutations dispatch lightweight media work without parser discovery"
   assert.equal(mediaSchedules, 1);
 });
 
+test("busy player control descendants do not create media refresh storms", async () => {
+  const { mutations } = await loadRuntime();
+  const player = new FakeNode("#movie_player", ".html5-video-player");
+  const controls = new FakeNode(".ytp-chrome-controls");
+  const progress = new FakeNode(".ytp-progress-bar");
+  player.append(controls);
+  controls.append(progress);
+  let mediaSchedules = 0;
+
+  for (let index = 0; index < 1000; index += 1) {
+    mutations.dispatchWatchMutations([mutation(progress)], {
+      onMedia: () => {
+        mediaSchedules += 1;
+      },
+    });
+  }
+
+  assert.equal(mediaSchedules, 0);
+  assert.equal(mutations.classifyWatchMutations([mutation(player)]).media, true);
+
+  const replacementWrapper = new FakeNode("div");
+  replacementWrapper.append(new FakeNode("video.html5-main-video"));
+  const replacement = mutations.classifyWatchMutations([
+    mutation(new FakeNode("main"), { addedNodes: [replacementWrapper] }),
+  ]);
+  assert.equal(replacement.media, true, "new player descendants must still trigger ownership work");
+});
+
 test("structured-description panel visibility changes are description mutations", async () => {
   const { mutations } = await loadRuntime();
   const panel = new FakeNode(
