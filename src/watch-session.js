@@ -1,5 +1,11 @@
 (() => {
   const {
+    DISCOVERY_REASONS,
+    DISCOVERY_STATUSES,
+    createDiscoveryState,
+    transitionDiscoveryState,
+  } = globalThis.TimestampPlayerDiscoveryStatus;
+  const {
     createTrackSelectionState,
   } = globalThis.TimestampPlayerTrackSelection;
   const COMMENT_DISCOVERY_STATUSES = Object.freeze({
@@ -9,7 +15,11 @@
     DONE: "done",
   });
   const DEFAULT_RETRY_POLICIES = Object.freeze({
-    readiness: Object.freeze({
+    mediaReadiness: Object.freeze({
+      delays: Object.freeze([100, 250, 500, 1000, 2000, 3000]),
+      maxElapsedMs: 10000,
+    }),
+    sourceDiscovery: Object.freeze({
       delays: Object.freeze([100, 250, 500, 1000, 2000, 3000]),
       maxElapsedMs: 10000,
     }),
@@ -34,13 +44,14 @@
     return {
       generation,
       videoId,
-      phase: "starting",
+      discovery: createDiscoveryState({ now }),
       media: createSessionMediaState(),
       startedAt: now,
       abortController: new AbortController(),
       tasks: new Map(),
       retries: {
-        readiness: createRetryState(),
+        mediaReadiness: createRetryState(),
+        sourceDiscovery: createRetryState(),
         launcher: createRetryState(),
         commentFetch: createRetryState(),
       },
@@ -54,6 +65,8 @@
         nextId: 1,
       },
       commentDiscovery: {
+        attempt: 0,
+        attemptStartedAt: null,
         outcome: null,
         result: null,
         status: COMMENT_DISCOVERY_STATUSES.IDLE,
@@ -284,18 +297,29 @@
     retry.exhausted = false;
   }
 
-  function disposeWatchSession(session, reason = "watch-session-ended") {
+  function disposeWatchSession(
+    session,
+    reason = "watch-session-ended",
+    { now = Date.now() } = {}
+  ) {
     if (!session || session.abortController.signal.aborted) {
-      return;
+      return null;
     }
 
     for (const taskName of [...session.tasks.keys()]) {
       cancelSessionTask(session, taskName);
     }
-    session.phase = "stopped";
+    const discoveryTransition = transitionDiscoveryState(
+      session.discovery,
+      DISCOVERY_STATUSES.STOPPED,
+      DISCOVERY_REASONS.SESSION_ENDED,
+      { now }
+    );
+    session.discovery = discoveryTransition.current;
     session.media.closed = true;
     clearSessionMedia(session);
     session.abortController.abort(reason);
+    return discoveryTransition;
   }
 
   globalThis.TimestampPlayerWatchSession = {

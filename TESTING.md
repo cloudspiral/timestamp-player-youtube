@@ -41,6 +41,27 @@ The fake DOMs are intentionally local to their test files. They implement only
 the methods used by the production helper, which keeps failures readable and
 avoids making tests accidentally depend on a full browser implementation.
 
+## Opt-in runtime diagnostics
+
+Discovery diagnostics are off by default. To inspect one YouTube tab, run this
+in that tab's developer console, then navigate to another video or reload:
+
+```js
+sessionStorage.setItem("timestamp-player:debug", "1");
+```
+
+Filter the console for `[TimestampPlayer]`. The events report the current video
+ID, session generation, media/source decisions, bounded retries, comment-fetch
+outcomes, and launcher attachment. They never include comment or description
+text, track titles, author identities, continuation tokens, request URLs,
+headers, response bodies, or raw errors.
+
+Disable diagnostics for the tab with:
+
+```js
+sessionStorage.removeItem("timestamp-player:debug");
+```
+
 ## Adding a regression
 
 Name files `tests/<area>.test.mjs`; `npm test` discovers them automatically.

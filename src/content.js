@@ -14,6 +14,15 @@
     REGULAR: "regular",
   };
   const {
+    createSessionDiagnostics,
+  } = globalThis.TimestampPlayerSessionDiagnostics;
+  const {
+    DISCOVERY_REASONS,
+    DISCOVERY_STATUSES,
+    deriveDiscoveryTarget,
+    transitionDiscoveryState,
+  } = globalThis.TimestampPlayerDiscoveryStatus;
+  const {
     scoreCommentTrackSource,
   } = globalThis.TimestampPlayerCommentScoring;
   const {
@@ -67,6 +76,7 @@
   } = globalThis.TimestampPlayerTrackSelection;
   const {
     COMMENT_DISCOVERY_STATUSES,
+    DEFAULT_RETRY_POLICIES,
     createWatchSession,
     disposeWatchSession,
     isWatchSessionCurrent,
@@ -131,6 +141,7 @@
   let launcherButton;
   let playerShellRoot = null;
   let watchRouteController = null;
+  const diagnostics = createSessionDiagnostics();
   const youtubeDom = createYouTubeDom({ Node, document, location });
   const playerLayout = createPlayerLayoutController({
     document,
@@ -315,6 +326,7 @@
     state.nextSessionGeneration = session.generation;
     session.description.fallbackReadyAt = now + DESCRIPTION_EXPAND_FALLBACK_DELAY_MS;
     state.session = session;
+    diagnostics.sessionStarted(session);
     resetSessionViewState();
     // YouTube keeps the previous watch DOM around briefly during soft navigation.
     // Preserve the settling delay there so stale roots cannot immediately lock
@@ -327,8 +339,28 @@
   function endWatchSession(reason) {
     const session = state.session;
     state.session = null;
-    disposeWatchSession(session, reason);
+    if (session) {
+      const discoveryTransition = disposeWatchSession(session, reason);
+      diagnostics.discoveryTransition(session, discoveryTransition);
+      diagnostics.sessionEnded(session, reason);
+    }
     resetSessionViewState();
+  }
+
+  function transitionSessionDiscovery(session, status, reason) {
+    if (!isCurrentSession(session)) {
+      return null;
+    }
+
+    const transition = transitionDiscoveryState(
+      session.discovery,
+      status,
+      reason,
+      { now: Date.now() }
+    );
+    session.discovery = transition.current;
+    diagnostics.discoveryTransition(session, transition);
+    return transition;
   }
 
   function resetSessionViewState() {
@@ -419,21 +451,49 @@
     );
   }
 
-  function scheduleReadinessRetry(session, phase) {
+  function scheduleTrackedSessionRetry(session, retryName, callback) {
     if (!isCurrentSession(session)) {
       return false;
     }
 
-    session.phase = phase;
+    const retry = session.retries[retryName];
+    const policy = DEFAULT_RETRY_POLICIES[retryName];
+    if (!retry || !policy) {
+      return false;
+    }
+
+    const attemptIndex = retry.attempt;
+    const wasExhausted = retry.exhausted;
     const scheduled = scheduleSessionRetry(
       session,
-      "readiness",
-      () => scanPage(session)
+      retryName,
+      callback
     );
-    if (!scheduled && session.retries.readiness.exhausted) {
-      session.phase = "readiness-exhausted";
+    if (scheduled) {
+      diagnostics.retryScheduled(session, retryName, {
+        attempt: retry.attempt,
+        delayMs: policy.delays[attemptIndex],
+      });
+    } else if (!wasExhausted && retry.exhausted) {
+      diagnostics.retryExhausted(session, retryName, retry);
     }
     return scheduled;
+  }
+
+  function scheduleMediaReadinessRetry(session) {
+    return scheduleTrackedSessionRetry(
+      session,
+      "mediaReadiness",
+      () => scanPage(session)
+    );
+  }
+
+  function scheduleSourceDiscoveryRetry(session) {
+    return scheduleTrackedSessionRetry(
+      session,
+      "sourceDiscovery",
+      () => scanPage(session)
+    );
   }
 
   function resolveSessionMedia(session) {
@@ -447,6 +507,7 @@
       root: document,
       videoId: session.videoId,
     });
+    diagnostics.videoResolution(session, resolution);
     return resolution;
   }
 
@@ -465,24 +526,47 @@
     const mediaChanged = previousElement !== resolution.element
       || previousStatus !== resolution.status;
     if (resolution.status === VIDEO_RESOLUTION_STATUSES.READY) {
+      resetSessionRetry(session, "mediaReadiness");
       if (mediaChanged) {
-        resetSessionRetry(session, "readiness");
         scheduleScan(session, 0);
       }
-    } else if (resolution.status !== VIDEO_RESOLUTION_STATUSES.AD_PLAYING) {
-      scheduleReadinessRetry(session, getMediaReadinessPhase(resolution.status));
+    } else {
+      resetSessionRetry(session, "sourceDiscovery");
+      transitionToMediaDiscoveryState(session, resolution.status);
+      if (resolution.status !== VIDEO_RESOLUTION_STATUSES.AD_PLAYING) {
+        scheduleMediaReadinessRetry(session);
+      }
     }
     updateUi();
   }
 
-  function getMediaReadinessPhase(status) {
+  function getMediaDiscoveryReason(status) {
+    if (status === VIDEO_RESOLUTION_STATUSES.AD_PLAYING) {
+      return DISCOVERY_REASONS.AD_PLAYING;
+    }
     if (status === VIDEO_RESOLUTION_STATUSES.WAITING_FOR_DURATION) {
-      return "waiting-for-duration";
+      return DISCOVERY_REASONS.WAITING_FOR_DURATION;
     }
     if (status === VIDEO_RESOLUTION_STATUSES.WAITING_FOR_OWNERSHIP) {
-      return "waiting-for-video-ownership";
+      return DISCOVERY_REASONS.WAITING_FOR_VIDEO_OWNERSHIP;
     }
-    return "waiting-for-video";
+    return DISCOVERY_REASONS.WAITING_FOR_VIDEO;
+  }
+
+  function transitionToMediaDiscoveryState(session, status) {
+    const selectedResult = session.trackSelection.current;
+    if (selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED) {
+      return transitionSessionDiscovery(
+        session,
+        DISCOVERY_STATUSES.READY,
+        DISCOVERY_REASONS.SETTLED_SOURCE
+      );
+    }
+    return transitionSessionDiscovery(
+      session,
+      DISCOVERY_STATUSES.PENDING,
+      getMediaDiscoveryReason(status)
+    );
   }
 
   function scanPage(session) {
@@ -497,21 +581,36 @@
     const videoId = session.videoId;
 
     if (!video) {
+      resetSessionRetry(session, "sourceDiscovery");
+      transitionToMediaDiscoveryState(session, resolution?.status);
       if (resolution?.status !== VIDEO_RESOLUTION_STATUSES.AD_PLAYING) {
-        scheduleReadinessRetry(session, getMediaReadinessPhase(resolution?.status));
-      } else {
-        session.phase = "ad-playing";
+        scheduleMediaReadinessRetry(session);
       }
       updateUi();
       return;
     }
 
-    session.phase = "discovering";
+    resetSessionRetry(session, "mediaReadiness");
+    if (session.discovery.status !== DISCOVERY_STATUSES.READY) {
+      transitionSessionDiscovery(
+        session,
+        DISCOVERY_STATUSES.PENDING,
+        DISCOVERY_REASONS.SCANNING_SOURCES
+      );
+    }
     const observation = beginTrackSelectionObservation(session.trackSelection);
     let awaitingSourceConfirmation = false;
     const quietDescriptionReadable = canReadQuietDescription(videoId);
     const descriptionDiscovery = getDescriptionSourceResults(session, video.duration, observation);
-    awaitingSourceConfirmation = considerTrackSourceResults(session, descriptionDiscovery.results)
+    awaitingSourceConfirmation = considerTrackSourceResults(
+      session,
+      descriptionDiscovery.results,
+      {
+        candidateCount: descriptionDiscovery.candidateCount,
+        sourceChannel: "description-dom",
+        sourceKind: TRACK_SOURCE_KINDS.DESCRIPTION,
+      }
+    )
       || awaitingSourceConfirmation;
     const descriptionSelected = selectedSourceKind(session) === TRACK_SOURCE_KINDS.DESCRIPTION;
 
@@ -521,7 +620,12 @@
       && !quietDescriptionReadable
       && shouldWaitForQuietDescriptionScan(session)
     ) {
-      scheduleReadinessRetry(session, "waiting-for-description");
+      transitionSessionDiscovery(
+        session,
+        DISCOVERY_STATUSES.PENDING,
+        DISCOVERY_REASONS.WAITING_FOR_DESCRIPTION
+      );
+      scheduleSourceDiscoveryRetry(session);
       applySelectedTracksForSession(session, video);
       updateUi();
       return;
@@ -533,8 +637,13 @@
       && !quietDescriptionReadable
       && expandDescriptionIfAvailable(session)
     ) {
+      transitionSessionDiscovery(
+        session,
+        DISCOVERY_STATUSES.PENDING,
+        DISCOVERY_REASONS.WAITING_FOR_DESCRIPTION
+      );
       applySelectedTracksForSession(session, video);
-      updateUi("Reading description...");
+      updateUi();
       return;
     }
 
@@ -544,15 +653,30 @@
       const commentStatus = session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.DONE
         ? TRACK_SOURCE_STATUSES.SETTLED
         : TRACK_SOURCE_STATUSES.PROVISIONAL;
+      const domCommentDiscovery = getDomCommentSourceResults(
+        session,
+        video.duration,
+        observation,
+        commentStatus
+      );
       awaitingSourceConfirmation = considerTrackSourceResults(
         session,
-        getDomCommentSourceResults(session, video.duration, observation, commentStatus)
+        domCommentDiscovery.results,
+        {
+          candidateCount: domCommentDiscovery.candidateCount,
+          sourceChannel: "comment-dom",
+          sourceKind: TRACK_SOURCE_KINDS.COMMENT,
+        }
       ) || awaitingSourceConfirmation;
       const fetchedCommentDiscovery = getFetchedCommentDiscoveryForSession(session, video.duration);
       if (fetchedCommentDiscovery.result) {
         awaitingSourceConfirmation = considerTrackSourceResults(
           session,
-          [fetchedCommentDiscovery.result]
+          [fetchedCommentDiscovery.result],
+          {
+            sourceChannel: "comment-api",
+            sourceKind: TRACK_SOURCE_KINDS.COMMENT,
+          }
         ) || awaitingSourceConfirmation;
       }
     }
@@ -561,11 +685,20 @@
       shouldConsiderNativeSource(session.trackSelection)
       && shouldUseNativeTimestampFallback()
     ) {
-      const nativeResult = getNativeSourceResult(session, video.duration, observation);
-      if (nativeResult) {
-        awaitingSourceConfirmation = considerTrackSourceResults(session, [nativeResult])
-          || awaitingSourceConfirmation;
-      }
+      const nativeDiscovery = getNativeSourceDiscovery(
+        session,
+        video.duration,
+        observation
+      );
+      awaitingSourceConfirmation = considerTrackSourceResults(
+        session,
+        nativeDiscovery.result ? [nativeDiscovery.result] : [],
+        {
+          candidateCount: nativeDiscovery.candidateCount,
+          sourceChannel: "native-dom",
+          sourceKind: TRACK_SOURCE_KINDS.NATIVE,
+        }
+      ) || awaitingSourceConfirmation;
     }
 
     const selectedResult = session.trackSelection.current;
@@ -573,16 +706,23 @@
       selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED
       && !awaitingSourceConfirmation
     ) {
-      resetSessionRetry(session, "readiness");
-      session.phase = "ready";
-    } else if (selectedResult) {
-      scheduleReadinessRetry(
-        session,
-        awaitingSourceConfirmation ? "verifying-source" : "provisional"
-      );
+      resetSessionRetry(session, "sourceDiscovery");
     } else {
-      scheduleReadinessRetry(session, "discovering-sources");
+      scheduleSourceDiscoveryRetry(session);
     }
+
+    const discoveryTarget = deriveDiscoveryTarget({
+      awaitingSourceConfirmation,
+      commentDiscoveryPending: isCommentDiscoveryPending(session),
+      hasSelectedSource: Boolean(selectedResult),
+      selectedSourceSettled: selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED,
+      sourceDiscoveryExhausted: session.retries.sourceDiscovery.exhausted,
+    });
+    transitionSessionDiscovery(
+      session,
+      discoveryTarget.status,
+      discoveryTarget.reason
+    );
 
     if (!isCurrentSession(session)) {
       return;
@@ -620,14 +760,31 @@
       && session.videoId === videoId;
   }
 
-  function considerTrackSourceResults(session, results) {
+  function considerTrackSourceResults(session, results, {
+    candidateCount,
+    sourceChannel,
+    sourceKind,
+  } = {}) {
     let awaitingOwnershipConfirmation = false;
     const cachedTitles = state.trackTitleCache.get(session.videoId);
+    diagnostics.sourceObserved(session, results, {
+      candidateCount,
+      sourceChannel,
+      sourceKind,
+    });
     for (const result of results) {
       const ownedResult = observeTrackSourceOwnership(session.trackSelection, result);
       if (!ownedResult) {
-        awaitingOwnershipConfirmation = awaitingOwnershipConfirmation
-          || result.ownership.confidence === OWNERSHIP_CONFIDENCE.WEAK;
+        const ownershipPending = result.ownership.confidence === OWNERSHIP_CONFIDENCE.WEAK;
+        awaitingOwnershipConfirmation = awaitingOwnershipConfirmation || ownershipPending;
+        if (ownershipPending) {
+          diagnostics.sourceDecision(session, result, {
+            accepted: false,
+            awaitingConfirmation: true,
+            changed: false,
+            decisionReason: "ownership-pending",
+          });
+        }
         continue;
       }
 
@@ -635,12 +792,47 @@
         ownedResult,
         cachedTitles
       );
-      considerTrackSource(session.trackSelection, enrichedResult, {
+      const previous = session.trackSelection.current;
+      const change = considerTrackSource(session.trackSelection, enrichedResult, {
         generation: session.generation,
         videoId: session.videoId,
       });
+      if (change.changed || !change.accepted) {
+        diagnostics.sourceDecision(
+          session,
+          change.accepted ? change.current || enrichedResult : enrichedResult,
+          {
+            accepted: change.accepted,
+            awaitingConfirmation: false,
+            changed: change.changed,
+            decisionReason: getSourceDecisionReason(change, previous),
+          }
+        );
+      }
     }
     return awaitingOwnershipConfirmation;
+  }
+
+  function getSourceDecisionReason(change, previous) {
+    if (!change.accepted) {
+      return change.reason || "ineligible";
+    }
+    if (!previous) {
+      return "accepted";
+    }
+    if (change.sourceReplaced) {
+      return "source-replaced";
+    }
+    if (change.timingsChanged) {
+      return "timing-updated";
+    }
+    if (change.titlesChanged) {
+      return "title-enriched";
+    }
+    if (change.metadataChanged) {
+      return "metadata-updated";
+    }
+    return "unchanged";
   }
 
   function selectedSourceKind(session) {
@@ -764,12 +956,22 @@
       return false;
     }
 
-    const launcherAttached = syncLauncher(tracksAvailable);
+    const launcherSynced = syncLauncher(tracksAvailable);
+    const launcherAttached = isLauncherAttached(session, tracksAvailable);
     syncLauncherRetry(session, tracksAvailable, launcherAttached);
-    if (launcherAttached && restorePlayer) {
+    diagnostics.launcherSync(session, launcherAttached);
+    if (launcherSynced && restorePlayer) {
       restorePlayerAfterLauncherSync(tracksAvailable);
     }
-    return launcherAttached;
+    return launcherSynced;
+  }
+
+  function isLauncherAttached(session, tracksAvailable) {
+    if (!tracksAvailable || !launcherButton?.isConnected) {
+      return false;
+    }
+    const actionRow = youtubeDom.findActionRow(session.videoId);
+    return Boolean(actionRow?.contains(launcherButton));
   }
 
   function restorePlayerAfterLauncherSync(tracksAvailable) {
@@ -803,7 +1005,7 @@
       return;
     }
 
-    scheduleSessionRetry(session, "launcher", () => {
+    scheduleTrackedSessionRetry(session, "launcher", () => {
       if (isCurrentSession(session)) {
         syncLauncherForSession(session);
       }
@@ -883,15 +1085,16 @@
     return true;
   }
 
-  function getNativeSourceResult(session, duration, observation) {
+  function getNativeSourceDiscovery(session, duration, observation) {
     const discovery = getNativeTimestampDiscovery(session.videoId);
+    const candidateCount = discovery.candidates.length;
     if (discovery.hasMismatchedVideoId) {
-      return null;
+      return { candidateCount, result: null };
     }
 
     const tracks = findTracks(duration, discovery.candidates);
     if (tracks.length < 2) {
-      return null;
+      return { candidateCount, result: null };
     }
 
     const ownership = classifyNativeTrackSourceOwnership(
@@ -899,23 +1102,26 @@
       session.videoId
     );
     if (!ownership) {
-      return null;
+      return { candidateCount, result: null };
     }
 
-    return createTrackSourceResult({
-      channel: "native-dom",
-      duration,
-      generation: session.generation,
-      kind: TRACK_SOURCE_KINDS.NATIVE,
-      observation,
-      ownership,
-      sourceId: "native-page",
-      status: session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.DONE
-        ? TRACK_SOURCE_STATUSES.SETTLED
-        : TRACK_SOURCE_STATUSES.PROVISIONAL,
-      tracks,
-      videoId: session.videoId,
-    });
+    return {
+      candidateCount,
+      result: createTrackSourceResult({
+        channel: "native-dom",
+        duration,
+        generation: session.generation,
+        kind: TRACK_SOURCE_KINDS.NATIVE,
+        observation,
+        ownership,
+        sourceId: "native-page",
+        status: session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.DONE
+          ? TRACK_SOURCE_STATUSES.SETTLED
+          : TRACK_SOURCE_STATUSES.PROVISIONAL,
+        tracks,
+        videoId: session.videoId,
+      }),
+    };
   }
 
   function getDomSourceOwnership(root, videoId) {
@@ -937,6 +1143,7 @@
 
   function getDomCommentSourceResults(session, duration, observation, status) {
     const results = [];
+    let candidateCount = 0;
     let regularCommentCount = 0;
 
     for (const [order, root] of youtubeDom.getCommentRoots(session.videoId).entries()) {
@@ -950,6 +1157,7 @@
         sourceId,
         videoId: session.videoId,
       });
+      candidateCount += comment.candidates.length;
       const sourceType = comment.isPinned
         ? COMMENT_SOURCE_TYPES.PINNED
         : comment.isUploader
@@ -989,7 +1197,12 @@
       }));
     }
 
-    return results;
+    return { candidateCount, results };
+  }
+
+  function isCommentDiscoveryPending(session) {
+    return session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.PENDING
+      || session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.RETRY_WAIT;
   }
 
   function getFetchedCommentDiscoveryForSession(session, duration) {
@@ -1002,9 +1215,21 @@
   function startCommentFetch(session, duration) {
     const { videoId } = session;
     const discovery = session.commentDiscovery;
+    discovery.attempt += 1;
+    discovery.attemptStartedAt = Date.now();
+    diagnostics.commentFetchStarted(session);
     if (typeof fetchCommentRecords !== "function") {
-      discovery.outcome = COMMENT_FETCH_OUTCOMES.UNSUPPORTED;
+      const result = {
+        batchesFetched: 0,
+        reason: "fetch-unavailable",
+        records: [],
+        retryable: false,
+        status: COMMENT_FETCH_OUTCOMES.UNSUPPORTED,
+      };
+      discovery.outcome = result.status;
       discovery.status = COMMENT_DISCOVERY_STATUSES.DONE;
+      diagnostics.commentFetchResult(session, result, 0);
+      discovery.attemptStartedAt = null;
       return discovery;
     }
 
@@ -1017,6 +1242,8 @@
     })
       .then((result) => finishCommentFetch(session, duration, result))
       .catch(() => finishCommentFetch(session, duration, {
+        batchesFetched: 0,
+        reason: "unexpected-rejection",
         records: [],
         retryable: true,
         status: COMMENT_FETCH_OUTCOMES.TRANSIENT_ERROR,
@@ -1038,7 +1265,7 @@
     const records = Array.isArray(result?.records) ? result.records : [];
     discovery.outcome = result?.status || COMMENT_FETCH_OUTCOMES.UNSUPPORTED;
     const retryable = shouldRetryCommentFetch(result);
-    const retryScheduled = retryable && scheduleSessionRetry(
+    const retryScheduled = retryable && scheduleTrackedSessionRetry(
       session,
       "commentFetch",
       () => {
@@ -1067,6 +1294,8 @@
     if (!retryScheduled && !retryable) {
       resetSessionRetry(session, "commentFetch");
     }
+    diagnostics.commentFetchResult(session, result, incomingResult ? 1 : 0);
+    discovery.attemptStartedAt = null;
   }
 
   function shouldRetryCommentFetch(result) {

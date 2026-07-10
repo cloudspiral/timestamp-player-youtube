@@ -32,6 +32,8 @@
       ],
       "js": [
         "src/settings.js",
+        "src/debug.js",
+        "src/session-diagnostics.js",
         "src/timestamps.js",
         "src/native-timestamps.js",
         "src/comment-scoring.js",
@@ -41,6 +43,7 @@
         "src/lru-cache.js",
         "src/watch-route.js",
         "src/track-selection.js",
+        "src/discovery-status.js",
         "src/discovery-cache.js",
         "src/video-resolver.js",
         "src/watch-session.js",

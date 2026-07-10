@@ -4,12 +4,19 @@ import test from "node:test";
 import vm from "node:vm";
 
 async function loadWatchSession() {
-  const trackSelectionSource = await readFile(new URL("../src/track-selection.js", import.meta.url), "utf8");
-  const source = await readFile(new URL("../src/watch-session.js", import.meta.url), "utf8");
+  const [discoveryStatusSource, trackSelectionSource, source] = await Promise.all([
+    readFile(new URL("../src/discovery-status.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/track-selection.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/watch-session.js", import.meta.url), "utf8"),
+  ]);
   const context = vm.createContext({ AbortController });
+  vm.runInContext(discoveryStatusSource, context);
   vm.runInContext(trackSelectionSource, context);
   vm.runInContext(source, context);
-  return context.TimestampPlayerWatchSession;
+  return {
+    ...context.TimestampPlayerWatchSession,
+    discoveryStatus: context.TimestampPlayerDiscoveryStatus,
+  };
 }
 
 class FakeClock {
@@ -58,9 +65,70 @@ class FakeClock {
   }
 }
 
+test("creates an isolated pending discovery state instead of a write-only phase", async () => {
+  const {
+    createWatchSession,
+    discoveryStatus: { DISCOVERY_REASONS, DISCOVERY_STATUSES },
+  } = await loadWatchSession();
+  const session = createWatchSession({
+    generation: 1,
+    now: 123,
+    videoId: "album",
+  });
+
+  assert.equal(Object.hasOwn(session, "phase"), false);
+  assert.equal(session.discovery.status, DISCOVERY_STATUSES.PENDING);
+  assert.equal(session.discovery.reason, DISCOVERY_REASONS.STARTING);
+  assert.equal(session.discovery.changedAt, 123);
+  assert.equal(Object.isFrozen(session.discovery), true);
+});
+
+test("disposal stops discovery before abort and keeps the first stop final", async () => {
+  const {
+    createWatchSession,
+    discoveryStatus: {
+      DISCOVERY_REASONS,
+      DISCOVERY_STATUSES,
+      transitionDiscoveryState,
+    },
+    disposeWatchSession,
+  } = await loadWatchSession();
+  const session = createWatchSession({ generation: 1, now: 10, videoId: "album" });
+  let discoveryAtAbort = null;
+  session.abortController.signal.addEventListener("abort", () => {
+    discoveryAtAbort = session.discovery;
+  });
+
+  const transition = disposeWatchSession(session, "video-changed", { now: 75 });
+
+  assert.equal(transition.changed, true);
+  assert.equal(transition.current, session.discovery);
+  assert.equal(session.discovery.status, DISCOVERY_STATUSES.STOPPED);
+  assert.equal(session.discovery.reason, DISCOVERY_REASONS.SESSION_ENDED);
+  assert.equal(session.discovery.changedAt, 75);
+  assert.equal(discoveryAtAbort, session.discovery, "stop state must be visible to abort listeners");
+  assert.equal(session.abortController.signal.aborted, true);
+  assert.equal(session.abortController.signal.reason, "video-changed");
+
+  const firstStoppedState = session.discovery;
+  assert.equal(
+    disposeWatchSession(session, "duplicate-dispose", { now: 100 }),
+    null
+  );
+  assert.equal(session.discovery, firstStoppedState);
+  assert.equal(session.discovery.changedAt, 75);
+  assert.throws(() => transitionDiscoveryState(
+    session.discovery,
+    DISCOVERY_STATUSES.PENDING,
+    DISCOVERY_REASONS.STARTING,
+    { now: 100 }
+  ), /cannot be restarted/i);
+});
+
 test("a disposed generation aborts and cannot run queued work after navigation", async () => {
   const {
     createWatchSession,
+    discoveryStatus: { DISCOVERY_STATUSES },
     disposeWatchSession,
     isWatchSessionCurrent,
     scheduleSessionTask,
@@ -84,7 +152,7 @@ test("a disposed generation aborts and cannot run queued work after navigation",
   clock.advance(100);
 
   assert.equal(sessionA.abortController.signal.aborted, true);
-  assert.equal(sessionA.phase, "stopped");
+  assert.equal(sessionA.discovery.status, DISCOVERY_STATUSES.STOPPED);
   assert.equal(staleRuns, 0);
   assert.equal(clock.timers.size, 0);
   assert.equal(isWatchSessionCurrent(sessionA, {
@@ -318,7 +386,7 @@ test("scheduled work coalesces without letting a later request postpone an earli
   assert.deepEqual(runs, ["early"]);
 });
 
-test("readiness retries are bounded and repeated requests do not consume attempts", async () => {
+test("source discovery retries are bounded and repeated requests do not consume attempts", async () => {
   const {
     createWatchSession,
     scheduleSessionRetry,
@@ -328,36 +396,37 @@ test("readiness retries are bounded and repeated requests do not consume attempt
   const policy = { delays: [10, 20], maxElapsedMs: 100 };
   let retryRuns = 0;
 
-  assert.equal(scheduleSessionRetry(session, "readiness", () => {
+  assert.equal(scheduleSessionRetry(session, "sourceDiscovery", () => {
     retryRuns += 1;
   }, { policy, ...clock.dependencies() }), true);
-  assert.equal(scheduleSessionRetry(session, "readiness", () => {
+  assert.equal(scheduleSessionRetry(session, "sourceDiscovery", () => {
     retryRuns += 1;
   }, { policy, ...clock.dependencies() }), false);
-  assert.equal(session.retries.readiness.attempt, 1);
+  assert.equal(session.retries.sourceDiscovery.attempt, 1);
 
   clock.advance(10);
   assert.equal(retryRuns, 1);
-  assert.equal(scheduleSessionRetry(session, "readiness", () => {
+  assert.equal(scheduleSessionRetry(session, "sourceDiscovery", () => {
     retryRuns += 1;
   }, { policy, ...clock.dependencies() }), true);
-  assert.equal(scheduleSessionRetry(session, "readiness", () => {
+  assert.equal(scheduleSessionRetry(session, "sourceDiscovery", () => {
     retryRuns += 1;
   }, { policy, ...clock.dependencies() }), false);
-  assert.equal(session.retries.readiness.exhausted, false);
+  assert.equal(session.retries.sourceDiscovery.exhausted, false);
   assert.equal(clock.timers.size, 1);
   clock.advance(20);
   assert.equal(retryRuns, 2);
 
-  assert.equal(scheduleSessionRetry(session, "readiness", () => {
+  assert.equal(scheduleSessionRetry(session, "sourceDiscovery", () => {
     retryRuns += 1;
   }, { policy, ...clock.dependencies() }), false);
-  assert.equal(session.retries.readiness.exhausted, true);
+  assert.equal(session.retries.sourceDiscovery.exhausted, true);
   assert.equal(clock.timers.size, 0);
 });
 
-test("launcher retries are independent and can be reset without disturbing readiness", async () => {
+test("media, source, and launcher retries are independent", async () => {
   const {
+    DEFAULT_RETRY_POLICIES,
     createWatchSession,
     disposeWatchSession,
     resetSessionRetry,
@@ -367,20 +436,72 @@ test("launcher retries are independent and can be reset without disturbing readi
   const session = createWatchSession({ generation: 1, videoId: "album", now: clock.now });
   const policy = { delays: [10, 20], maxElapsedMs: 100 };
 
-  scheduleSessionRetry(session, "readiness", () => {}, { policy, ...clock.dependencies() });
+  assert.deepEqual(
+    Array.from(DEFAULT_RETRY_POLICIES.mediaReadiness.delays),
+    [100, 250, 500, 1000, 2000, 3000]
+  );
+  assert.deepEqual(
+    Array.from(DEFAULT_RETRY_POLICIES.sourceDiscovery.delays),
+    [100, 250, 500, 1000, 2000, 3000]
+  );
+  assert.equal(Object.hasOwn(DEFAULT_RETRY_POLICIES, "readiness"), false);
+
+  scheduleSessionRetry(session, "mediaReadiness", () => {}, { policy, ...clock.dependencies() });
+  scheduleSessionRetry(session, "sourceDiscovery", () => {}, { policy, ...clock.dependencies() });
   scheduleSessionRetry(session, "launcher", () => {}, { policy, ...clock.dependencies() });
-  assert.equal(clock.timers.size, 2);
-  assert.equal(session.retries.readiness.attempt, 1);
+  assert.equal(clock.timers.size, 3);
+  assert.equal(session.retries.mediaReadiness.attempt, 1);
+  assert.equal(session.retries.sourceDiscovery.attempt, 1);
   assert.equal(session.retries.launcher.attempt, 1);
 
   resetSessionRetry(session, "launcher");
-  assert.equal(clock.timers.size, 1);
-  assert.equal(session.retries.readiness.attempt, 1);
+  assert.equal(clock.timers.size, 2);
+  assert.equal(session.retries.mediaReadiness.attempt, 1);
+  assert.equal(session.retries.sourceDiscovery.attempt, 1);
   assert.equal(session.retries.launcher.attempt, 0);
   assert.equal(session.retries.launcher.exhausted, false);
 
   disposeWatchSession(session);
   assert.equal(clock.timers.size, 0);
+});
+
+test("resetting source discovery after a media outage grants a fresh search budget", async () => {
+  const {
+    createWatchSession,
+    resetSessionRetry,
+    scheduleSessionRetry,
+  } = await loadWatchSession();
+  const clock = new FakeClock();
+  const session = createWatchSession({ generation: 1, videoId: "album", now: clock.now });
+  const policy = { delays: [100], maxElapsedMs: 1000 };
+
+  assert.equal(scheduleSessionRetry(
+    session,
+    "sourceDiscovery",
+    () => {},
+    { policy, ...clock.dependencies() }
+  ), true);
+  clock.advance(15100);
+  assert.equal(scheduleSessionRetry(
+    session,
+    "sourceDiscovery",
+    () => {},
+    { policy, ...clock.dependencies() }
+  ), false);
+  assert.equal(session.retries.sourceDiscovery.exhausted, true);
+
+  resetSessionRetry(session, "sourceDiscovery");
+
+  assert.equal(session.retries.sourceDiscovery.startedAt, null);
+  assert.equal(session.retries.sourceDiscovery.exhausted, false);
+  assert.equal(scheduleSessionRetry(
+    session,
+    "sourceDiscovery",
+    () => {},
+    { policy, ...clock.dependencies() }
+  ), true);
+  assert.equal(session.retries.sourceDiscovery.startedAt, clock.now);
+  assert.equal(session.retries.sourceDiscovery.attempt, 1);
 });
 
 test("comment discovery retries once and is cancelled with its watch generation", async () => {
@@ -424,10 +545,16 @@ test("each session owns isolated provenance selection and comment discovery stat
   const {
     COMMENT_DISCOVERY_STATUSES,
     createWatchSession,
+    discoveryStatus: { DISCOVERY_REASONS, DISCOVERY_STATUSES },
   } = await loadWatchSession();
-  const session = createWatchSession({ generation: 1, videoId: "album" });
-  const nextSession = createWatchSession({ generation: 2, videoId: "next-album" });
+  const session = createWatchSession({ generation: 1, now: 50, videoId: "album" });
+  const nextSession = createWatchSession({ generation: 2, now: 50, videoId: "next-album" });
 
+  assert.equal(session.discovery.status, DISCOVERY_STATUSES.PENDING);
+  assert.equal(session.discovery.reason, DISCOVERY_REASONS.STARTING);
+  assert.notEqual(session.discovery, nextSession.discovery);
+  assert.equal(session.commentDiscovery.attempt, 0);
+  assert.equal(session.commentDiscovery.attemptStartedAt, null);
   assert.equal(session.commentDiscovery.status, COMMENT_DISCOVERY_STATUSES.IDLE);
   assert.equal(session.commentDiscovery.result, null);
   assert.notEqual(session.commentDiscovery, nextSession.commentDiscovery);

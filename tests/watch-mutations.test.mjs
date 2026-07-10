@@ -4,7 +4,8 @@ import test from "node:test";
 import vm from "node:vm";
 
 async function loadRuntime() {
-  const [sessionSource, mutationSource] = await Promise.all([
+  const [discoveryStatusSource, sessionSource, mutationSource] = await Promise.all([
+    readFile(new URL("../src/discovery-status.js", import.meta.url), "utf8"),
     readFile(new URL("../src/watch-session.js", import.meta.url), "utf8"),
     readFile(new URL("../src/watch-mutations.js", import.meta.url), "utf8"),
   ]);
@@ -14,6 +15,7 @@ async function loadRuntime() {
       createTrackSelectionState: () => ({}),
     },
   });
+  vm.runInContext(discoveryStatusSource, context);
   vm.runInContext(sessionSource, context);
   vm.runInContext(mutationSource, context);
   return {
