@@ -2,7 +2,7 @@
   "name": "timestamp-player-youtube",
   "private": true,
   "scripts": {
-    "check:js": "node --check src/settings.js && node --check src/timestamps.js && node --check src/native-timestamps.js && node --check src/comment-scoring.js && node --check src/comment-fetching.js && node --check src/watch-route.js && node --check src/track-selection.js && node --check src/watch-session.js && node --check src/watch-mutations.js && node --check src/track-list-renderer.js && node --check src/playback-state.js && node --check src/player-layout.js && node --check src/content.js && node --check src/options.js && node --check scripts/prepare-package-sources.mjs && node --check tests/timestamps.test.mjs && node --check tests/comment-fetching.test.mjs && node --check tests/watch-route.test.mjs && node --check tests/track-selection.test.mjs && node --check tests/watch-session.test.mjs && node --check tests/watch-mutations.test.mjs && node --check tests/track-list-renderer.test.mjs && node --check tests/settings.test.mjs && node --check tests/comment-scoring.test.mjs && node --check tests/playback-state.test.mjs && node --check tests/player-layout.test.mjs",
+    "check:js": "node --check src/settings.js && node --check src/timestamps.js && node --check src/native-timestamps.js && node --check src/comment-scoring.js && node --check src/comment-fetching.js && node --check src/watch-route.js && node --check src/track-selection.js && node --check src/watch-session.js && node --check src/watch-mutations.js && node --check src/track-list-renderer.js && node --check src/playback-state.js && node --check src/player-layout.js && node --check src/player-view.js && node --check src/content.js && node --check src/options.js && node --check scripts/prepare-package-sources.mjs && node --check tests/timestamps.test.mjs && node --check tests/comment-fetching.test.mjs && node --check tests/watch-route.test.mjs && node --check tests/track-selection.test.mjs && node --check tests/watch-session.test.mjs && node --check tests/watch-mutations.test.mjs && node --check tests/track-list-renderer.test.mjs && node --check tests/settings.test.mjs && node --check tests/comment-scoring.test.mjs && node --check tests/playback-state.test.mjs && node --check tests/player-layout.test.mjs && node --check tests/player-view.test.mjs",
     "check:manifest": "node -e \"JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')); console.log('manifest ok')\"",
     "test:timestamps": "node --test tests/timestamps.test.mjs",
     "test:comment-fetching": "node --test tests/comment-fetching.test.mjs",
@@ -15,6 +15,7 @@
     "test:comment-scoring": "node --test tests/comment-scoring.test.mjs",
     "test:playback-state": "node --test tests/playback-state.test.mjs",
     "test:player-layout": "node --test tests/player-layout.test.mjs",
+    "test:player-view": "node --test tests/player-view.test.mjs",
     "test": "node --test",
     "check": "npm run check:js && npm run check:manifest && npm test",
     "prepare:packages": "node scripts/prepare-package-sources.mjs",

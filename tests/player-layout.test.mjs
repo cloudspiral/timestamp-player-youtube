@@ -734,7 +734,10 @@ test("content delegates layout ownership and tears down progress scrubbing befor
 
   assert.match(source, /createPlayerLayoutController\(\{/);
   assert.match(source, /playerLayout\.hydrate\(state\.settings\)/);
-  assert.match(source, /playerLayout\.connect\(\{ dragHandle, resizeHandle, root \}\)/);
+  assert.match(
+    source,
+    /playerLayout\.connect\(\{[\s\S]*?dragHandle: elements\.dragHandle,[\s\S]*?resizeHandle: elements\.resizeHandle,[\s\S]*?root: elements\.root/
+  );
   assert.match(source, /playerLayout\.ownsNode\(element\)/);
   assert.match(source, /playerLayout\.prepareMount\(/);
   assert.match(source, /playerLayout\.layoutNow\(/);
@@ -748,11 +751,11 @@ test("content delegates layout ownership and tears down progress scrubbing befor
   const removeUiStart = source.indexOf("function removeWatchPageUi()");
   const progressCleanup = source.indexOf("cancelProgressPointerInteraction();", removeUiStart);
   const layoutDisconnect = source.indexOf("playerLayout.disconnect();", removeUiStart);
-  const rootRemoval = source.indexOf("root?.remove();", removeUiStart);
+  const viewTeardown = source.indexOf("playerView.teardown();", removeUiStart);
   assert.ok(removeUiStart >= 0);
   assert.ok(progressCleanup > removeUiStart);
   assert.ok(layoutDisconnect > progressCleanup);
-  assert.ok(rootRemoval > layoutDisconnect);
+  assert.ok(viewTeardown > layoutDisconnect);
 });
 
 test("extension and package wiring load and verify the layout controller", async () => {

@@ -1,5 +1,4 @@
 (() => {
-  const ROOT_ID = "timestamp-player-root";
   const LAUNCHER_ID = "timestamp-player-launcher";
   const SCAN_DELAY_MS = 600;
   const LAUNCHER_SYNC_DELAY_MS = 50;
@@ -9,10 +8,6 @@
   const REGULAR_COMMENT_SCAN_LIMIT = 30;
   const TRACK_END_GRACE_SECONDS = 0.35;
   const PREVIOUS_RESTART_SECONDS = 3;
-  const PROGRESS_TIME_MODES = {
-    REMAINING: "remaining",
-    DURATION: "duration",
-  };
   const COMMENT_SOURCE_TYPES = {
     PINNED: "pinned",
     UPLOADER: "uploader",
@@ -93,6 +88,10 @@
     createPlayerLayoutController,
   } = globalThis.TimestampPlayerPlayerLayout;
   const {
+    PROGRESS_TIME_MODES,
+    createPlayerViewController,
+  } = globalThis.TimestampPlayerPlayerView;
+  const {
     REPEAT_MODES,
     clearPlaybackOrder,
     createPlaybackState,
@@ -122,23 +121,9 @@
     settingsChangeCleanup: null,
   };
 
-  let root;
   let launcherButton;
-  let compactButton;
-  let popoutButton;
-  let closeButton;
-  let trackEl;
-  let countEl;
-  let progressElapsedEl;
-  let progressRemainingEl;
   let progressSlider;
-  let listEl;
-  let previousButton;
-  let playPauseButton;
-  let toggleButton;
-  let repeatButton;
-  let nextButton;
-  let trackListRenderer;
+  let playerShellRoot = null;
   let watchRouteController = null;
   const playerLayout = createPlayerLayoutController({
     document,
@@ -149,6 +134,29 @@
     saveSettings,
   });
   playerLayout.hydrate(state.settings);
+  const playerView = createPlayerViewController({
+    compactProgressColors: COMPACT_PROGRESS_COLORS,
+    compactProgressStyles: COMPACT_PROGRESS_STYLES,
+    createTrackListRenderer,
+    document,
+    formatTimestamp,
+    formatTrackLabel,
+    handlers: {
+      onClose: closePlayer,
+      onCompactToggle: toggleAnchoredCompact,
+      onCurrentTrackClick: scrollCurrentTrackIntoView,
+      onNextTrack: playNextTrack,
+      onPanelModeToggle: togglePanelMode,
+      onPlayPause: togglePlayPause,
+      onPreviousTrack: playPreviousTrack,
+      onProgressPointerDown: handleProgressPointerDown,
+      onProgressTimeModeToggle: toggleProgressTimeMode,
+      onRepeatToggle: toggleRepeat,
+      onShuffleToggle: toggleShuffle,
+      onTrackListClick: handleTrackListClick,
+    },
+    trackHighlightColors: TRACK_HIGHLIGHT_COLORS,
+  });
 
   function init() {
     watchRouteController = createWatchRouteController({
@@ -167,8 +175,7 @@
     }
 
     state.watchPageActive = true;
-    ensureUi();
-    applySettingsToUi();
+    ensurePlayerUi();
     loadStoredSettings();
     state.pageObserver = new MutationObserver(handlePageMutations);
     bindWatchPageObserver();
@@ -227,32 +234,40 @@
   function removeWatchPageUi() {
     cancelProgressPointerInteraction();
     playerLayout.disconnect();
-    trackListRenderer?.clear();
+    playerView.teardown();
     launcherButton?.remove();
-    root?.remove();
-    root = null;
     launcherButton = null;
-    compactButton = null;
-    popoutButton = null;
-    closeButton = null;
-    trackEl = null;
-    countEl = null;
-    progressElapsedEl = null;
-    progressRemainingEl = null;
     progressSlider = null;
-    listEl = null;
-    previousButton = null;
-    playPauseButton = null;
-    toggleButton = null;
-    repeatButton = null;
-    nextButton = null;
-    trackListRenderer = null;
+    playerShellRoot = null;
   }
 
-  function cancelProgressPointerInteraction() {
-    progressSlider?.removeEventListener("pointermove", handleProgressPointerMove);
-    progressSlider?.removeEventListener("pointerup", handleProgressPointerEnd);
-    progressSlider?.removeEventListener("pointercancel", handleProgressPointerEnd);
+  function cancelProgressPointerInteraction(slider = progressSlider) {
+    slider?.classList.remove("is-scrubbing");
+    slider?.removeEventListener("pointermove", handleProgressPointerMove);
+    slider?.removeEventListener("pointerup", handleProgressPointerEnd);
+    slider?.removeEventListener("pointercancel", handleProgressPointerEnd);
+  }
+
+  function ensurePlayerUi() {
+    const currentElements = playerView.getElements();
+    if (currentElements && !currentElements.root.isConnected) {
+      cancelProgressPointerInteraction(currentElements.progressSlider);
+      playerLayout.disconnect();
+      playerShellRoot = null;
+    }
+
+    const elements = playerView.ensure();
+    if (elements.root !== playerShellRoot) {
+      playerLayout.connect({
+        dragHandle: elements.dragHandle,
+        resizeHandle: elements.resizeHandle,
+        root: elements.root,
+      });
+      playerShellRoot = elements.root;
+      playerView.applySettings(state.settings);
+    }
+    progressSlider = elements.progressSlider;
+    return elements;
   }
 
   function loadStoredSettings() {
@@ -284,37 +299,10 @@
     if (!state.watchPageActive) {
       return;
     }
-    applySettingsToUi();
+    ensurePlayerUi();
+    playerView.applySettings(state.settings);
     maybeAutoOpenCompact(state.session);
     updateUi();
-  }
-
-  function applySettingsToUi() {
-    if (!root) {
-      return;
-    }
-
-    const compactProgressStyle =
-      COMPACT_PROGRESS_STYLES[state.settings.compactProgressStyle] || COMPACT_PROGRESS_STYLES.subtle;
-    const compactProgressColor = resolveProgressColor(
-      state.settings.compactProgressColor,
-      state.settings.compactProgressCustomColor
-    );
-    const progressColor = resolveProgressColor(state.settings.progressColor, state.settings.progressCustomColor);
-    const highlightColor = TRACK_HIGHLIGHT_COLORS[state.settings.trackHighlightColor] || TRACK_HIGHLIGHT_COLORS.purple;
-
-    root.style.setProperty("--ts-compact-progress-height", compactProgressStyle.height);
-    root.style.setProperty("--ts-compact-progress-opacity", compactProgressStyle.opacity);
-    root.style.setProperty("--ts-compact-progress-color", compactProgressColor);
-    root.style.setProperty("--ts-progress-color", progressColor);
-    root.style.setProperty("--ts-active-track-bg", highlightColor.bg);
-    root.style.setProperty("--ts-active-track-hover-bg", highlightColor.hoverBg);
-    root.style.setProperty("--ts-active-track-text", highlightColor.text);
-  }
-
-  function resolveProgressColor(colorName, customColor) {
-    const colorChoice = COMPACT_PROGRESS_COLORS[colorName] || COMPACT_PROGRESS_COLORS.red;
-    return colorName === "custom" ? customColor : colorChoice.color;
   }
 
   function handleNavigation({ videoId }) {
@@ -714,6 +702,7 @@
 
   function syncLauncher(tracksAvailable) {
     if (!tracksAvailable) {
+      ensurePlayerUi();
       playerLayout.resetMount();
       launcherButton?.remove();
       return true;
@@ -760,9 +749,15 @@
       return;
     }
 
+    ensurePlayerUi();
     const inlineCompact = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;
     const mountedInlineCompact = playerLayout.prepareMount({ inlineCompact });
-    root.classList.toggle("is-inline-compact", mountedInlineCompact);
+    renderPlayerView({
+      inlineCompact: mountedInlineCompact,
+      tracksAvailable,
+      video: getVideo(),
+      visible: true,
+    });
     playerLayout.layoutNow({
       anchoredCompact: state.anchoredCompact,
       inlineCompact: mountedInlineCompact,
@@ -804,8 +799,14 @@
       </svg>
       <span>Tracklist</span>
     `;
-    launcherButton.addEventListener("mousedown", preventMouseButtonFocus);
+    launcherButton.addEventListener("mousedown", preventLauncherMouseButtonFocus);
     launcherButton.addEventListener("click", togglePlayerOpen);
+  }
+
+  function preventLauncherMouseButtonFocus(event) {
+    if (event.button === 0) {
+      event.preventDefault();
+    }
   }
 
   function findActionRow() {
@@ -1565,154 +1566,6 @@
     return text;
   }
 
-  function ensureUi() {
-    root = document.getElementById(ROOT_ID);
-    if (root) {
-      return;
-    }
-
-    root = document.createElement("div");
-    root.id = ROOT_ID;
-    root.innerHTML = `
-      <div class="ts-drag-handle" aria-hidden="true"></div>
-      <div class="ts-resize-handle" aria-hidden="true"></div>
-      <button class="ts-compact-toggle" type="button" aria-label="Compact player" title="Compact player">
-        <svg class="ts-icon ts-stroke-icon ts-compact-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 9l6 6 6-6"></path>
-        </svg>
-        <svg class="ts-icon ts-stroke-icon ts-expand-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 15l6-6 6 6"></path>
-        </svg>
-      </button>
-      <button class="ts-popout" type="button" aria-label="Pop out player" title="Pop out player">
-        <svg class="ts-icon ts-stroke-icon ts-popout-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M8 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"></path>
-          <path d="M14 4h6v6"></path>
-          <path d="M20 4 11 13"></path>
-        </svg>
-        <svg class="ts-icon ts-stroke-icon ts-dock-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"></path>
-          <path d="M8 9h8"></path>
-          <path d="M8 13h5"></path>
-        </svg>
-      </button>
-      <button class="ts-close" type="button" aria-label="Close player" title="Close player">
-        <svg class="ts-icon ts-stroke-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 6l12 12"></path>
-          <path d="M18 6 6 18"></path>
-        </svg>
-      </button>
-      <div class="ts-body">
-        <div class="ts-now-playing">
-          <div class="ts-count"></div>
-          <div class="ts-track">No track selected</div>
-        </div>
-        <div class="ts-progress">
-          <div class="ts-progress-times">
-            <span class="ts-progress-elapsed">0:00</span>
-            <span class="ts-progress-remaining" role="button" aria-pressed="false">-0:00</span>
-          </div>
-          <div class="ts-progress-slider" aria-label="Seek within current track" aria-disabled="false">
-            <div class="ts-progress-fill"></div>
-            <div class="ts-progress-thumb"></div>
-          </div>
-        </div>
-        <div class="ts-controls" aria-label="Player controls">
-          <button class="ts-icon-button ts-toggle" type="button" aria-label="Turn shuffle on" title="Shuffle">
-            <svg class="ts-icon ts-stroke-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M2 18h1.4c1.3 0 2.5-.7 3.2-1.8l4.8-8.4C12.1 6.7 13.3 6 14.6 6H22"></path>
-              <path d="M18 2l4 4-4 4"></path>
-              <path d="M2 6h1.4c1.3 0 2.5.7 3.2 1.8l1.1 1.9"></path>
-              <path d="M12.4 14.3l1 1.9c.7 1.1 1.9 1.8 3.2 1.8H22"></path>
-              <path d="M18 14l4 4-4 4"></path>
-            </svg>
-          </button>
-          <button class="ts-icon-button ts-previous" type="button" aria-label="Previous track" title="Previous track">
-            <svg class="ts-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 5h2v14H5zM10 12l9 7V5z"></path>
-            </svg>
-          </button>
-          <button class="ts-icon-button ts-play-pause" type="button" aria-label="Play" title="Play">
-            <svg class="ts-icon ts-play-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 5v14l11-7z"></path>
-            </svg>
-            <svg class="ts-icon ts-pause-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M7 5h4v14H7zM13 5h4v14h-4z"></path>
-            </svg>
-          </button>
-          <button class="ts-icon-button ts-next" type="button" aria-label="Next track" title="Next track">
-            <svg class="ts-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 5v14l9-7zM17 5h2v14h-2z"></path>
-            </svg>
-          </button>
-          <button class="ts-icon-button ts-repeat" type="button" aria-label="Turn repeat on" title="Repeat current track">
-            <svg class="ts-icon ts-stroke-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M17 2l4 4-4 4"></path>
-              <path d="M3 11V9a3 3 0 0 1 3-3h15"></path>
-              <path d="M7 22l-4-4 4-4"></path>
-              <path d="M21 13v2a3 3 0 0 1-3 3H3"></path>
-              <text class="ts-repeat-one" x="12" y="14">1</text>
-            </svg>
-          </button>
-        </div>
-        <div class="ts-list" aria-label="Tracks"></div>
-      </div>
-    `;
-    document.documentElement.append(root);
-
-    const dragHandle = root.querySelector(".ts-drag-handle");
-    const resizeHandle = root.querySelector(".ts-resize-handle");
-    compactButton = root.querySelector(".ts-compact-toggle");
-    popoutButton = root.querySelector(".ts-popout");
-    closeButton = root.querySelector(".ts-close");
-    trackEl = root.querySelector(".ts-track");
-    countEl = root.querySelector(".ts-count");
-    progressElapsedEl = root.querySelector(".ts-progress-elapsed");
-    progressRemainingEl = root.querySelector(".ts-progress-remaining");
-    progressSlider = root.querySelector(".ts-progress-slider");
-    listEl = root.querySelector(".ts-list");
-    trackListRenderer = createTrackListRenderer({
-      document,
-      formatTimestamp,
-      formatTrackLabel,
-      listElement: listEl,
-    });
-    previousButton = root.querySelector(".ts-previous");
-    playPauseButton = root.querySelector(".ts-play-pause");
-    toggleButton = root.querySelector(".ts-toggle");
-    repeatButton = root.querySelector(".ts-repeat");
-    nextButton = root.querySelector(".ts-next");
-
-    root.addEventListener("mousedown", preventMouseButtonFocus);
-    playerLayout.connect({ dragHandle, resizeHandle, root });
-    compactButton.addEventListener("click", toggleAnchoredCompact);
-    popoutButton.addEventListener("click", togglePanelMode);
-    closeButton.addEventListener("click", closePlayer);
-    trackEl.addEventListener("click", scrollCurrentTrackIntoView);
-    previousButton.addEventListener("click", playPreviousTrack);
-    playPauseButton.addEventListener("click", togglePlayPause);
-    toggleButton.addEventListener("click", toggleShuffle);
-    repeatButton.addEventListener("click", toggleRepeat);
-    nextButton.addEventListener("click", playNextTrack);
-    progressSlider.addEventListener("pointerdown", handleProgressPointerDown);
-    progressRemainingEl.addEventListener("pointerdown", (event) => event.preventDefault());
-    progressRemainingEl.addEventListener("click", toggleProgressTimeMode);
-    listEl.addEventListener("click", handleTrackListClick);
-  }
-
-  function preventMouseButtonFocus(event) {
-    if (event.button !== 0) {
-      return;
-    }
-
-    const button = event.target.closest?.("button");
-    if (!button || !event.currentTarget.contains(button)) {
-      return;
-    }
-
-    event.preventDefault();
-  }
-
   function closePlayer() {
     state.panelOpen = false;
     if (state.session) {
@@ -1875,6 +1728,7 @@
   }
 
   function handleProgressPointerDown(event) {
+    progressSlider = event.currentTarget || progressSlider;
     if (progressSlider.getAttribute("aria-disabled") === "true") {
       return;
     }
@@ -2028,11 +1882,13 @@
       return;
     }
 
-    const item = listEl.querySelector(`[data-index="${currentIndex}"]`);
-    if (!item) {
+    const elements = playerView.getElements();
+    const item = playerView.getTrackRowForIndex(currentIndex);
+    if (!elements?.listEl || !item) {
       return;
     }
 
+    const { listEl } = elements;
     const listRect = listEl.getBoundingClientRect();
     const itemRect = item.getBoundingClientRect();
     const targetTop = listEl.scrollTop + itemRect.top - listRect.top;
@@ -2043,41 +1899,44 @@
     });
   }
 
-  function renderTrackList() {
-    trackListRenderer.renderCollection(state.tracks);
-    trackListRenderer.renderActive(state.currentTrackIndex);
-  }
-
   function updateProgress(video = getVideo()) {
+    ensurePlayerUi();
     const track = getProgressTrack(video);
     if (!video || !track) {
-      progressElapsedEl.textContent = "0:00";
-      updateProgressRightTime("0:00", "0:00");
-      progressSlider.style.setProperty("--ts-progress", "0%");
-      progressSlider.removeAttribute("title");
+      playerView.renderProgress({
+        active: false,
+        timeMode: state.progressTimeMode,
+      });
       return;
     }
 
     const duration = getTrackDuration(track);
     const elapsed = clamp(video.currentTime - track.start, 0, duration);
-    const remaining = Math.max(0, duration - elapsed);
-    const progress = duration > 0 ? elapsed / duration : 0;
-    const elapsedLabel = formatTimestamp(elapsed);
-    const remainingLabel = formatTimestamp(remaining);
-    const durationLabel = formatTimestamp(duration);
-
-    progressElapsedEl.textContent = elapsedLabel;
-    updateProgressRightTime(remainingLabel, durationLabel);
-    progressSlider.style.setProperty("--ts-progress", `${progress * 100}%`);
-    progressSlider.title = `${elapsedLabel} elapsed, ${remainingLabel} remaining`;
+    playerView.renderProgress({
+      active: true,
+      duration,
+      elapsed,
+      timeMode: state.progressTimeMode,
+    });
   }
 
-  function updateProgressRightTime(remainingLabel, durationLabel) {
-    const showingDuration = state.progressTimeMode === PROGRESS_TIME_MODES.DURATION;
-    progressRemainingEl.textContent = showingDuration ? durationLabel : `-${remainingLabel}`;
-    progressRemainingEl.title = showingDuration ? "Show remaining time" : "Show track duration";
-    progressRemainingEl.setAttribute("aria-pressed", String(showingDuration));
-    progressRemainingEl.setAttribute("aria-label", showingDuration ? "Showing track duration" : "Showing remaining time");
+  function renderPlayerView({ inlineCompact, tracksAvailable, video, visible }) {
+    const isFloating = state.panelMode === PANEL_MODES.FLOATING;
+    const isAnchoredCompact = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;
+    playerView.render({
+      anchored: state.panelMode === PANEL_MODES.ANCHORED,
+      anchoredCompact: isAnchoredCompact,
+      currentTrackIndex: state.currentTrackIndex,
+      floating: isFloating,
+      inlineCompact,
+      playing: Boolean(video && !video.paused),
+      repeatEnabled: state.playback.repeatMode === REPEAT_MODES.ONE,
+      shuffleEnabled: state.playback.shuffleEnabled,
+      tracks: state.tracks,
+      tracksAvailable,
+      visible,
+    });
+    updateProgress(video);
   }
 
   function updateUi() {
@@ -2086,53 +1945,22 @@
       return;
     }
 
-    ensureUi();
+    ensurePlayerUi();
     const video = getVideo();
     const videoId = getCurrentVideoId();
     const tracksAvailable = tracksBelongToVideo(videoId);
-    const isPlaying = Boolean(video && !video.paused);
-    const isFloating = state.panelMode === PANEL_MODES.FLOATING;
     const isAnchoredCompact = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;
     const isHiddenByFullscreen = isFullscreenActive() && state.panelMode === PANEL_MODES.ANCHORED;
     const isVisible = tracksAvailable && state.panelOpen && !isHiddenByFullscreen;
     const isInlineCompact = isVisible && isAnchoredCompact;
     syncLauncherForSession(session, tracksAvailable, { restorePlayer: false });
     const mountedInlineCompact = playerLayout.prepareMount({ inlineCompact: isInlineCompact });
-    root.classList.toggle("is-shuffle-enabled", state.playback.shuffleEnabled);
-    root.classList.toggle("is-repeat-enabled", state.playback.repeatMode === REPEAT_MODES.ONE);
-    root.classList.toggle("is-playing", isPlaying);
-    root.classList.toggle("has-tracks", tracksAvailable);
-    root.classList.toggle("is-visible", isVisible);
-    root.classList.toggle("is-anchored", state.panelMode === PANEL_MODES.ANCHORED);
-    root.classList.toggle("is-anchored-compact", isAnchoredCompact);
-    root.classList.toggle("is-inline-compact", mountedInlineCompact);
-    root.classList.toggle("is-floating", isFloating);
-    previousButton.disabled = !tracksAvailable;
-    playPauseButton.disabled = !tracksAvailable;
-    playPauseButton.setAttribute("aria-label", isPlaying ? "Pause" : "Play");
-    playPauseButton.title = isPlaying ? "Pause" : "Play";
-    progressSlider.setAttribute("aria-disabled", String(!tracksAvailable));
-    toggleButton.disabled = !tracksAvailable;
-    toggleButton.setAttribute("aria-label", state.playback.shuffleEnabled ? "Turn shuffle off" : "Turn shuffle on");
-    toggleButton.title = state.playback.shuffleEnabled ? "Shuffle on" : "Shuffle";
-    repeatButton.disabled = !tracksAvailable;
-    repeatButton.setAttribute("aria-label", state.playback.repeatMode === REPEAT_MODES.ONE ? "Turn repeat off" : "Turn repeat on");
-    repeatButton.title = state.playback.repeatMode === REPEAT_MODES.ONE ? "Repeat on" : "Repeat current track";
-    nextButton.disabled = !tracksAvailable;
-    compactButton.disabled = !tracksAvailable || isFloating;
-    compactButton.setAttribute("aria-pressed", String(isAnchoredCompact));
-    compactButton.setAttribute("aria-label", isAnchoredCompact ? "Expand player" : "Compact player");
-    compactButton.title = isAnchoredCompact ? "Expand player" : "Compact player";
-    popoutButton.setAttribute("aria-label", isFloating ? "Dock player" : "Pop out player");
-    popoutButton.title = isFloating ? "Dock player" : "Pop out player";
-
-    const track = state.tracks[state.currentTrackIndex];
-    const trackLabel = track ? formatTrackLabel(track) : "No track selected";
-    trackEl.textContent = trackLabel;
-    trackEl.title = track ? trackLabel : "";
-    countEl.textContent = track ? `${track.index + 1} / ${state.tracks.length}` : "";
-    updateProgress(video);
-    renderTrackList();
+    renderPlayerView({
+      inlineCompact: mountedInlineCompact,
+      tracksAvailable,
+      video,
+      visible: isVisible,
+    });
     playerLayout.layoutNow({
       anchoredCompact: state.anchoredCompact,
       inlineCompact: mountedInlineCompact,
