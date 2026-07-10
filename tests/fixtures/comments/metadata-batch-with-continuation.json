@@ -1,0 +1,152 @@
+{
+  "onResponseReceivedEndpoints": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": [
+          {
+            "commentThreadRenderer": {
+              "commentViewModel": {
+                "commentViewModel": {
+                  "commentId": "modern-comment",
+                  "commentKey": "entity-modern-comment",
+                  "content": {
+                    "content": "0:00 Intro\n1:00 Middle\n2:00 Finale"
+                  },
+                  "author": {
+                    "commentAuthorRenderer": {
+                      "authorText": {
+                        "simpleText": "Modern Author"
+                      },
+                      "authorEndpoint": {
+                        "browseEndpoint": {
+                          "browseId": "UC-modern-author"
+                        }
+                      }
+                    }
+                  },
+                  "pinnedText": {
+                    "content": "Pinned by Fixture Channel"
+                  },
+                  "toolbar": {
+                    "commentToolbarViewModel": {
+                      "likeCount": "4",
+                      "replyCount": "404"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "commentThreadRenderer": {
+              "commentViewModel": {
+                "commentViewModel": {
+                  "commentId": "unsafe-metadata-comment",
+                  "commentKey": "entity-unsafe-metadata-comment",
+                  "content": {
+                    "content": "Pinned by a friend\n0:00 One\n1:00 Two\n2:00 Three"
+                  },
+                  "author": {
+                    "commentAuthorRenderer": {
+                      "authorText": {
+                        "simpleText": "Metadata Impostor"
+                      },
+                      "authorIsChannelOwner": "true"
+                    }
+                  },
+                  "toolbar": {
+                    "commentToolbarViewModel": {
+                      "replyCount": "88",
+                      "publishedTime": "2 years ago",
+                      "likeButton": {
+                        "accessibilityText": "Like this comment along with 77 other people"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "frameworkUpdates": {
+              "entityBatchUpdate": {
+                "mutations": [
+                  {
+                    "entityKey": "entity-unsafe-metadata-comment",
+                    "payload": {
+                      "commentEntityPayload": {
+                        "properties": {
+                          "commentId": "unsafe-metadata-comment",
+                          "content": {
+                            "content": "Pinned by a friend\n0:00 One\n1:00 Two\n2:00 Three"
+                          }
+                        },
+                        "author": {
+                          "displayName": "Metadata Impostor",
+                          "channelId": "UC-metadata-impostor",
+                          "isCreator": "true"
+                        },
+                        "toolbar": {
+                          "replyCount": "99",
+                          "tooltip": "123 likes",
+                          "menuTrackingId": "456"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "commentThreadRenderer": {
+              "comment": {
+                "commentRenderer": {
+                  "commentId": "same-text-a",
+                  "contentText": {
+                    "simpleText": "The same body from the same author"
+                  },
+                  "authorText": {
+                    "simpleText": "Repeated Author"
+                  },
+                  "voteCount": {
+                    "simpleText": "1"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "commentThreadRenderer": {
+              "comment": {
+                "commentRenderer": {
+                  "contentText": {
+                    "simpleText": "An identifier-free legacy comment"
+                  },
+                  "authorText": {
+                    "simpleText": "Legacy Author"
+                  },
+                  "voteCount": {
+                    "simpleText": "2"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "continuationItemRenderer": {
+              "continuationEndpoint": {
+                "commandMetadata": {
+                  "webCommandMetadata": {
+                    "apiUrl": "/youtubei/v1/next"
+                  }
+                },
+                "continuationCommand": {
+                  "token": "metadata-comments-batch-2"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

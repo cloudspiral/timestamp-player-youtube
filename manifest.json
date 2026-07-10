@@ -35,6 +35,7 @@
         "src/timestamps.js",
         "src/native-timestamps.js",
         "src/comment-scoring.js",
+        "src/comment-data.js",
         "src/youtube-dom.js",
         "src/comment-fetching.js",
         "src/lru-cache.js",

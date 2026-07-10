@@ -10,7 +10,11 @@ async function readJsonFixture(name) {
 }
 
 async function loadCommentFetching({ fetchImpl, pageFixture } = {}) {
-  const source = await readFile(new URL("../src/comment-fetching.js", import.meta.url), "utf8");
+  const [commentDataSource, commentFetchingSource, commentScoringSource] = await Promise.all([
+    readFile(new URL("../src/comment-data.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/comment-fetching.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/comment-scoring.js", import.meta.url), "utf8"),
+  ]);
   const fixture = pageFixture || await readJsonFixture("initial-page");
   const scriptText = [
     `ytcfg.set(${JSON.stringify(fixture.config)});`,
@@ -31,14 +35,10 @@ async function loadCommentFetching({ fetchImpl, pageFixture } = {}) {
       origin: "https://www.youtube.com",
     },
     setTimeout,
-    TimestampPlayerCommentScoring: {
-      parseCommentLikeCount(value) {
-        const parsed = Number(String(value).replace(/[^\d]/g, ""));
-        return Number.isFinite(parsed) ? parsed : null;
-      },
-    },
   });
-  vm.runInContext(source, context);
+  vm.runInContext(commentScoringSource, context);
+  vm.runInContext(commentDataSource, context);
+  vm.runInContext(commentFetchingSource, context);
   return context.TimestampPlayerCommentFetching;
 }
 
@@ -90,6 +90,150 @@ test("fetches paginated comments and reports a typed success outcome", async () 
   assert.equal(JSON.parse(requests[0].options.body).continuation, "comments-batch-1");
   assert.equal(JSON.parse(requests[1].options.body).continuation, "comments-batch-2");
   assert.ok(requests.every(({ options }) => options.signal instanceof AbortSignal));
+});
+
+
+test("extracts only schema-backed metadata and merges richer duplicates across batches", async () => {
+  const firstBatch = await readJsonFixture("metadata-batch-with-continuation");
+  const finalBatch = await readJsonFixture("metadata-batch-final");
+  let requestCount = 0;
+  const runtime = await loadCommentFetching({
+    fetchImpl: async () => {
+      requestCount += 1;
+      return jsonResponse(requestCount === 1 ? firstBatch : finalBatch);
+    },
+  });
+
+  const result = await runtime.fetchCommentRecords({ videoId: "fixture-video" });
+
+  assert.equal(result.status, runtime.COMMENT_FETCH_OUTCOMES.SUCCESS);
+  assert.equal(result.batchesFetched, 2);
+  assert.equal(result.records.length, 8);
+  assert.deepEqual(Array.from(result.records, ({ order }) => order), [0, 1, 2, 3, 4, 5, 6, 7]);
+
+  const recordsById = new Map(result.records.map((record) => [record.commentId, record]));
+  const modern = recordsById.get("modern-comment");
+  assert.ok(modern, "the nested viewmodel and entity payload should produce one record");
+  assert.deepEqual(Array.from(modern.commentKeys), ["entity-modern-comment"]);
+  assert.equal(modern.text, "0:00 Intro\n1:00 Middle\n2:00 Finale\n3:00 Bonus");
+  assert.equal(modern.authorName, "Modern Author");
+  assert.equal(modern.authorChannelId, "UC-modern-author");
+  assert.equal(modern.isPinned, true, "pinnedText is structural pin evidence");
+  assert.equal(modern.isUploader, true, "the entity creator flag enriches the viewmodel");
+  assert.equal(modern.likeCount, 25, "semantic like fields merge without summing");
+  assert.equal(modern.order, 0, "a duplicate keeps its first-seen position");
+
+  const unsafe = recordsById.get("unsafe-metadata-comment");
+  assert.ok(unsafe);
+  assert.equal(unsafe.isPinned, false, "body text mentioning a pin is not pin evidence");
+  assert.equal(unsafe.isUploader, false, "string lookalikes are not creator booleans");
+  assert.equal(
+    unsafe.likeCount,
+    null,
+    "reply counts, dates, tooltips, tracking IDs, and nested labels are not likes"
+  );
+
+  const sameTextRecords = Array.from(result.records).filter(({ commentId }) => {
+    return commentId === "same-text-a" || commentId === "same-text-b";
+  });
+  assert.deepEqual(
+    sameTextRecords.map(({ commentId }) => commentId),
+    ["same-text-a", "same-text-b"],
+    "distinct IDs must survive even when author and body are identical"
+  );
+
+  const identifierFree = Array.from(result.records).filter(
+    ({ authorName }) => authorName === "Legacy Author"
+  );
+  assert.equal(identifierFree.length, 2, "ID-free lookalikes must remain distinct records");
+  assert.ok(identifierFree.every(({ commentId }) => commentId === ""));
+  assert.deepEqual(identifierFree.map(({ likeCount }) => likeCount), [2, 9]);
+
+  const structuralRenderer = recordsById.get("structural-renderer-comment");
+  assert.ok(structuralRenderer);
+  assert.equal(structuralRenderer.authorChannelId, "UC-fixture-channel");
+  assert.equal(structuralRenderer.isPinned, true);
+  assert.equal(structuralRenderer.isUploader, true);
+  assert.equal(structuralRenderer.likeCount, 1200);
+
+  const keyOnlyPinnedEntity = recordsById.get("key-only-pinned-comment");
+  assert.ok(keyOnlyPinnedEntity);
+  assert.deepEqual(
+    Array.from(keyOnlyPinnedEntity.commentKeys),
+    ["entity-key-only-pinned-comment"]
+  );
+  assert.equal(
+    keyOnlyPinnedEntity.isPinned,
+    true,
+    "a textless pinned viewmodel should mark its entity through the enclosing entityKey"
+  );
+  assert.equal(keyOnlyPinnedEntity.isUploader, false);
+  assert.equal(keyOnlyPinnedEntity.likeCount, 8);
+});
+
+test("does not treat false, null, or empty pin fields as structural evidence", async () => {
+  const response = {
+    onResponseReceivedEndpoints: [{
+      appendContinuationItemsAction: {
+        continuationItems: [
+          {
+            commentRenderer: {
+              commentId: "false-renderer-badge",
+              contentText: { simpleText: "Renderer with a false badge" },
+              authorText: { simpleText: "Fixture Author" },
+              pinnedCommentBadge: false,
+            },
+          },
+          {
+            commentViewModel: {
+              commentViewModel: {
+                commentId: "false-viewmodel-text",
+                content: { content: "Viewmodel with false pinned text" },
+                pinnedText: false,
+              },
+            },
+          },
+          {
+            commentViewModel: {
+              commentViewModel: {
+                commentId: "empty-viewmodel-text",
+                content: { content: "Viewmodel with empty pinned text" },
+                pinnedText: "",
+              },
+            },
+          },
+          {
+            commentViewModel: {
+              commentViewModel: {
+                commentId: "empty-viewmodel-badge",
+                content: { content: "Viewmodel with an empty badge" },
+                pinnedText: null,
+                pinnedCommentBadge: {},
+              },
+            },
+          },
+          {
+            commentViewModel: {
+              commentViewModel: {
+                commentId: "empty-viewmodel-text-object",
+                content: { content: "Viewmodel with an empty pinned text object" },
+                pinnedText: { content: "" },
+              },
+            },
+          },
+        ],
+      },
+    }],
+  };
+  const runtime = await loadCommentFetching({
+    fetchImpl: async () => jsonResponse(response),
+  });
+
+  const result = await runtime.fetchCommentRecords({ videoId: "fixture-video" });
+
+  assert.equal(result.status, runtime.COMMENT_FETCH_OUTCOMES.SUCCESS);
+  assert.equal(result.records.length, 5);
+  assert.ok(Array.from(result.records).every(({ isPinned }) => isPinned === false));
 });
 
 test("passes one bounded signal through stale watch-page hydration and continuation fetches", async () => {

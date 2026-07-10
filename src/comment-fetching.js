@@ -10,22 +10,12 @@
     UNSUPPORTED: "unsupported",
     ABORTED: "aborted",
   });
-  const CONTINUATION_ENVELOPE_KEYS = new Set([
-    "appendContinuationItemsAction",
-    "continuationContents",
-    "onResponseReceivedActions",
-    "onResponseReceivedCommands",
-    "onResponseReceivedEndpoints",
-    "reloadContinuationItemsCommand",
-  ]);
-  const COMMENT_TEXT_KEYS = new Set([
-    "contentText",
-    "commentText",
-  ]);
-
   const {
-    parseCommentLikeCount,
-  } = globalThis.TimestampPlayerCommentScoring || {};
+    extractCommentRecords,
+    findBestCommentContinuation,
+    isSupportedContinuationResponse,
+    mergeCommentRecords,
+  } = globalThis.TimestampPlayerCommentData || {};
 
   async function fetchCommentRecords({
     maxBatches = DEFAULT_MAX_COMMENT_BATCHES,
@@ -67,12 +57,12 @@
 
         batchesFetched += 1;
         const batchRecords = extractCommentRecords(response);
-        for (const record of batchRecords) {
-          records.push({
-            ...record,
-            order: records.length,
-          });
-        }
+        const mergedRecords = mergeCommentRecords(records, batchRecords);
+        records.splice(
+          0,
+          records.length,
+          ...mergedRecords.map((record, order) => ({ ...record, order }))
+        );
 
         continuation = findBestCommentContinuation(response, {
           phase: "next",
@@ -284,75 +274,6 @@
     return -1;
   }
 
-  function findBestCommentContinuation(root, { phase = "initial", seenTokens = new Set() } = {}) {
-    const continuations = [];
-    walkObjects(root, [], (value, ancestors, _key, path) => {
-      const endpoint = value?.continuationEndpoint || value;
-      const command = endpoint?.continuationCommand;
-      const token = command?.token || value?.continuationCommand?.token;
-      if (!token || seenTokens.has(token)) {
-        return;
-      }
-
-      const apiUrl = endpoint?.commandMetadata?.webCommandMetadata?.apiUrl
-        || value?.commandMetadata?.webCommandMetadata?.apiUrl
-        || DEFAULT_NEXT_API_PATH;
-      continuations.push({
-        token,
-        apiUrl,
-        score: scoreContinuationCandidate(value, ancestors, apiUrl, token, path, phase),
-      });
-    });
-
-    return continuations
-      .filter((continuation) => continuation.score > 0)
-      .sort((left, right) => right.score - left.score)[0] || null;
-  }
-
-  function scoreContinuationCandidate(value, ancestors, apiUrl, token, path, phase) {
-    const text = stringifySmall([value, ...ancestors.slice(-4)]).toLowerCase();
-    const pathText = path.join(".").toLowerCase();
-    let score = 0;
-    if (apiUrl.includes("/next")) {
-      score += 10;
-    }
-    if (text.includes("comment")) {
-      score += 35;
-    }
-    if (text.includes("comments-section") || text.includes("comment-item-section")) {
-      score += 40;
-    }
-    if (text.includes("sort filter") || text.includes("comment section")) {
-      score += 15;
-    }
-    if (text.includes("playlist") || text.includes("transcript")) {
-      score -= 20;
-    }
-    if (phase === "next") {
-      if (pathText.includes("sortfiltersubmenurenderer") || text.includes("showreloaduicommand")) {
-        score -= 100;
-      }
-      if (pathText.includes("commentrepliesrenderer") || token.includes("Y29tbWVudC1yZXBsaWVz")) {
-        score -= 100;
-      }
-      if (/continuationitems\.\d+\.continuationitemrenderer(?:\.continuationendpoint)?$/.test(pathText)) {
-        score += 60;
-      }
-      if (token.includes("Z2V0X3JhbmtlZF9zdHJlYW1z")) {
-        score += 40;
-      }
-    }
-    return score;
-  }
-
-  function stringifySmall(value) {
-    try {
-      return JSON.stringify(value).slice(0, 12000);
-    } catch (_error) {
-      return "";
-    }
-  }
-
   async function fetchContinuation(config, continuation, signal) {
     const url = new URL(continuation.apiUrl || DEFAULT_NEXT_API_PATH, location.origin);
     if (config.INNERTUBE_API_KEY && !url.searchParams.has("key")) {
@@ -399,213 +320,6 @@
         throw error;
       }
       throw createCommentFetchFailure("unsupported", "invalid-continuation-json");
-    }
-  }
-
-  function isSupportedContinuationResponse(root) {
-    if (!root || typeof root !== "object" || Array.isArray(root)) {
-      return false;
-    }
-
-    let supported = false;
-    walkObjects(root, [], (value, _ancestors, key) => {
-      if (
-        CONTINUATION_ENVELOPE_KEYS.has(key)
-        || value?.commentRenderer
-        || value?.commentViewModel
-        || value?.commentEntityPayload
-      ) {
-        supported = true;
-      }
-    });
-    return supported;
-  }
-
-  function extractCommentRecords(root) {
-    const records = [];
-    const pinnedCommentKeys = getPinnedCommentKeys(root);
-    walkObjects(root, [], (value) => {
-      if (value?.commentRenderer) {
-        const record = parseCommentRenderer(value.commentRenderer);
-        if (record?.text) {
-          records.push(record);
-        }
-      }
-
-      if (value?.commentViewModel) {
-        const record = parseCommentViewModel(value.commentViewModel);
-        if (record?.text) {
-          records.push(record);
-        }
-      }
-
-      if (value?.commentEntityPayload) {
-        const record = parseCommentEntityPayload(value.commentEntityPayload, pinnedCommentKeys);
-        if (record?.text) {
-          records.push(record);
-        }
-      }
-    });
-
-    return dedupeCommentRecords(records);
-  }
-
-  function getPinnedCommentKeys(root) {
-    const pinnedCommentKeys = new Set();
-    walkObjects(root, [], (value) => {
-      const model = value?.commentViewModel?.commentViewModel
-        || value?.commentViewModel
-        || value;
-      if (model?.commentKey && model?.pinnedText) {
-        pinnedCommentKeys.add(model.commentKey);
-      }
-    });
-    return pinnedCommentKeys;
-  }
-
-  function parseCommentRenderer(renderer) {
-    return {
-      text: textFromTextObject(renderer.contentText),
-      authorName: textFromTextObject(renderer.authorText),
-      isPinned: Boolean(renderer.pinnedCommentBadge) || containsCommentFlag(renderer, "pinned"),
-      isUploader: Boolean(renderer.authorIsChannelOwner),
-      likeCount: parseLikeCountFromValue(renderer.voteCount),
-    };
-  }
-
-  function parseCommentViewModel(model) {
-    const authorRenderer = model.author?.commentAuthorRenderer || model.commentAuthorRenderer || {};
-    return {
-      text: textFromCommentViewModel(model),
-      authorName: textFromTextObject(authorRenderer.authorText) || textFromTextObject(model.authorText),
-      isPinned: containsCommentFlag(model, "pinned"),
-      isUploader: Boolean(authorRenderer.authorIsChannelOwner || model.authorIsChannelOwner),
-      likeCount: parseLikeCountFromValue(model.toolbar || model.commentActionButtonsRenderer),
-    };
-  }
-
-  function parseCommentEntityPayload(entity, pinnedCommentKeys) {
-    const properties = entity.properties || {};
-    const author = entity.author || {};
-    return {
-      text: textFromTextObject(properties.content),
-      authorName: author.displayName || properties.authorButtonA11y || "",
-      isPinned: pinnedCommentKeys.has(entity.key),
-      isUploader: Boolean(author.isCreator),
-      likeCount: parseLikeCountFromValue(entity.toolbar),
-    };
-  }
-
-  function textFromCommentViewModel(model) {
-    if (typeof model.content?.content === "string") {
-      return model.content.content;
-    }
-    if (typeof model.contentText === "string") {
-      return model.contentText;
-    }
-
-    const directText = textFromTextObject(model.contentText)
-      || textFromTextObject(model.commentText)
-      || textFromTextObject(model.content);
-    if (directText) {
-      return directText;
-    }
-
-    const textContainers = [];
-    walkObjects(model, [], (value, ancestors, key) => {
-      if (COMMENT_TEXT_KEYS.has(key) && typeof value === "object") {
-        textContainers.push(value);
-      }
-    });
-
-    return textContainers.map(textFromTextObject).find(Boolean) || "";
-  }
-
-  function textFromTextObject(value) {
-    if (!value) {
-      return "";
-    }
-    if (typeof value === "string") {
-      return value;
-    }
-    if (typeof value.simpleText === "string") {
-      return value.simpleText;
-    }
-    if (typeof value.content === "string") {
-      return value.content;
-    }
-    if (Array.isArray(value.runs)) {
-      return value.runs.map((run) => run.text || "").join("");
-    }
-    return "";
-  }
-
-  function parseLikeCountFromValue(value) {
-    if (!parseCommentLikeCount || !value) {
-      return null;
-    }
-
-    const candidates = [];
-    walkObjects(value, [], (entry) => {
-      if (typeof entry === "string") {
-        candidates.push(entry);
-      } else if (entry?.accessibilityData?.label) {
-        candidates.push(entry.accessibilityData.label);
-      } else if (entry?.label) {
-        candidates.push(entry.label);
-      } else if (entry?.simpleText) {
-        candidates.push(entry.simpleText);
-      }
-    });
-
-    for (const candidate of candidates) {
-      const count = parseCommentLikeCount(candidate);
-      if (count !== null) {
-        return count;
-      }
-    }
-
-    return null;
-  }
-
-  function containsCommentFlag(value, flag) {
-    return stringifySmall(value).toLowerCase().includes(flag);
-  }
-
-  function dedupeCommentRecords(records) {
-    const deduped = [];
-    const seen = new Set();
-    for (const record of records) {
-      const key = `${record.authorName || ""}:${record.text}`;
-      if (seen.has(key)) {
-        continue;
-      }
-
-      seen.add(key);
-      deduped.push(record);
-    }
-
-    return deduped;
-  }
-
-  function walkObjects(value, ancestors, visitor, key = "", path = []) {
-    if (!value || typeof value !== "object") {
-      visitor(value, ancestors, key, path);
-      return;
-    }
-
-    visitor(value, ancestors, key, path);
-    const nextAncestors = [...ancestors, value];
-    if (Array.isArray(value)) {
-      value.forEach((entry, index) => {
-        const childKey = String(index);
-        walkObjects(entry, nextAncestors, visitor, childKey, [...path, childKey]);
-      });
-      return;
-    }
-
-    for (const [childKey, childValue] of Object.entries(value)) {
-      walkObjects(childValue, nextAncestors, visitor, childKey, [...path, childKey]);
     }
   }
 
