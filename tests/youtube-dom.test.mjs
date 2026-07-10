@@ -831,9 +831,12 @@ test("deduplicates visible comments and rejects pin and uploader lookalikes", as
 
   const dom = await loadYouTubeDom(document);
   const roots = dom.getCommentRoots();
-  const result = dom.readCommentRoot(comment, { sourceId: "comment-1" });
+  const classification = dom.classifyCommentRoot(comment);
+  const result = dom.readCommentRoot(comment, { classification, sourceId: "comment-1" });
 
   assert.deepEqual(Array.from(roots), [comment, orphan]);
+  assert.equal(classification.isPinned, false);
+  assert.equal(classification.isUploader, false);
   assert.equal(result.authorName, "Same Display Name");
   assert.equal(result.isPinned, false, "hidden badges and body prose are not pin evidence");
   assert.equal(

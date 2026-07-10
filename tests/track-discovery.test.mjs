@@ -121,6 +121,7 @@ test("description, visible-comment, and native discovery retain separate provena
   const descriptionRoot = {};
   const commentRoot = {};
   const youtubeDom = {
+    classifyCommentRoot: () => ({ isPinned: true, isUploader: false }),
     getCommentRoots: () => [commentRoot],
     getDescriptionRoots: () => [descriptionRoot],
     getOwnershipEvidence: () => ({ linkedVideoIds: ["album"], shellVideoId: "" }),
@@ -509,7 +510,9 @@ test("DOM source IDs stay stable, wrong videos are rejected, and regular scans a
   const stableDescription = {};
   const wrongDescription = {};
   const regularComments = Array.from({ length: 31 }, () => ({}));
+  let parsedCommentCount = 0;
   const youtubeDom = {
+    classifyCommentRoot: () => ({ isPinned: false, isUploader: false }),
     getCommentRoots: () => regularComments,
     getDescriptionRoots: () => [stableDescription, wrongDescription],
     getOwnershipEvidence: (root) => ({
@@ -517,12 +520,15 @@ test("DOM source IDs stay stable, wrong videos are rejected, and regular scans a
       shellVideoId: "",
     }),
     getQuietDescriptionRoots: () => [],
-    readCommentRoot: () => ({
-      candidates: timestampCandidates("regular"),
-      isPinned: false,
-      isUploader: false,
-      likeCount: 0,
-    }),
+    readCommentRoot: () => {
+      parsedCommentCount += 1;
+      return {
+        candidates: timestampCandidates("regular"),
+        isPinned: false,
+        isUploader: false,
+        likeCount: 0,
+      };
+    },
     readDescriptionRoot: () => ({
       candidateCount: 3,
       candidates: timestampCandidates("stable"),
@@ -541,7 +547,8 @@ test("DOM source IDs stay stable, wrong videos are rejected, and regular scans a
   assert.equal(first.results.length, 1, "wrong-video description roots must be rejected");
   assert.equal(first.results[0].source.id, second.results[0].source.id);
   assert.equal(comments.results.length, 30);
-  assert.equal(comments.candidateCount, 93);
+  assert.equal(comments.candidateCount, 90);
+  assert.equal(parsedCommentCount, 30, "the cap must prevent body and timestamp parsing");
 });
 
 test("controller validates its orchestration dependencies", async () => {

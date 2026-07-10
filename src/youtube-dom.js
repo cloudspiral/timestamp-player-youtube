@@ -289,15 +289,26 @@
         .filter((root) => rootBelongsToVideo(root, videoId));
     }
 
-    function readCommentRoot(root, { sourceId, videoId = "" } = {}) {
+    function classifyCommentRoot(root, videoId = "") {
+      return {
+        isPinned: isPinnedComment(root),
+        isUploader: isUploaderComment(root, videoId),
+      };
+    }
+
+    function readCommentRoot(root, {
+      sourceId,
+      videoId = "",
+      classification = classifyCommentRoot(root, videoId),
+    } = {}) {
       const authorName = getCommentAuthorName(root);
       const bodyText = getCommentBodyText(root);
       return {
         authorName,
         bodyText,
         candidates: getTextTimestampCandidates(bodyText, `comment:${sourceId}`),
-        isPinned: isPinnedComment(root),
-        isUploader: isUploaderComment(root, videoId),
+        isPinned: classification?.isPinned === true,
+        isUploader: classification?.isUploader === true,
         likeCount: getCommentLikeCount(root),
       };
     }
@@ -866,6 +877,7 @@
     }
 
     return {
+      classifyCommentRoot,
       findActionRow,
       findCompactActionAnchor,
       findDescriptionCollapseButton,

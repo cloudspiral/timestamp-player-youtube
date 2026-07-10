@@ -142,24 +142,26 @@
           continue;
         }
 
+        const classification = youtubeDom.classifyCommentRoot(root, session.videoId);
+        const sourceType = classification.isPinned
+          ? COMMENT_SOURCE_TYPES.PINNED
+          : classification.isUploader
+            ? COMMENT_SOURCE_TYPES.UPLOADER
+            : COMMENT_SOURCE_TYPES.REGULAR;
+        if (sourceType === COMMENT_SOURCE_TYPES.REGULAR) {
+          if (regularCommentCount >= REGULAR_COMMENT_SCAN_LIMIT) {
+            continue;
+          }
+          regularCommentCount += 1;
+        }
+
         const sourceId = getDomSourceId(session, root);
         const comment = youtubeDom.readCommentRoot(root, {
+          classification,
           sourceId,
           videoId: session.videoId,
         });
         candidateCount += comment.candidates.length;
-        const sourceType = comment.isPinned
-          ? COMMENT_SOURCE_TYPES.PINNED
-          : comment.isUploader
-            ? COMMENT_SOURCE_TYPES.UPLOADER
-            : COMMENT_SOURCE_TYPES.REGULAR;
-        if (sourceType === COMMENT_SOURCE_TYPES.REGULAR) {
-          regularCommentCount += 1;
-          if (regularCommentCount > REGULAR_COMMENT_SCAN_LIMIT) {
-            continue;
-          }
-        }
-
         const tracks = findTracks(duration, comment.candidates, COMMENT_MIN_TRACKS);
         if (tracks.length < COMMENT_MIN_TRACKS) {
           continue;
