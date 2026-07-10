@@ -1091,7 +1091,7 @@
     }
 
     if (state.panelMode === PANEL_MODES.ANCHORED) {
-      playerLayout.seedFloatingFromCurrentRect();
+      playerLayout.ensureFloatingPositionFromCurrentRect();
       state.panelMode = PANEL_MODES.FLOATING;
     } else {
       state.panelMode = PANEL_MODES.ANCHORED;

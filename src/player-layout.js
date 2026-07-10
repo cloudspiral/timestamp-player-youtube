@@ -193,7 +193,10 @@
       return true;
     }
 
-    function seedFloatingFromCurrentRect() {
+    function ensureFloatingPositionFromCurrentRect() {
+      if (playerPosition) {
+        return { ...playerPosition };
+      }
       if (!root) {
         return null;
       }
@@ -1133,7 +1136,7 @@
       prepareMount,
       resetMount,
       schedule,
-      seedFloatingFromCurrentRect,
+      ensureFloatingPositionFromCurrentRect,
     };
     return controller;
   }

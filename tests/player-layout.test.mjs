@@ -566,13 +566,37 @@ test("floating seeding clamps the current rectangle without persisting it", asyn
   });
 
   assert.deepEqual(
-    plain(harness.controller.seedFloatingFromCurrentRect()),
+    plain(harness.controller.ensureFloatingPositionFromCurrentRect()),
     { left: 8, top: 467 }
   );
   assert.deepEqual(
     plain(harness.controller.getSnapshot().playerPosition),
     { left: 8, top: 467 }
   );
+  assert.deepEqual(harness.saves, []);
+});
+
+test("floating entry preserves a hydrated position instead of overwriting it from anchored geometry", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 225, left: 20, top: 30, width: 400 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  harness.controller.hydrate({
+    floatingPlayerPosition: { left: 420, top: 260 },
+  });
+
+  assert.deepEqual(
+    plain(harness.controller.ensureFloatingPositionFromCurrentRect()),
+    { left: 420, top: 260 }
+  );
+  harness.controller.layoutNow({
+    panelMode: harness.runtime.PANEL_MODES.FLOATING,
+    visible: true,
+  });
+
+  assert.equal(harness.root.style.left, "420px");
+  assert.equal(harness.root.style.top, "260px");
   assert.deepEqual(harness.saves, []);
 });
 
@@ -1005,7 +1029,7 @@ test("content delegates layout ownership and disconnects before tearing down the
   assert.match(source, /playerLayout\.ownsNode\(element\)/);
   assert.match(source, /playerLayout\.prepareMount\(/);
   assert.match(source, /playerLayout\.layoutNow\(/);
-  assert.match(source, /playerLayout\.seedFloatingFromCurrentRect\(\)/);
+  assert.match(source, /playerLayout\.ensureFloatingPositionFromCurrentRect\(\)/);
   assert.doesNotMatch(source, /function layoutPlayer\b/);
   assert.doesNotMatch(source, /function handleDragPointerDown\b/);
   assert.doesNotMatch(source, /function handleResizePointerDown\b/);
