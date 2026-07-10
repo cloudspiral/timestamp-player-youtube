@@ -74,8 +74,13 @@
     normalizeSettings,
     saveSettings,
   } = globalThis.TimestampPlayerSettings;
+  const {
+    createWatchRouteController,
+    getWatchVideoId,
+  } = globalThis.TimestampPlayerWatchRoute;
 
   const state = {
+    watchPageActive: false,
     shuffleEnabled: false,
     repeatMode: REPEAT_MODES.OFF,
     progressTimeMode: DEFAULT_SETTINGS.progressTimeMode,
@@ -103,9 +108,10 @@
     anchoredHeight: null,
     compactWidth: null,
     playerLayoutFrame: null,
+    pageObserver: null,
+    settingsChangeCleanup: null,
     autoOpenedCompactVideoId: null,
     userClosedPanelVideoId: null,
-    lastUrl: location.href,
   };
 
   let root;
@@ -138,24 +144,33 @@
   let resizeStartLeft = 0;
   let resizeStartTop = 0;
   let resizeMode = null;
+  let watchRouteController = null;
 
   function init() {
+    watchRouteController = createWatchRouteController({
+      eventTargets: [document, window],
+      getUrl: () => location.href,
+      onEnter: activateWatchPage,
+      onLeave: deactivateWatchPage,
+      onNavigate: handleNavigation,
+    });
+    watchRouteController.start();
+  }
+
+  function activateWatchPage() {
+    if (state.watchPageActive) {
+      return;
+    }
+
+    state.watchPageActive = true;
     ensureUi();
     applySettingsToUi();
     loadStoredSettings();
-    scanPage();
-    document.addEventListener("yt-navigate-finish", handleNavigation);
-    window.addEventListener("yt-navigate-finish", handleNavigation);
-    new MutationObserver(handlePageMutations).observe(document.documentElement, {
+    state.pageObserver = new MutationObserver(handlePageMutations);
+    state.pageObserver.observe(document.documentElement, {
       childList: true,
       subtree: true,
     });
-    setInterval(() => {
-      if (state.lastUrl !== location.href) {
-        state.lastUrl = location.href;
-        handleNavigation();
-      }
-    }, 1000);
     document.addEventListener("timeupdate", handleTimeUpdate, true);
     document.addEventListener("play", handlePlaybackStateChange, true);
     document.addEventListener("pause", handlePlaybackStateChange, true);
@@ -163,6 +178,85 @@
     document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
     window.addEventListener("resize", schedulePlayerLayout);
     window.visualViewport?.addEventListener("resize", schedulePlayerLayout);
+    scanPage();
+  }
+
+  function deactivateWatchPage() {
+    if (!state.watchPageActive) {
+      return;
+    }
+
+    state.watchPageActive = false;
+    state.pageObserver?.disconnect();
+    state.pageObserver = null;
+    state.settingsChangeCleanup?.();
+    state.settingsChangeCleanup = null;
+    if (state.scanTimer !== null) {
+      clearTimeout(state.scanTimer);
+      state.scanTimer = null;
+    }
+    if (state.playerLayoutFrame !== null) {
+      cancelAnimationFrame(state.playerLayoutFrame);
+      state.playerLayoutFrame = null;
+    }
+    document.removeEventListener("timeupdate", handleTimeUpdate, true);
+    document.removeEventListener("play", handlePlaybackStateChange, true);
+    document.removeEventListener("pause", handlePlaybackStateChange, true);
+    document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    window.removeEventListener("resize", schedulePlayerLayout);
+    window.visualViewport?.removeEventListener("resize", schedulePlayerLayout);
+    resetVideoState(null);
+    removeWatchPageUi();
+  }
+
+  function removeWatchPageUi() {
+    cancelPointerInteractions();
+    launcherButton?.remove();
+    compactHost?.remove();
+    root?.remove();
+    root = null;
+    launcherButton = null;
+    compactHost = null;
+    dragHandle = null;
+    resizeHandle = null;
+    compactButton = null;
+    popoutButton = null;
+    closeButton = null;
+    trackEl = null;
+    countEl = null;
+    progressElapsedEl = null;
+    progressRemainingEl = null;
+    progressSlider = null;
+    listEl = null;
+    previousButton = null;
+    playPauseButton = null;
+    toggleButton = null;
+    repeatButton = null;
+    nextButton = null;
+    dragPointerId = null;
+    resizePointerId = null;
+    resizeMode = null;
+  }
+
+  function cancelPointerInteractions() {
+    if (dragPointerId !== null && dragHandle?.hasPointerCapture?.(dragPointerId)) {
+      dragHandle.releasePointerCapture(dragPointerId);
+    }
+    dragHandle?.removeEventListener("pointermove", handleDragPointerMove);
+    dragHandle?.removeEventListener("pointerup", handleDragPointerEnd);
+    dragHandle?.removeEventListener("pointercancel", handleDragPointerEnd);
+
+    if (resizePointerId !== null && resizeHandle?.hasPointerCapture?.(resizePointerId)) {
+      resizeHandle.releasePointerCapture(resizePointerId);
+    }
+    resizeHandle?.removeEventListener("pointermove", handleResizePointerMove);
+    resizeHandle?.removeEventListener("pointerup", handleResizePointerEnd);
+    resizeHandle?.removeEventListener("pointercancel", handleResizePointerEnd);
+
+    progressSlider?.removeEventListener("pointermove", handleProgressPointerMove);
+    progressSlider?.removeEventListener("pointerup", handleProgressPointerEnd);
+    progressSlider?.removeEventListener("pointercancel", handleProgressPointerEnd);
   }
 
   function loadStoredSettings() {
@@ -170,7 +264,8 @@
       setSettings(settings);
     });
 
-    addSettingsChangeListener((changes) => {
+    state.settingsChangeCleanup?.();
+    state.settingsChangeCleanup = addSettingsChangeListener((changes) => {
       const nextSettings = { ...state.settings };
       let settingsChanged = false;
       for (const key of Object.keys(DEFAULT_SETTINGS)) {
@@ -190,6 +285,9 @@
     state.settings = normalizeSettings(settings);
     state.progressTimeMode = state.settings.progressTimeMode;
     syncLayoutSettingsToState();
+    if (!state.watchPageActive) {
+      return;
+    }
     applySettingsToUi();
     maybeAutoOpenCompact(getCurrentVideoId());
     updateUi();
@@ -268,6 +366,10 @@
   }
 
   function handlePageMutations(mutations) {
+    if (!state.watchPageActive) {
+      return;
+    }
+
     const onlyExtensionMutations = mutations.every((mutation) => {
       return root?.contains(mutation.target)
         || launcherButton?.contains(mutation.target)
@@ -284,7 +386,7 @@
   }
 
   function scheduleScan() {
-    if (state.scanTimer) {
+    if (!state.watchPageActive || state.scanTimer) {
       return;
     }
 
@@ -295,6 +397,10 @@
   }
 
   function scanPage() {
+    if (!state.watchPageActive) {
+      return;
+    }
+
     const videoIdChanged = syncVideoStateWithUrl();
     if (videoIdChanged) {
       updateUi();
@@ -490,7 +596,7 @@
   }
 
   function getCurrentVideoId() {
-    return new URL(location.href).searchParams.get("v");
+    return getWatchVideoId(location.href);
   }
 
   function prepareDescriptionFallback(videoId) {
@@ -2450,6 +2556,10 @@
   }
 
   function updateUi() {
+    if (!state.watchPageActive) {
+      return;
+    }
+
     ensureUi();
     const video = getVideo();
     const videoId = getCurrentVideoId();

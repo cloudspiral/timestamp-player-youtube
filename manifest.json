@@ -27,8 +27,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.youtube.com/watch*",
-        "https://music.youtube.com/watch*"
+        "https://www.youtube.com/*",
+        "https://music.youtube.com/*"
       ],
       "js": [
         "src/settings.js",
@@ -36,6 +36,7 @@
         "src/native-timestamps.js",
         "src/comment-scoring.js",
         "src/comment-fetching.js",
+        "src/watch-route.js",
         "src/content.js"
       ],
       "css": [
