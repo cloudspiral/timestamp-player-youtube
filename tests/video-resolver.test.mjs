@@ -4,12 +4,14 @@ import test from "node:test";
 import vm from "node:vm";
 
 async function loadVideoResolver() {
-  const [ownershipSource, source] = await Promise.all([
+  const [ownershipSource, visibilitySource, source] = await Promise.all([
     readFile(new URL("../src/video-ownership.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/dom-visibility.js", import.meta.url), "utf8"),
     readFile(new URL("../src/video-resolver.js", import.meta.url), "utf8"),
   ]);
   const context = vm.createContext({});
   vm.runInContext(ownershipSource, context);
+  vm.runInContext(visibilitySource, context);
   vm.runInContext(source, context);
   return context.TimestampPlayerVideoResolver;
 }

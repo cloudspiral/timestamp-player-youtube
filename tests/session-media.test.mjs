@@ -6,12 +6,14 @@ import vm from "node:vm";
 async function loadRuntime() {
   const [
     ownershipSource,
+    visibilitySource,
     resolverSource,
     sessionSource,
     sessionMediaSource,
     mutationSource,
   ] = await Promise.all([
     readFile(new URL("../src/video-ownership.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/dom-visibility.js", import.meta.url), "utf8"),
     readFile(new URL("../src/video-resolver.js", import.meta.url), "utf8"),
     readFile(new URL("../src/watch-session.js", import.meta.url), "utf8"),
     readFile(new URL("../src/session-media.js", import.meta.url), "utf8"),
@@ -36,6 +38,7 @@ async function loadRuntime() {
     },
   });
   vm.runInContext(ownershipSource, context);
+  vm.runInContext(visibilitySource, context);
   vm.runInContext(resolverSource, context);
   vm.runInContext(sessionSource, context);
   vm.runInContext(sessionMediaSource, context);

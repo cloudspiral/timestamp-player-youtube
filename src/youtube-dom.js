@@ -133,6 +133,9 @@
     getWatchShellVideoId,
   } = globalThis.TimestampPlayerVideoOwnership;
   const {
+    isElementTreeExplicitlyHidden,
+  } = globalThis.TimestampPlayerDomVisibility;
+  const {
     cleanTrackTitle,
     getTextTimestampCandidates,
     isTimestampRangeEndMarker,
@@ -146,6 +149,7 @@
   function createYouTubeDom({
     Node: nodeTypes = globalThis.Node,
     document = globalThis.document,
+    getComputedStyle: getComputedStyleFn = globalThis.getComputedStyle,
     location = globalThis.location,
   } = {}) {
     if (!document || !location || !nodeTypes) {
@@ -873,7 +877,9 @@
 
     function isVisible(element) {
       const rect = element.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
+      return rect.width > 0
+        && rect.height > 0
+        && !isElementTreeExplicitlyHidden(element, getComputedStyleFn);
     }
 
     return {

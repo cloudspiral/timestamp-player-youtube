@@ -55,6 +55,9 @@
     getMusicPlayerVideoId,
     getWatchShellVideoId,
   } = globalThis.TimestampPlayerVideoOwnership;
+  const {
+    isElementTreeExplicitlyHidden,
+  } = globalThis.TimestampPlayerDomVisibility;
 
   function describeVideoElement(element, {
     getComputedStyle: getComputedStyleFn = globalThis.getComputedStyle,
@@ -69,9 +72,9 @@
     const musicPlayerPage = closestAny(element, MUSIC_PLAYER_PAGE_SELECTORS);
     const playerContainer = closestAny(element, PLAYER_CONTAINER_SELECTORS);
     const rect = element?.getBoundingClientRect?.() || { width: 0, height: 0 };
-    const explicitlyHidden = isTreeExplicitlyHidden(element, getComputedStyleFn);
+    const explicitlyHidden = isElementTreeExplicitlyHidden(element, getComputedStyleFn);
     const shellExplicitlyHidden = watchShell
-      ? isTreeExplicitlyHidden(watchShell, getComputedStyleFn)
+      ? isElementTreeExplicitlyHidden(watchShell, getComputedStyleFn)
       : false;
     const isMainVideo = Boolean(
       element?.matches?.("video.html5-main-video")
@@ -295,31 +298,6 @@
     }
     return null;
   }
-  function isTreeExplicitlyHidden(element, getComputedStyleFn) {
-    for (let current = element; current; current = current.parentElement) {
-      if (
-        current.hidden === true
-        || current.inert === true
-        || current.hasAttribute?.("hidden") === true
-        || current.hasAttribute?.("inert") === true
-        || current.getAttribute?.("aria-hidden") === "true"
-      ) {
-        return true;
-      }
-      if (typeof getComputedStyleFn === "function") {
-        const style = getComputedStyleFn(current);
-        if (
-          style?.display === "none"
-          || style?.visibility === "hidden"
-          || style?.visibility === "collapse"
-        ) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   globalThis.TimestampPlayerVideoResolver = {
     VIDEO_PLAYER_KINDS,
     VIDEO_RESOLUTION_STATUSES,

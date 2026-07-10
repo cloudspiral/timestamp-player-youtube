@@ -94,15 +94,17 @@ const NATIVE_TIMESTAMP_SECTION_SELECTOR = [
 
 async function loadYouTubeDom(document, location = {
   href: "https://www.youtube.com/watch?v=album",
-}) {
-  const [ownershipSource, source] = await Promise.all([
+}, getComputedStyle = () => ({ display: "block", visibility: "visible" })) {
+  const [ownershipSource, visibilitySource, source] = await Promise.all([
     readFile(new URL("../src/video-ownership.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/dom-visibility.js", import.meta.url), "utf8"),
     readFile(new URL("../src/youtube-dom.js", import.meta.url), "utf8"),
   ]);
   const context = vm.createContext({
     Node: NodeTypes,
     URL,
     document,
+    getComputedStyle,
     location,
     TimestampPlayerCommentScoring: {
       parseCommentLikeCount(value) {
@@ -116,10 +118,12 @@ async function loadYouTubeDom(document, location = {
     TimestampPlayerTimestamps: createTimestampApi(),
   });
   vm.runInContext(ownershipSource, context);
+  vm.runInContext(visibilitySource, context);
   vm.runInContext(source, context);
   return context.TimestampPlayerYouTubeDom.createYouTubeDom({
     Node: NodeTypes,
     document,
+    getComputedStyle,
     location,
   });
 }
@@ -362,6 +366,34 @@ test("preserves description-control and action-row selector precedence", async (
   assert.equal(dom.findDescriptionCollapseButton(), collapse);
   assert.equal(dom.findActionRow(), actionRow);
   assert.equal(dom.findCompactActionAnchor(), actionAnchor);
+});
+
+test("action rows hidden by ARIA or computed visibility cannot capture the launcher", async () => {
+  const document = new FakeDocument();
+  const currentShell = new FakeElement("ytd-watch-flexy");
+  currentShell.setAttribute("video-id", "album");
+  const ariaHidden = new FakeElement("div");
+  ariaHidden.setAttribute("aria-hidden", "true");
+  ariaHidden.setClosest("ytd-watch-flexy", currentShell);
+  const styleHidden = new FakeElement("div");
+  styleHidden.setClosest("ytd-watch-flexy", currentShell);
+  const visible = new FakeElement("div");
+  visible.setClosest("ytd-watch-flexy", currentShell);
+  visible.setClosest("#actions", visible);
+  document.setQuery(ACTION_ROW_SELECTOR, [ariaHidden, styleHidden, visible]);
+  document.setQuery(COMPACT_ACTION_ANCHOR_SELECTOR, []);
+
+  const dom = await loadYouTubeDom(
+    document,
+    { href: "https://www.youtube.com/watch?v=album" },
+    (element) => ({
+      display: "block",
+      visibility: element === styleHidden ? "hidden" : "visible",
+    })
+  );
+
+  assert.equal(dom.findActionRow("album"), visible);
+  assert.equal(dom.findCompactActionAnchor("album"), visible);
 });
 
 test("binds controls and description roots to the current renderer during SPA overlap", async () => {
