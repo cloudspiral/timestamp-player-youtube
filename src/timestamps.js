@@ -348,30 +348,18 @@
       }
     }
 
-    const patternLooksBlockBased = hasBlockTitlePattern(candidates, nextLineTitles);
     return candidates.map((candidate) => {
       const nearbyTitle = nextLineTitles.get(candidate);
       if (!nearbyTitle) {
         return candidate;
       }
 
-      if (isWeakTrackTitle(candidate.title) || patternLooksBlockBased) {
+      if (isWeakTrackTitle(candidate.title)) {
         return { ...candidate, title: nearbyTitle };
       }
 
       return candidate;
     });
-  }
-
-  function hasBlockTitlePattern(candidates, nextLineTitles) {
-    const lineCandidates = candidates.filter((candidate) => Number.isInteger(candidate.lineIndex));
-    if (lineCandidates.length < 2) {
-      return false;
-    }
-
-    const candidatesWithNearbyTitles = lineCandidates.filter((candidate) => nextLineTitles.has(candidate));
-    const weakTitleCandidates = lineCandidates.filter((candidate) => isWeakTrackTitle(candidate.title));
-    return candidatesWithNearbyTitles.length >= 2 && weakTitleCandidates.length / lineCandidates.length >= 0.6;
   }
 
   function findNearbyTitleLine(lines, timestampLineIndex) {

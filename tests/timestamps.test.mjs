@@ -76,6 +76,32 @@ La llegada de la primavera`;
   assert.equal(tracks[1].title, "春のおとずれ");
 });
 
+test("promotes nearby titles per candidate without overwriting mixed same-line titles", async () => {
+  const timestamps = await loadTimestamps();
+  const text = `0:00 Opening Theme
+Context about the opening
+
+1:00 02.
+Block Layout Song
+
+2:00 03.
+Block Layout Finale`;
+
+  const candidates = timestamps.getTextTimestampCandidates(text, "mixed-layout");
+  const tracks = timestamps.findTracks(240, candidates);
+
+  assert.deepEqual(Array.from(candidates, ({ start, title }) => ({ start, title })), [
+    { start: 0, title: "Opening Theme" },
+    { start: 60, title: "Block Layout Song" },
+    { start: 120, title: "Block Layout Finale" },
+  ]);
+  assert.deepEqual(Array.from(tracks, ({ start, title }) => ({ start, title })), [
+    { start: 0, title: "Opening Theme" },
+    { start: 60, title: "Block Layout Song" },
+    { start: 120, title: "Block Layout Finale" },
+  ]);
+});
+
 test("preserves existing timestamp title parsing behavior", async () => {
   const timestamps = await loadTimestamps();
 
