@@ -548,6 +548,46 @@ test("only an exhausted live retry can be rearmed by new external evidence", asy
   assert.equal(retry.exhausted, true, "disposed generations cannot be renewed");
 });
 
+test("resetting for description expansion cancels old work and restores a full retry budget", async () => {
+  const {
+    createWatchSession,
+    resetSessionRetry,
+    scheduleSessionRetry,
+  } = await loadWatchSession();
+  const clock = new FakeClock();
+  const session = createWatchSession({ generation: 1, videoId: "album", now: clock.now });
+  const policy = { delays: [10, 20], maxElapsedMs: 100 };
+  const runs = [];
+
+  assert.equal(scheduleSessionRetry(
+    session,
+    "sourceDiscovery",
+    () => runs.push("old"),
+    { policy, ...clock.dependencies() }
+  ), true);
+  resetSessionRetry(session, "sourceDiscovery");
+  assert.equal(clock.timers.size, 0, "the pre-expansion retry must be cancelled");
+
+  assert.equal(scheduleSessionRetry(
+    session,
+    "sourceDiscovery",
+    () => runs.push("first"),
+    { policy, ...clock.dependencies() }
+  ), true);
+  clock.advance(10);
+  assert.equal(scheduleSessionRetry(
+    session,
+    "sourceDiscovery",
+    () => runs.push("second"),
+    { policy, ...clock.dependencies() }
+  ), true);
+  clock.advance(20);
+
+  assert.deepEqual(runs, ["first", "second"]);
+  assert.equal(session.retries.sourceDiscovery.attempt, 2);
+  assert.equal(session.retries.sourceDiscovery.exhausted, false);
+});
+
 test("comment discovery retries once and is cancelled with its watch generation", async () => {
   const {
     DEFAULT_RETRY_POLICIES,

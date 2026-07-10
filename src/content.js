@@ -885,6 +885,10 @@
       return false;
     }
 
+    // Expansion starts a new hydration phase. Restore a complete bounded
+    // discovery budget before clicking so this same scan cannot treat the old
+    // exhausted cycle as final and immediately collapse the description.
+    resetSessionRetry(session, "sourceDiscovery");
     session.description.expanded = true;
     session.description.shouldCollapse = true;
     expandButton.click();

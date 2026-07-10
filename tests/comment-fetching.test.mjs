@@ -600,3 +600,24 @@ test("visible DOM comments and native moments are not gated on the network fetch
   assert.match(source, /TRACK_SOURCE_STATUSES\.PROVISIONAL/);
   assert.match(source, /session\.trackSelection\.current/);
 });
+
+test("extension-triggered description expansion starts a fresh bounded discovery cycle", async () => {
+  const source = await readFile(new URL("../src/content.js", import.meta.url), "utf8");
+  const functionStart = source.indexOf("function expandDescriptionIfAvailable(session)");
+  const functionEnd = source.indexOf("function collapseDescriptionIfNeeded(session)");
+  const expansionSource = source.slice(functionStart, functionEnd);
+  const resetIndex = expansionSource.indexOf(
+    'resetSessionRetry(session, "sourceDiscovery")'
+  );
+  const markExpandedIndex = expansionSource.indexOf("session.description.expanded = true");
+  const clickIndex = expansionSource.indexOf("expandButton.click()");
+
+  assert.ok(functionStart >= 0 && functionEnd > functionStart);
+  assert.ok(resetIndex >= 0, "expansion must rearm source hydration");
+  assert.ok(resetIndex < markExpandedIndex);
+  assert.ok(markExpandedIndex < clickIndex);
+  assert.match(
+    source,
+    /expandDescriptionIfAvailable\(session\)[\s\S]*scheduleSourceDiscoveryRetry\(session\)[\s\S]*descriptionDiscoveryPending = descriptionDiscoveryPending[\s\S]*!session\.retries\.sourceDiscovery\.exhausted/
+  );
+});
