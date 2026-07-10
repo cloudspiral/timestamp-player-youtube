@@ -212,6 +212,7 @@
     function render({
       anchored = false,
       anchoredCompact = false,
+      controlsEnabled = false,
       currentTrackIndex = -1,
       floating = false,
       inlineCompact = false,
@@ -234,23 +235,23 @@
       root.classList.toggle("is-inline-compact", inlineCompact);
       root.classList.toggle("is-floating", floating);
 
-      elements.previousButton.disabled = !tracksAvailable;
-      elements.playPauseButton.disabled = !tracksAvailable;
+      elements.previousButton.disabled = !controlsEnabled;
+      elements.playPauseButton.disabled = !controlsEnabled;
       setLabelAndTitle(elements.playPauseButton, playing ? "Pause" : "Play");
-      elements.progressSlider.setAttribute("aria-disabled", String(!tracksAvailable));
-      elements.toggleButton.disabled = !tracksAvailable;
+      elements.progressSlider.setAttribute("aria-disabled", String(!controlsEnabled));
+      elements.toggleButton.disabled = !controlsEnabled;
       elements.toggleButton.setAttribute(
         "aria-label",
         shuffleEnabled ? "Turn shuffle off" : "Turn shuffle on"
       );
       elements.toggleButton.title = shuffleEnabled ? "Shuffle on" : "Shuffle";
-      elements.repeatButton.disabled = !tracksAvailable;
+      elements.repeatButton.disabled = !controlsEnabled;
       elements.repeatButton.setAttribute(
         "aria-label",
         repeatEnabled ? "Turn repeat off" : "Turn repeat on"
       );
       elements.repeatButton.title = repeatEnabled ? "Repeat on" : "Repeat current track";
-      elements.nextButton.disabled = !tracksAvailable;
+      elements.nextButton.disabled = !controlsEnabled;
       elements.compactButton.disabled = !tracksAvailable || floating;
       elements.compactButton.setAttribute("aria-pressed", String(anchoredCompact));
       setLabelAndTitle(
@@ -264,7 +265,7 @@
       elements.trackEl.textContent = trackLabel;
       elements.trackEl.title = track ? trackLabel : "";
       elements.countEl.textContent = track ? `${track.index + 1} / ${tracks.length}` : "";
-      renderTrackList(tracks, currentTrackIndex);
+      renderTrackList(tracks, currentTrackIndex, controlsEnabled);
       return elements;
     }
 
@@ -315,11 +316,12 @@
       );
     }
 
-    function renderTrackList(tracks = [], currentTrackIndex = -1) {
+    function renderTrackList(tracks = [], currentTrackIndex = -1, enabled = true) {
       ensure();
+      const enabledChanged = trackListRenderer.renderEnabled(enabled);
       const collectionChanged = trackListRenderer.renderCollection(tracks);
       const activeChanged = trackListRenderer.renderActive(currentTrackIndex);
-      return { activeChanged, collectionChanged };
+      return { activeChanged, collectionChanged, enabledChanged };
     }
 
     function applySettings(settings = {}) {

@@ -11,6 +11,7 @@
 
     let activeIndex = -1;
     let collectionSignature = null;
+    let enabled = true;
     let renderedTracks = null;
     let rowsByKey = new Map();
 
@@ -30,6 +31,7 @@
       for (const [position, descriptor] of descriptors.entries()) {
         const row = rowsByKey.get(descriptor.key) || createTrackRow(document);
         updateTrackRow(row, descriptor);
+        setRowEnabled(row, enabled);
         setRowActive(row, descriptor.index === activeIndex);
         nextRows.set(descriptor.key, row);
 
@@ -47,6 +49,19 @@
 
       rowsByKey = nextRows;
       collectionSignature = nextSignature;
+      return true;
+    }
+
+    function renderEnabled(nextEnabled = true) {
+      const normalizedEnabled = Boolean(nextEnabled);
+      if (normalizedEnabled === enabled) {
+        return false;
+      }
+
+      enabled = normalizedEnabled;
+      for (const row of rowsByKey.values()) {
+        setRowEnabled(row, enabled);
+      }
       return true;
     }
 
@@ -90,6 +105,7 @@
       getRowForIndex,
       renderActive,
       renderCollection,
+      renderEnabled,
     };
   }
 
@@ -154,6 +170,10 @@
     } else {
       row.item.removeAttribute("aria-current");
     }
+  }
+
+  function setRowEnabled(row, enabled) {
+    row.item.disabled = !enabled;
   }
 
   globalThis.TimestampPlayerTrackListRenderer = {

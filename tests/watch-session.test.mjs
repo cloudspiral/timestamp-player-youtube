@@ -121,6 +121,176 @@ test("current-session checks reject wrong videos, inactive routes, and aborted w
   }), false);
 });
 
+test("each watch session starts with isolated empty media ownership", async () => {
+  const { createWatchSession } = await loadWatchSession();
+  const session = createWatchSession({ generation: 1, videoId: "album" });
+  const nextSession = createWatchSession({ generation: 2, videoId: "next-album" });
+
+  assert.notEqual(session.media, nextSession.media);
+  assert.deepEqual(
+    {
+      binding: session.media.binding,
+      closed: session.media.closed,
+      element: session.media.element,
+      releaseListeners: session.media.releaseListeners,
+      resolution: session.media.resolution,
+      revision: session.media.revision,
+    },
+    {
+      binding: null,
+      closed: false,
+      element: null,
+      releaseListeners: null,
+      resolution: null,
+      revision: 0,
+    }
+  );
+});
+
+test("replacing media releases the old listeners once and stale bindings cannot clear the current element", async () => {
+  const {
+    bindSessionMedia,
+    clearSessionMedia,
+    createWatchSession,
+    disposeWatchSession,
+    isSessionMediaCurrent,
+  } = await loadWatchSession();
+  const session = createWatchSession({ generation: 1, videoId: "album" });
+  const firstElement = { id: "first" };
+  const secondElement = { id: "second" };
+  const releases = [];
+  const releaseFirst = () => releases.push("first");
+  const releaseSecond = () => releases.push("second");
+
+  const firstBinding = bindSessionMedia(session, firstElement, releaseFirst);
+  session.media.resolution = { reason: "current-watch-player", status: "ready" };
+  assert.equal(Object.isFrozen(firstBinding), true);
+  assert.equal(isSessionMediaCurrent(session, firstBinding), true);
+  assert.equal(
+    bindSessionMedia(session, firstElement, releaseFirst),
+    firstBinding,
+    "rebinding the exact listener set is a no-op"
+  );
+  assert.deepEqual(
+    session.media.resolution,
+    { reason: "current-watch-player", status: "ready" },
+    "an exact same-element listener binding preserves its updated resolver snapshot"
+  );
+  assert.deepEqual(releases, []);
+
+  const secondBinding = bindSessionMedia(session, secondElement, releaseSecond);
+  assert.deepEqual(releases, ["first"]);
+  assert.equal(session.media.element, secondElement);
+  assert.equal(session.media.resolution, null);
+  assert.equal(session.media.revision, 2);
+  assert.equal(isSessionMediaCurrent(session, firstBinding), false);
+  assert.equal(isSessionMediaCurrent(session, secondBinding), true);
+
+  assert.equal(clearSessionMedia(session, firstBinding), false);
+  assert.deepEqual(releases, ["first"], "a stale binding cannot release current listeners");
+  session.media.resolution = { reason: "current-watch-player", status: "ready" };
+  assert.equal(clearSessionMedia(session, secondBinding), true);
+  assert.deepEqual(releases, ["first", "second"]);
+  assert.equal(session.media.resolution, null);
+  assert.equal(clearSessionMedia(session, secondBinding), false);
+  assert.deepEqual(releases, ["first", "second"]);
+  disposeWatchSession(session);
+  assert.deepEqual(releases, ["first", "second"], "disposal cannot double-release a cleared binding");
+});
+
+test("rebinding the same element replaces its listener generation and disposal releases only the latest one", async () => {
+  const {
+    bindSessionMedia,
+    clearSessionMedia,
+    createWatchSession,
+    disposeWatchSession,
+    isSessionMediaCurrent,
+  } = await loadWatchSession();
+  const session = createWatchSession({ generation: 1, videoId: "album" });
+  const element = { id: "video" };
+  const releases = [];
+  const firstBinding = bindSessionMedia(session, element, () => releases.push("first"));
+  session.media.resolution = { reason: "video-duration-unavailable", status: "waiting" };
+  const secondBinding = bindSessionMedia(session, element, () => releases.push("second"));
+
+  assert.deepEqual(releases, ["first"]);
+  assert.notEqual(secondBinding, firstBinding);
+  assert.equal(session.media.resolution, null);
+  assert.equal(secondBinding.revision, firstBinding.revision + 1);
+  assert.equal(isSessionMediaCurrent(session, firstBinding), false);
+  assert.equal(isSessionMediaCurrent(session, secondBinding), true);
+  assert.equal(clearSessionMedia(session, firstBinding), false);
+  session.media.resolution = { reason: "current-watch-player", status: "ready" };
+
+  disposeWatchSession(session, "video-changed");
+  disposeWatchSession(session, "duplicate-dispose");
+
+  assert.deepEqual(releases, ["first", "second"]);
+  assert.equal(session.media.binding, null);
+  assert.equal(session.media.element, null);
+  assert.equal(session.media.releaseListeners, null);
+  assert.equal(session.media.resolution, null);
+  assert.equal(session.media.closed, true);
+});
+
+test("disposal closes media before teardown so reentrant and late stale bindings release immediately", async () => {
+  const {
+    bindSessionMedia,
+    createWatchSession,
+    disposeWatchSession,
+  } = await loadWatchSession();
+  const session = createWatchSession({ generation: 1, videoId: "album" });
+  const events = [];
+  let reentrantBinding = "not-called";
+  bindSessionMedia(session, { id: "current" }, () => {
+    events.push("release-current");
+    reentrantBinding = bindSessionMedia(session, { id: "reentrant" }, () => {
+      events.push("release-reentrant");
+    });
+  });
+  session.abortController.signal.addEventListener("abort", () => {
+    events.push("abort");
+  });
+
+  disposeWatchSession(session, "video-changed");
+
+  assert.equal(reentrantBinding, null);
+  assert.deepEqual(events, ["release-current", "release-reentrant", "abort"]);
+  assert.equal(session.media.binding, null);
+  assert.equal(session.media.resolution, null);
+  assert.equal(session.media.closed, true);
+
+  const lateBinding = bindSessionMedia(session, { id: "late" }, () => {
+    events.push("release-late");
+  });
+  assert.equal(lateBinding, null);
+  assert.deepEqual(events, [
+    "release-current",
+    "release-reentrant",
+    "abort",
+    "release-late",
+  ]);
+});
+
+test("listener release failures cannot block replacement or session abort", async () => {
+  const {
+    bindSessionMedia,
+    createWatchSession,
+    disposeWatchSession,
+    isSessionMediaCurrent,
+  } = await loadWatchSession();
+  const session = createWatchSession({ generation: 1, videoId: "album" });
+  bindSessionMedia(session, { id: "throwing" }, () => {
+    throw new Error("listener teardown failed");
+  });
+
+  const replacement = bindSessionMedia(session, { id: "replacement" });
+  assert.equal(isSessionMediaCurrent(session, replacement), true);
+  assert.doesNotThrow(() => disposeWatchSession(session));
+  assert.equal(session.abortController.signal.aborted, true);
+  assert.equal(session.media.binding, null);
+});
+
 test("scheduled work coalesces without letting a later request postpone an earlier one", async () => {
   const {
     createWatchSession,

@@ -76,6 +76,13 @@
     scheduleSessionTask,
   } = globalThis.TimestampPlayerWatchSession;
   const {
+    VIDEO_RESOLUTION_STATUSES,
+  } = globalThis.TimestampPlayerVideoResolver;
+  const {
+    getReadySessionVideo: getBoundReadySessionVideo,
+    resolveAndBindSessionMedia,
+  } = globalThis.TimestampPlayerSessionMedia;
+  const {
     dispatchWatchMutations,
     getPreferredWatchMutationRoot,
     getTrackMutationInterests,
@@ -179,9 +186,6 @@
     loadStoredSettings();
     state.pageObserver = new MutationObserver(handlePageMutations);
     bindWatchPageObserver();
-    document.addEventListener("timeupdate", handleTimeUpdate, true);
-    document.addEventListener("play", handlePlaybackStateChange, true);
-    document.addEventListener("pause", handlePlaybackStateChange, true);
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
     beginWatchSession(videoId, previousUrl ? SCAN_DELAY_MS : 0);
@@ -197,10 +201,12 @@
     state.pageObserverRoot = nextRoot;
     state.pageObserver.observe(nextRoot, {
       attributeFilter: [
+        "ad-showing",
         "aria-expanded",
         "aria-hidden",
         "class",
         "hidden",
+        "inert",
         "style",
         "video-id",
       ],
@@ -223,9 +229,6 @@
     state.settingsChangeCleanup?.();
     state.settingsChangeCleanup = null;
     endWatchSession("left-watch-route");
-    document.removeEventListener("timeupdate", handleTimeUpdate, true);
-    document.removeEventListener("play", handlePlaybackStateChange, true);
-    document.removeEventListener("pause", handlePlaybackStateChange, true);
     document.removeEventListener("fullscreenchange", handleFullscreenChange);
     document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
     removeWatchPageUi();
@@ -365,6 +368,7 @@
       isExtensionNode,
       onDiscovery: () => scheduleScan(session),
       onLauncher: () => scheduleLauncherSync(session),
+      onMedia: () => scheduleMediaRefresh(session),
     });
   }
 
@@ -397,6 +401,19 @@
     return scheduleSessionTask(session, "scan", () => scanPage(session), { delay });
   }
 
+  function scheduleMediaRefresh(session, delay = 0) {
+    if (!isCurrentSession(session)) {
+      return false;
+    }
+
+    return scheduleSessionTask(
+      session,
+      "media-refresh",
+      () => refreshSessionMedia(session),
+      { delay }
+    );
+  }
+
   function scheduleLauncherSync(session, delay = LAUNCHER_SYNC_DELAY_MS) {
     if (!isCurrentSession(session)) {
       return false;
@@ -427,6 +444,67 @@
     return scheduled;
   }
 
+  function resolveSessionMedia(session) {
+    if (!isCurrentSession(session)) {
+      return null;
+    }
+
+    const previousElement = session.media.element;
+    const previousStatus = session.media.resolution?.status || null;
+    const resolution = resolveAndBindSessionMedia(session, {
+      hostname: location.hostname,
+      onEvent: handleSessionMediaEvent,
+      root: document,
+      videoId: session.videoId,
+    });
+    if (
+      previousElement
+      && (
+        previousElement !== session.media.element
+        || previousStatus === VIDEO_RESOLUTION_STATUSES.READY
+          && resolution.status !== VIDEO_RESOLUTION_STATUSES.READY
+      )
+    ) {
+      cancelProgressPointerInteraction();
+    }
+    return resolution;
+  }
+
+  function refreshSessionMedia(session) {
+    if (!isCurrentSession(session)) {
+      return;
+    }
+
+    const previousElement = session.media.element;
+    const previousStatus = session.media.resolution?.status || null;
+    const resolution = resolveSessionMedia(session);
+    if (!resolution || !isCurrentSession(session)) {
+      return;
+    }
+
+    const mediaChanged = previousElement !== resolution.element
+      || previousStatus !== resolution.status;
+    if (resolution.status === VIDEO_RESOLUTION_STATUSES.READY) {
+      if (mediaChanged) {
+        resetSessionRetry(session, "readiness");
+        scheduleScan(session, 0);
+      }
+    } else if (resolution.status !== VIDEO_RESOLUTION_STATUSES.AD_PLAYING) {
+      scheduleReadinessRetry(session, getMediaReadinessPhase(resolution.status));
+    }
+    updateUi();
+  }
+
+  function getMediaReadinessPhase(status) {
+    if (status === VIDEO_RESOLUTION_STATUSES.WAITING_FOR_DURATION) {
+      return "waiting-for-duration";
+    }
+    if (status === VIDEO_RESOLUTION_STATUSES.WAITING_FOR_OWNERSHIP) {
+      return "waiting-for-video-ownership";
+    }
+    return "waiting-for-video";
+  }
+
   function scanPage(session) {
     if (!isCurrentSession(session)) {
       return;
@@ -434,17 +512,16 @@
 
     bindWatchPageObserver();
 
-    const video = getVideo();
+    const resolution = resolveSessionMedia(session);
+    const video = getReadySessionVideo(session);
     const videoId = session.videoId;
 
     if (!video) {
-      scheduleReadinessRetry(session, "waiting-for-video");
-      updateUi("Open a YouTube video");
-      return;
-    }
-
-    if (!Number.isFinite(video.duration) || video.duration <= 0) {
-      scheduleReadinessRetry(session, "waiting-for-duration");
+      if (resolution?.status !== VIDEO_RESOLUTION_STATUSES.AD_PLAYING) {
+        scheduleReadinessRetry(session, getMediaReadinessPhase(resolution?.status));
+      } else {
+        session.phase = "ad-playing";
+      }
       updateUi();
       return;
     }
@@ -616,8 +693,18 @@
     });
   }
 
-  function getVideo() {
-    return document.querySelector("video.html5-main-video") || document.querySelector("video");
+  function getReadySessionVideo(session = state.session) {
+    if (!isCurrentSession(session)) {
+      return null;
+    }
+    return getBoundReadySessionVideo(session);
+  }
+
+  function areMediaControlsEnabled(session = state.session) {
+    return Boolean(
+      getReadySessionVideo(session)
+      && tracksBelongToVideo(session?.videoId)
+    );
   }
 
   function getCurrentVideoId() {
@@ -752,10 +839,12 @@
     ensurePlayerUi();
     const inlineCompact = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;
     const mountedInlineCompact = playerLayout.prepareMount({ inlineCompact });
+    const video = getReadySessionVideo();
     renderPlayerView({
+      controlsEnabled: Boolean(video && tracksAvailable),
       inlineCompact: mountedInlineCompact,
       tracksAvailable,
-      video: getVideo(),
+      video,
       visible: true,
     });
     playerLayout.layoutNow({
@@ -1612,8 +1701,8 @@
   }
 
   function togglePlayPause() {
-    const video = getVideo();
-    if (!video) {
+    const video = getReadySessionVideo();
+    if (!video || !tracksBelongToVideo()) {
       updateUi();
       return;
     }
@@ -1627,11 +1716,19 @@
   }
 
   function toggleShuffle() {
+    if (!areMediaControlsEnabled()) {
+      updateUi();
+      return;
+    }
     state.playback = togglePlaybackShuffle(state.playback, state.tracks.length);
     updateUi();
   }
 
   function toggleRepeat() {
+    if (!areMediaControlsEnabled()) {
+      updateUi();
+      return;
+    }
     state.playback = togglePlaybackRepeat(state.playback, state.tracks.length);
     updateUi();
   }
@@ -1647,9 +1744,15 @@
   }
 
   function playNextTrack(options = {}) {
+    const video = getReadySessionVideo();
+    if (!video || !tracksBelongToVideo()) {
+      updateUi();
+      return;
+    }
+
     const currentIndex = state.playback.shuffleEnabled && options.currentIndex !== undefined
       ? options.currentIndex
-      : getEffectiveCurrentTrackIndex();
+      : getCurrentTrackIndexForVideo(video);
     const selection = selectNextTrack(state.playback, {
       currentIndex,
       random: Math.random,
@@ -1661,8 +1764,8 @@
   }
 
   function playPreviousTrack() {
-    const video = getVideo();
-    if (!video || !state.tracks.length) {
+    const video = getReadySessionVideo();
+    if (!video || !state.tracks.length || !tracksBelongToVideo()) {
       updateUi();
       return;
     }
@@ -1690,7 +1793,7 @@
 
   function playTrack(index, options = {}) {
     const { recordHistory = true } = options;
-    const video = getVideo();
+    const video = getReadySessionVideo();
     const track = state.tracks[index];
     if (!video || !track || !tracksBelongToVideo()) {
       updateUi();
@@ -1711,7 +1814,7 @@
   }
 
   function getEffectiveCurrentTrackIndex() {
-    const video = getVideo();
+    const video = getReadySessionVideo();
     if (!video) {
       return state.currentTrackIndex;
     }
@@ -1729,7 +1832,10 @@
 
   function handleProgressPointerDown(event) {
     progressSlider = event.currentTarget || progressSlider;
-    if (progressSlider.getAttribute("aria-disabled") === "true") {
+    if (
+      progressSlider.getAttribute("aria-disabled") === "true"
+      || !areMediaControlsEnabled()
+    ) {
       return;
     }
 
@@ -1752,6 +1858,11 @@
       return;
     }
 
+    if (!areMediaControlsEnabled()) {
+      handleProgressPointerEnd(event);
+      return;
+    }
+
     event.preventDefault();
     seekProgressFromPointer(event);
   }
@@ -1765,7 +1876,7 @@
   }
 
   function seekProgressFromPointer(event) {
-    const video = getVideo();
+    const video = getReadySessionVideo();
     const track = getProgressTrack(video);
     if (!video || !track) {
       updateProgress(video);
@@ -1780,8 +1891,39 @@
     updateProgress(video);
   }
 
-  function handleTimeUpdate(event) {
-    if (event.target !== getVideo()) {
+  function handleSessionMediaEvent({ binding, event, session, video }) {
+    if (
+      !isCurrentSession(session)
+      || session.media.binding !== binding
+    ) {
+      return;
+    }
+
+    if (
+      event.type === "loadedmetadata"
+      || event.type === "durationchange"
+      || event.type === "emptied"
+    ) {
+      scheduleMediaRefresh(session);
+      return;
+    }
+
+    if (getReadySessionVideo(session) !== video) {
+      return;
+    }
+
+    if (event.type === "timeupdate") {
+      handleTimeUpdate(video);
+      return;
+    }
+
+    if (event.type === "play" || event.type === "pause") {
+      updateUi();
+    }
+  }
+
+  function handleTimeUpdate(video) {
+    if (video !== getReadySessionVideo()) {
       return;
     }
 
@@ -1790,7 +1932,6 @@
       return;
     }
 
-    const video = event.target;
     const currentTrack = getCurrentTrack(video.currentTime);
     if (currentTrack && currentTrack.index !== state.currentTrackIndex) {
       state.currentTrackIndex = currentTrack.index;
@@ -1816,12 +1957,6 @@
     }
 
     updateProgress(video);
-  }
-
-  function handlePlaybackStateChange(event) {
-    if (event.target === getVideo()) {
-      updateUi();
-    }
   }
 
   function handleFullscreenChange() {
@@ -1862,6 +1997,10 @@
   }
 
   function handleTrackListClick(event) {
+    if (!areMediaControlsEnabled()) {
+      return;
+    }
+
     const item = event.target.closest(".ts-list-item");
     if (!item) {
       return;
@@ -1899,7 +2038,7 @@
     });
   }
 
-  function updateProgress(video = getVideo()) {
+  function updateProgress(video = getReadySessionVideo()) {
     ensurePlayerUi();
     const track = getProgressTrack(video);
     if (!video || !track) {
@@ -1920,12 +2059,19 @@
     });
   }
 
-  function renderPlayerView({ inlineCompact, tracksAvailable, video, visible }) {
+  function renderPlayerView({
+    controlsEnabled,
+    inlineCompact,
+    tracksAvailable,
+    video,
+    visible,
+  }) {
     const isFloating = state.panelMode === PANEL_MODES.FLOATING;
     const isAnchoredCompact = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;
     playerView.render({
       anchored: state.panelMode === PANEL_MODES.ANCHORED,
       anchoredCompact: isAnchoredCompact,
+      controlsEnabled,
       currentTrackIndex: state.currentTrackIndex,
       floating: isFloating,
       inlineCompact,
@@ -1946,9 +2092,10 @@
     }
 
     ensurePlayerUi();
-    const video = getVideo();
+    const video = getReadySessionVideo(session);
     const videoId = getCurrentVideoId();
     const tracksAvailable = tracksBelongToVideo(videoId);
+    const controlsEnabled = Boolean(video && tracksAvailable);
     const isAnchoredCompact = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;
     const isHiddenByFullscreen = isFullscreenActive() && state.panelMode === PANEL_MODES.ANCHORED;
     const isVisible = tracksAvailable && state.panelOpen && !isHiddenByFullscreen;
@@ -1956,6 +2103,7 @@
     syncLauncherForSession(session, tracksAvailable, { restorePlayer: false });
     const mountedInlineCompact = playerLayout.prepareMount({ inlineCompact: isInlineCompact });
     renderPlayerView({
+      controlsEnabled,
       inlineCompact: mountedInlineCompact,
       tracksAvailable,
       video,

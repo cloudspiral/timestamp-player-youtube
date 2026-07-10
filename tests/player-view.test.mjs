@@ -295,6 +295,7 @@ async function createHarness({ handlers = {} } = {}) {
       clearCalls: 0,
       collectionCalls: [],
       dependencies,
+      enabledCalls: [],
       row: { kind: "track-row" },
     };
     rendererRecords.push(record);
@@ -312,6 +313,10 @@ async function createHarness({ handlers = {} } = {}) {
       },
       renderCollection(tracks) {
         record.collectionCalls.push(tracks);
+        return true;
+      },
+      renderEnabled(enabled) {
+        record.enabledCalls.push(enabled);
         return true;
       },
     };
@@ -426,6 +431,7 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   const elements = harness.controller.render({
     anchored: true,
     anchoredCompact: true,
+    controlsEnabled: true,
     currentTrackIndex: 0,
     floating: false,
     inlineCompact: true,
@@ -466,6 +472,7 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   const renderer = harness.rendererRecords[0];
   assert.equal(renderer.collectionCalls[0], tracks);
   assert.deepEqual(renderer.activeCalls, [0]);
+  assert.deepEqual(renderer.enabledCalls, [true]);
 
   harness.controller.render({ floating: true });
   assert.equal(elements.root.classList.contains("is-visible"), false);
@@ -477,6 +484,46 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   assert.equal(elements.trackEl.textContent, "No track selected");
   assert.equal(elements.trackEl.title, "");
   assert.equal(elements.countEl.textContent, "");
+});
+
+test("render keeps discovered tracks visible while media controls are unavailable", async () => {
+  const harness = await createHarness();
+  const tracks = [
+    { index: 0, start: 0, title: "Opening" },
+    { index: 1, start: 60, title: "Finale" },
+  ];
+  const elements = harness.controller.render({
+    anchored: true,
+    controlsEnabled: false,
+    currentTrackIndex: 0,
+    tracks,
+    tracksAvailable: true,
+    visible: true,
+  });
+
+  assert.equal(elements.root.classList.contains("has-tracks"), true);
+  assert.equal(elements.root.classList.contains("is-visible"), true);
+  assert.equal(elements.trackEl.textContent, "Track: Opening");
+  assert.equal(elements.countEl.textContent, "1 / 2");
+  assert.equal(elements.previousButton.disabled, true);
+  assert.equal(elements.playPauseButton.disabled, true);
+  assert.equal(elements.toggleButton.disabled, true);
+  assert.equal(elements.repeatButton.disabled, true);
+  assert.equal(elements.nextButton.disabled, true);
+  assert.equal(elements.progressSlider.getAttribute("aria-disabled"), "true");
+  assert.equal(elements.compactButton.disabled, false, "layout controls remain available");
+  assert.deepEqual(harness.rendererRecords[0].enabledCalls, [false]);
+
+  harness.controller.render({
+    controlsEnabled: true,
+    currentTrackIndex: 0,
+    tracks,
+    tracksAvailable: true,
+    visible: true,
+  });
+  assert.equal(elements.playPauseButton.disabled, false);
+  assert.equal(elements.progressSlider.getAttribute("aria-disabled"), "false");
+  assert.deepEqual(harness.rendererRecords[0].enabledCalls, [false, true]);
 });
 
 test("progress rendering preserves remaining, duration, and reset presentations", async () => {

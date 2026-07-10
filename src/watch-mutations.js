@@ -41,8 +41,12 @@
     [WATCH_MUTATION_DOMAINS.PLAYER]: Object.freeze([
       "video.html5-main-video",
       "#movie_player",
+      ".html5-video-player",
       "ytd-player",
       "ytd-watch-flexy",
+      "ytmusic-player",
+      "ytmusic-player-page",
+      "#player-page",
     ]),
   });
 
@@ -59,7 +63,10 @@
       [WATCH_MUTATION_DOMAINS.COMMENTS]: sourceKind !== "description" || needsTitleEnrichment,
       [WATCH_MUTATION_DOMAINS.DESCRIPTION]: true,
       [WATCH_MUTATION_DOMAINS.NATIVE]: sourceKind === "native" || needsTitleEnrichment,
-      [WATCH_MUTATION_DOMAINS.PLAYER]: false,
+      // Player ownership and ad state remain live after track discovery settles.
+      // Keeping this narrow domain active lets content re-resolve media without
+      // re-running description/comment discovery for every player mutation.
+      [WATCH_MUTATION_DOMAINS.PLAYER]: true,
     };
   }
 
@@ -78,6 +85,7 @@
     isExtensionNode = () => false,
     onDiscovery = () => {},
     onLauncher = () => {},
+    onMedia = () => {},
   } = {}) {
     const classification = classifyWatchMutations(mutations, {
       getNodeDomains,
@@ -89,6 +97,9 @@
     }
     if (classification.launcher) {
       onLauncher(classification);
+    }
+    if (classification.media) {
+      onMedia(classification);
     }
     return classification;
   }
@@ -120,13 +131,15 @@
       WATCH_MUTATION_DOMAINS.COMMENTS,
       WATCH_MUTATION_DOMAINS.DESCRIPTION,
       WATCH_MUTATION_DOMAINS.NATIVE,
-      WATCH_MUTATION_DOMAINS.PLAYER,
     ].some((domain) => domains.has(domain) && interests[domain] !== false);
+    const media = domains.has(WATCH_MUTATION_DOMAINS.PLAYER)
+      && interests[WATCH_MUTATION_DOMAINS.PLAYER] !== false;
 
     return {
       discovery,
       domains,
       launcher: domains.has(WATCH_MUTATION_DOMAINS.ACTIONS),
+      media,
     };
   }
 

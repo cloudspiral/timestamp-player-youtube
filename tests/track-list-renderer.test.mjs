@@ -38,6 +38,7 @@ class FakeElement {
     this.classList = new FakeClassList();
     this.className = "";
     this.dataset = {};
+    this.disabled = false;
     this.textContent = "";
     this.title = "";
     this.type = "";
@@ -205,4 +206,29 @@ test("active state updates only the old and new keyed rows", async () => {
   assert.equal(first.getAttribute("aria-current"), null);
   assert.equal(second.classList.contains("is-active"), true);
   assert.equal(second.getAttribute("aria-current"), "true");
+});
+
+test("disabled playback state is applied semantically without rebuilding track rows", async () => {
+  const api = await loadRenderer();
+  const { document, listElement, renderer } = createFixture(api);
+  const initialTracks = tracks();
+  renderer.renderCollection(initialTracks);
+  const initialRows = [...listElement.children];
+  const createCount = document.createCount;
+
+  assert.equal(renderer.renderEnabled(false), true);
+  assert.ok(initialRows.every((row) => row.disabled));
+  assert.equal(renderer.renderEnabled(false), false);
+
+  renderer.renderCollection([...initialTracks, {
+    end: 240,
+    index: 3,
+    start: 180,
+    title: "Encore",
+  }]);
+  assert.equal(renderer.getRowForIndex(3).disabled, true, "new rows inherit disabled state");
+  assert.equal(renderer.renderEnabled(true), true);
+  assert.ok(listElement.children.every((row) => !row.disabled));
+  assert.equal(document.createCount - createCount, 4, "enablement must not rebuild existing rows");
+  assert.deepEqual(listElement.children.slice(0, 3), initialRows);
 });
