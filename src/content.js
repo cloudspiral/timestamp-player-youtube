@@ -36,6 +36,9 @@
     saveSettings,
   } = globalThis.TimestampPlayerSettings;
   const {
+    createSettingsSyncController,
+  } = globalThis.TimestampPlayerSettingsSync;
+  const {
     createWatchRouteController,
     getWatchVideoId,
   } = globalThis.TimestampPlayerWatchRoute;
@@ -116,7 +119,6 @@
     trackTitleCache: createTrackTitleCache(),
     pageObserver: null,
     pageObserverRoot: null,
-    settingsChangeCleanup: null,
   };
 
   let launcherButton;
@@ -124,6 +126,12 @@
   let watchRouteController = null;
   const diagnostics = createSessionDiagnostics();
   const youtubeDom = createYouTubeDom({ Node, document, location });
+  const settingsSync = createSettingsSyncController({
+    applySettings: setSettings,
+    getSettings: () => state.settings,
+    load: loadSettings,
+    subscribe: addSettingsChangeListener,
+  });
   const trackDiscovery = createTrackDiscoveryController({
     diagnostics,
     isCurrentSession,
@@ -185,7 +193,7 @@
 
     state.watchPageActive = true;
     ensurePlayerUi();
-    loadStoredSettings();
+    settingsSync.start();
     state.pageObserver = new MutationObserver(handlePageMutations);
     bindWatchPageObserver();
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -229,8 +237,7 @@
     state.pageObserver?.disconnect();
     state.pageObserver = null;
     state.pageObserverRoot = null;
-    state.settingsChangeCleanup?.();
-    state.settingsChangeCleanup = null;
+    settingsSync.stop();
     endWatchSession("left-watch-route");
     document.removeEventListener("fullscreenchange", handleFullscreenChange);
     document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
@@ -263,28 +270,6 @@
       playerView.applySettings(state.settings);
     }
     return elements;
-  }
-
-  function loadStoredSettings() {
-    loadSettings((settings) => {
-      setSettings(settings);
-    });
-
-    state.settingsChangeCleanup?.();
-    state.settingsChangeCleanup = addSettingsChangeListener((changes) => {
-      const nextSettings = { ...state.settings };
-      let settingsChanged = false;
-      for (const key of Object.keys(DEFAULT_SETTINGS)) {
-        if (Object.hasOwn(changes, key)) {
-          nextSettings[key] = changes[key].newValue;
-          settingsChanged = true;
-        }
-      }
-
-      if (settingsChanged) {
-        setSettings(nextSettings);
-      }
-    });
   }
 
   function setSettings(settings) {

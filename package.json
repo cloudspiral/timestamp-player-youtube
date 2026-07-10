@@ -27,6 +27,7 @@
     "test:watch-mutations": "node --test tests/watch-mutations.test.mjs",
     "test:track-list-renderer": "node --test tests/track-list-renderer.test.mjs",
     "test:settings": "node --test tests/settings.test.mjs",
+    "test:settings-sync": "node --test tests/settings-sync.test.mjs",
     "test:comment-scoring": "node --test tests/comment-scoring.test.mjs",
     "test:playback-state": "node --test tests/playback-state.test.mjs",
     "test:player-layout": "node --test tests/player-layout.test.mjs",
