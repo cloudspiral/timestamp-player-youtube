@@ -14,7 +14,6 @@
     REGULAR: "regular",
   };
   const {
-    parseCommentLikeCount,
     scoreCommentTrackSource,
   } = globalThis.TimestampPlayerCommentScoring;
   const {
@@ -28,21 +27,16 @@
   } = globalThis.TimestampPlayerDiscoveryCache;
   const {
     getNativeTimestampDiscovery,
-    isNativeTimestampSectionElement,
   } = globalThis.TimestampPlayerNativeTimestamps;
   const {
-    cleanTrackTitle,
     findTracks,
     formatTimestamp,
     formatTrackLabel,
     getTextTimestampCandidates,
-    isTimestampRangeEndMarker,
-    lineContainingTimestamp,
-    normalizeTitleText,
-    parseTimeParam,
-    parseTimestampText,
-    titleFromLineFragment,
   } = globalThis.TimestampPlayerTimestamps;
+  const {
+    createYouTubeDom,
+  } = globalThis.TimestampPlayerYouTubeDom;
   const {
     COMPACT_PROGRESS_COLORS,
     COMPACT_PROGRESS_STYLES,
@@ -137,11 +131,14 @@
   let launcherButton;
   let playerShellRoot = null;
   let watchRouteController = null;
+  const youtubeDom = createYouTubeDom({ Node, document, location });
   const playerLayout = createPlayerLayoutController({
     document,
     window,
-    findActionRow,
-    findCompactActionAnchor,
+    findActionRow: () => youtubeDom.findActionRow(state.session?.videoId || ""),
+    findCompactActionAnchor: () => youtubeDom.findCompactActionAnchor(
+      state.session?.videoId || ""
+    ),
     getLauncherElement: () => launcherButton,
     saveSettings,
   });
@@ -702,7 +699,7 @@
       return false;
     }
 
-    const expandButton = findDescriptionExpandButton();
+    const expandButton = youtubeDom.findDescriptionExpandButton(session.videoId);
     if (!expandButton) {
       return false;
     }
@@ -719,54 +716,13 @@
       return;
     }
 
-    const collapseButton = findDescriptionCollapseButton();
+    const collapseButton = youtubeDom.findDescriptionCollapseButton(session.videoId);
     if (!collapseButton) {
       return;
     }
 
     session.description.shouldCollapse = false;
     collapseButton.click();
-  }
-
-  function findDescriptionExpandButton() {
-    const candidates = [
-      ...document.querySelectorAll(
-        [
-          "ytd-watch-metadata ytd-text-inline-expander #expand",
-          "ytd-watch-metadata #description-inline-expander #expand",
-          "ytd-watch-metadata tp-yt-paper-button#expand",
-          "ytd-watch-metadata button",
-        ].join(",")
-      ),
-    ];
-
-    return candidates.find((element) => {
-      const text = normalizeTitleText(element.textContent).toLowerCase();
-      return isVisible(element) && (element.id === "expand" || text.includes("more"));
-    }) || null;
-  }
-
-  function findDescriptionCollapseButton() {
-    const candidates = [
-      ...document.querySelectorAll(
-        [
-          "ytd-watch-metadata ytd-text-inline-expander #collapse",
-          "ytd-watch-metadata #description-inline-expander #collapse",
-          "ytd-watch-metadata tp-yt-paper-button#collapse",
-          "ytd-watch-metadata button",
-        ].join(",")
-      ),
-    ];
-
-    return candidates.find((element) => {
-      const text = normalizeTitleText(element.textContent).toLowerCase();
-      return isVisible(element) && (element.id === "collapse" || text.includes("show less"));
-    }) || null;
-  }
-
-  function isVisible(element) {
-    const rect = element.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
   }
 
   function syncLauncher(tracksAvailable) {
@@ -778,13 +734,13 @@
     }
 
     ensureLauncherButton();
-    const actionRow = findActionRow();
+    const actionRow = youtubeDom.findActionRow(state.session?.videoId || "");
     if (!actionRow) {
       return false;
     }
 
     if (!actionRow.contains(launcherButton)) {
-      insertLauncherButton(actionRow);
+      youtubeDom.insertLauncherButton(actionRow, launcherButton);
     }
 
     const expanded = isPlayerPanelVisible(tracksAvailable);
@@ -879,80 +835,27 @@
     launcherButton.addEventListener("click", togglePlayerOpen);
   }
 
-  function findActionRow() {
-    const candidates = [
-      ...document.querySelectorAll(
-        [
-          "ytd-watch-metadata #top-level-buttons-computed",
-          "ytd-watch-metadata ytd-menu-renderer #top-level-buttons-computed",
-          "#above-the-fold #top-level-buttons-computed",
-        ].join(",")
-      ),
-    ];
-
-    return candidates.find(isVisible) || null;
-  }
-
-  function findCompactActionAnchor() {
-    const actionRow = findActionRow();
-    const candidates = [
-      actionRow?.closest("#actions"),
-      actionRow?.closest("ytd-menu-renderer"),
-      actionRow?.parentElement,
-      ...document.querySelectorAll(
-        [
-          "ytd-watch-metadata #actions",
-          "ytd-watch-metadata ytd-menu-renderer",
-          "#above-the-fold #actions",
-        ].join(",")
-      ),
-      actionRow,
-    ].filter(Boolean);
-
-    return candidates.find(isVisible) || null;
-  }
-
-  function insertLauncherButton(actionRow) {
-    const shareButton = [...actionRow.children].find((element) => {
-      return normalizeTitleText(element.textContent).toLowerCase().includes("share");
-    });
-
-    if (shareButton?.nextSibling) {
-      actionRow.insertBefore(launcherButton, shareButton.nextSibling);
-    } else {
-      actionRow.append(launcherButton);
-    }
-  }
-
   function getDescriptionSourceResults(session, duration, observation) {
     const results = [];
     let candidateCount = 0;
 
-    for (const root of getTimestampCandidateRoots()) {
+    for (const root of youtubeDom.getDescriptionRoots(session.videoId)) {
       const ownership = getDomSourceOwnership(root, session.videoId);
       if (!ownership) {
         continue;
       }
 
       const sourceId = getDomSourceId(session, root);
-      const text = removeNativeTimestampSections(root.innerText || root.textContent || "");
-      const normalizedText = normalizeTitleText(text);
-      if (!normalizedText || isLikelyCollapsedDescriptionTextRoot(root, normalizedText)) {
+      const discovery = youtubeDom.readDescriptionRoot(root, {
+        sourceId,
+        videoId: session.videoId,
+      });
+      if (!discovery) {
         continue;
       }
 
-      const textCandidates = getTextTimestampCandidates(text, `description-text:${sourceId}`);
-      const titledTextStarts = new Set(
-        textCandidates
-          .filter((candidate) => candidate.title)
-          .map((candidate) => candidate.start)
-      );
-      const linkCandidates = getLinkTimestampCandidates(session.videoId, [root], {
-        excludeNativeTimestampSections: true,
-      }).filter((candidate) => !titledTextStarts.has(candidate.start));
-      const candidates = [...textCandidates, ...linkCandidates];
-      candidateCount = Math.max(candidateCount, candidates.length);
-      const tracks = findTracks(duration, candidates);
+      candidateCount = Math.max(candidateCount, discovery.candidateCount);
+      const tracks = findTracks(duration, discovery.candidates);
       if (tracks.length < 2) {
         continue;
       }
@@ -1015,39 +918,11 @@
     });
   }
 
-  function getLinkTimestampCandidates(videoId, roots, options = {}) {
-    const links = [];
-    for (const searchRoot of roots) {
-      for (const link of searchRoot.querySelectorAll("a[href*='/watch']")) {
-        if (options.excludeNativeTimestampSections && isNativeTimestampSectionElement(link)) {
-          continue;
-        }
-        if (!links.includes(link)) {
-          links.push(link);
-        }
-      }
-    }
-
-    return links.map((link) => toTimestampCandidate(link, videoId)).filter(Boolean);
-  }
-
   function getDomSourceOwnership(root, videoId) {
-    const linkedVideoIds = [];
-    for (const link of root.querySelectorAll("a[href*='/watch']")) {
-      const linkedVideoId = getTimestampLinkVideoId(link);
-      if (linkedVideoId) {
-        linkedVideoIds.push(linkedVideoId);
-      }
-    }
-
-    const watchShell = root.closest?.("ytd-watch-flexy") || null;
-    const shellVideoId = getWatchShellVideoId(watchShell);
-    return classifyTrackSourceOwnership({ linkedVideoIds, shellVideoId, videoId });
-  }
-
-  function getWatchShellVideoId(watchShell) {
-    const videoId = watchShell?.getAttribute?.("video-id") || watchShell?.videoId;
-    return typeof videoId === "string" ? videoId.trim() : "";
+    return classifyTrackSourceOwnership({
+      ...youtubeDom.getOwnershipEvidence(root),
+      videoId,
+    });
   }
 
   function getDomSourceId(session, root) {
@@ -1060,77 +935,26 @@
     return sourceId;
   }
 
-  function isLikelyCollapsedDescriptionTextRoot(root, text) {
-    const hasExpandControl = Boolean([...root.querySelectorAll("#expand, tp-yt-paper-button#expand, button")].find((element) => {
-      const buttonText = normalizeTitleText(element.textContent).toLowerCase();
-      return buttonText.includes("more");
-    }));
-    if (!hasExpandControl) {
-      return false;
-    }
-
-    return text.split(/\r?\n/).some((line) => {
-      return hasTimestampText(line) && /(?:\.{3}|…)\s*(?:more)?$/i.test(normalizeTitleText(line));
-    });
-  }
-
-  function hasTimestampText(text) {
-    return /\b\d{1,2}:\d{2}(?::\d{2})?\b/.test(text);
-  }
-
-  function removeNativeTimestampSections(text) {
-    const lines = (text || "").split(/\r?\n/);
-    const nativeSectionIndex = lines.findIndex((line, index) => {
-      const normalizedLine = normalizeTitleText(line);
-      if (/^key moments$/i.test(normalizedLine)) {
-        return true;
-      }
-
-      return /^chapters$/i.test(normalizedLine)
-        && countTimestampLines(lines.slice(0, index)) >= 2;
-    });
-
-    return nativeSectionIndex >= 0 ? lines.slice(0, nativeSectionIndex).join("\n") : text;
-  }
-
-  function countTimestampLines(lines) {
-    return lines.filter((line) => hasTimestampText(line)).length;
-  }
-
-  function getTimestampLinkVideoId(link) {
-    const url = new URL(link.href, location.href);
-    const linkedVideoId = url.searchParams.get("v");
-    if (!linkedVideoId) {
-      return "";
-    }
-
-    const timeParamStart = parseTimeParam(url.searchParams.get("t"));
-    const textStart = parseTimestampText(link.textContent);
-    return Number.isFinite(timeParamStart) || Number.isFinite(textStart) ? linkedVideoId : "";
-  }
-
-  function getTimestampCandidateRoots() {
-    const selectors = [
-      ...getQuietDescriptionSelectors(),
-      "ytd-watch-metadata #description-inline-expander #expanded",
-      "ytd-watch-metadata #description-inline-expander",
-      "ytd-watch-metadata #description",
-    ];
-
-    return getUniqueElements(selectors);
-  }
-
   function getDomCommentSourceResults(session, duration, observation, status) {
     const results = [];
     let regularCommentCount = 0;
 
-    for (const [order, root] of getCommentRoots().entries()) {
+    for (const [order, root] of youtubeDom.getCommentRoots(session.videoId).entries()) {
       const ownership = getDomSourceOwnership(root, session.videoId);
       if (!ownership) {
         continue;
       }
 
-      const sourceType = getCommentSourceType(root);
+      const sourceId = getDomSourceId(session, root);
+      const comment = youtubeDom.readCommentRoot(root, {
+        sourceId,
+        videoId: session.videoId,
+      });
+      const sourceType = comment.isPinned
+        ? COMMENT_SOURCE_TYPES.PINNED
+        : comment.isUploader
+          ? COMMENT_SOURCE_TYPES.UPLOADER
+          : COMMENT_SOURCE_TYPES.REGULAR;
       if (sourceType === COMMENT_SOURCE_TYPES.REGULAR) {
         regularCommentCount += 1;
         if (regularCommentCount > REGULAR_COMMENT_SCAN_LIMIT) {
@@ -1138,16 +962,14 @@
         }
       }
 
-      const sourceId = getDomSourceId(session, root);
-      const candidates = getTextTimestampCandidates(getCommentBodyText(root), `comment:${sourceId}`);
-      const tracks = findTracks(duration, candidates, COMMENT_MIN_TRACKS);
+      const tracks = findTracks(duration, comment.candidates, COMMENT_MIN_TRACKS);
       if (tracks.length < COMMENT_MIN_TRACKS) {
         continue;
       }
 
       const scoredSource = {
         duration,
-        likeCount: getCommentLikeCount(root),
+        likeCount: comment.likeCount,
         order,
         sourceType,
         tracks,
@@ -1302,337 +1124,20 @@
       return COMMENT_SOURCE_TYPES.PINNED;
     }
 
-    const ownerName = normalizeChannelName(getVideoOwnerName());
-    const authorName = normalizeChannelName(record.authorName);
-    if (record.isUploader || (ownerName && authorName && ownerName === authorName)) {
+    if (record.isUploader) {
       return COMMENT_SOURCE_TYPES.UPLOADER;
     }
 
     return COMMENT_SOURCE_TYPES.REGULAR;
-  }
-
-  function getCommentRoots() {
-    const roots = [];
-    for (const thread of document.querySelectorAll("ytd-comment-thread-renderer")) {
-      addUniqueElement(roots, thread.querySelector("ytd-comment-view-model, ytd-comment-renderer") || thread);
-    }
-
-    for (const comment of document.querySelectorAll("ytd-comment-view-model, ytd-comment-renderer")) {
-      if (!comment.closest("ytd-comment-thread-renderer")) {
-        addUniqueElement(roots, comment);
-      }
-    }
-
-    return roots.filter(isVisible);
-  }
-
-  function addUniqueElement(elements, element) {
-    if (element && !elements.includes(element)) {
-      elements.push(element);
-    }
-  }
-
-  function getCommentSourceType(root) {
-    if (isPinnedComment(root)) {
-      return COMMENT_SOURCE_TYPES.PINNED;
-    }
-
-    if (isUploaderComment(root)) {
-      return COMMENT_SOURCE_TYPES.UPLOADER;
-    }
-
-    return COMMENT_SOURCE_TYPES.REGULAR;
-  }
-
-  function isPinnedComment(root) {
-    if (root.querySelector("ytd-pinned-comment-badge-renderer, #pinned-comment-badge, [id*='pinned-comment']")) {
-      return true;
-    }
-
-    return normalizeTitleText(root.textContent).toLowerCase().includes("pinned by");
-  }
-
-  function isUploaderComment(root) {
-    const authorBadge = root.querySelector("ytd-author-comment-badge-renderer, #author-comment-badge, [id*='author-comment-badge']");
-    if (authorBadge && isVisible(authorBadge)) {
-      return true;
-    }
-
-    const ownerName = normalizeChannelName(getVideoOwnerName());
-    const authorName = normalizeChannelName(getCommentAuthorName(root));
-    return Boolean(ownerName && authorName && ownerName === authorName);
-  }
-
-  function getVideoOwnerName() {
-    const selectors = [
-      "ytd-watch-metadata ytd-video-owner-renderer #channel-name #text",
-      "ytd-watch-metadata ytd-video-owner-renderer #channel-name a",
-      "ytd-watch-metadata #owner #channel-name #text",
-      "ytd-watch-metadata #owner a.yt-simple-endpoint",
-      "#upload-info #channel-name #text",
-      "#upload-info #channel-name a",
-    ];
-
-    return getFirstVisibleText(selectors);
-  }
-
-  function getCommentAuthorName(root) {
-    const selectors = [
-      "#author-text",
-      "#author-text span",
-      "a#author-text",
-      "h3 a",
-      "a[href^='/@']",
-      "a[href*='/channel/']",
-    ];
-
-    for (const selector of selectors) {
-      const element = root.querySelector(selector);
-      if (element && isVisible(element)) {
-        const text = normalizeTitleText(element.textContent);
-        if (text) {
-          return text;
-        }
-      }
-    }
-
-    return "";
-  }
-
-  function getFirstVisibleText(selectors) {
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      if (element && isVisible(element)) {
-        const text = normalizeTitleText(element.textContent);
-        if (text) {
-          return text;
-        }
-      }
-    }
-
-    return "";
-  }
-
-  function normalizeChannelName(text) {
-    return normalizeTitleText(text)
-      .replace(/^@/, "")
-      .toLowerCase();
-  }
-
-  function getCommentBodyText(root) {
-    const bodySelectors = [
-      "#content-text",
-      "yt-attributed-string#content-text",
-      "yt-formatted-string#content-text",
-    ];
-
-    for (const selector of bodySelectors) {
-      const element = root.querySelector(selector);
-      if (element && isVisible(element)) {
-        const text = element.innerText || element.textContent || "";
-        if (normalizeTitleText(text)) {
-          return text;
-        }
-      }
-    }
-
-    return root.innerText || root.textContent || "";
-  }
-
-  function getCommentLikeCount(root) {
-    const voteCount = root.querySelector("#vote-count-middle, [id='vote-count-middle']");
-    if (voteCount && isVisible(voteCount)) {
-      const parsedVoteCount = parseCommentLikeCount(voteCount.textContent || "");
-      if (parsedVoteCount !== null) {
-        return parsedVoteCount;
-      }
-    }
-
-    for (const element of root.querySelectorAll("[aria-label]")) {
-      if (!isVisible(element)) {
-        continue;
-      }
-
-      const label = element.getAttribute("aria-label") || "";
-      if (!/\blike/i.test(label)) {
-        continue;
-      }
-
-      const parsedLabelCount = parseCommentLikeCount(label);
-      if (parsedLabelCount !== null) {
-        return parsedLabelCount;
-      }
-    }
-
-    return null;
   }
 
   function canReadQuietDescription(videoId) {
-    return getUniqueElements(getQuietDescriptionSelectors()).some((root) => {
+    return youtubeDom.getQuietDescriptionRoots(videoId).some((root) => {
       if (!getDomSourceOwnership(root, videoId)) {
         return false;
       }
-
-      const text = removeNativeTimestampSections(root.textContent || "");
-      const normalizedText = normalizeTitleText(text);
-      return normalizedText.length > 0 && !isLikelyCollapsedDescriptionTextRoot(root, normalizedText);
+      return youtubeDom.isDescriptionRootReadable(root);
     });
-  }
-
-  function getQuietDescriptionSelectors() {
-    return [
-      "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-structured-description'] ytd-expandable-video-description-body-renderer",
-      "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-structured-description'] ytd-structured-description-content-renderer",
-      "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-structured-description']",
-    ];
-  }
-
-  function getUniqueElements(selectors) {
-    const roots = [];
-    for (const selector of selectors) {
-      for (const root of document.querySelectorAll(selector)) {
-        if (!roots.includes(root)) {
-          roots.push(root);
-        }
-      }
-    }
-
-    return roots;
-  }
-
-  function toTimestampCandidate(link, videoId) {
-    const url = new URL(link.href, location.href);
-    const linkedVideoId = url.searchParams.get("v");
-    if (linkedVideoId && linkedVideoId !== videoId) {
-      return null;
-    }
-
-    const timeParamStart = parseTimeParam(url.searchParams.get("t"));
-    const start = Number.isFinite(timeParamStart) ? timeParamStart : parseTimestampText(link.textContent);
-    if (!Number.isFinite(start)) {
-      return null;
-    }
-
-    const timestampText = link.textContent.trim();
-    const lineText = getTimestampLineText(link);
-    if (isTimestampRangeEndMarker(lineText, timestampText)) {
-      return null;
-    }
-
-    return {
-      start,
-      timestampText,
-      title: cleanTrackTitle(extractTrackTitle(link, lineText)),
-      lineKey: normalizeTitleText(lineText),
-    };
-  }
-
-  function extractTrackTitle(link, lineText = getTimestampLineText(link)) {
-    const timestamp = link.textContent.trim();
-    const lineTitle = titleFromLineFragment(lineText, timestamp);
-    if (lineTitle) {
-      return lineTitle;
-    }
-
-    const inlineText = collectTextAfterTimestampLink(link);
-    return titleFromLineFragment(inlineText, timestamp);
-  }
-
-  function getTimestampLineText(link) {
-    const container = link.closest(".ytAttributedStringHost, yt-attributed-string, #description, div, li, p");
-    const startNode = link.closest(".ytAttributedStringLinkInheritColor") || link;
-    const nodeLineText = getLineTextForNode(container, startNode);
-    if (nodeLineText) {
-      return nodeLineText;
-    }
-
-    const text = container?.innerText || container?.textContent || "";
-    return lineContainingTimestamp(text, link.textContent.trim());
-  }
-
-  function getLineTextForNode(container, targetNode) {
-    if (!container || !targetNode || !container.contains(targetNode)) {
-      return "";
-    }
-
-    let text = "";
-    let targetOffset = -1;
-
-    function visit(node) {
-      if (node === targetNode) {
-        targetOffset = text.length;
-      }
-
-      if (node.nodeType === Node.TEXT_NODE) {
-        text += node.nodeValue || "";
-        return;
-      }
-
-      if (node.nodeType !== Node.ELEMENT_NODE) {
-        return;
-      }
-
-      if (node.tagName === "BR") {
-        text += "\n";
-        return;
-      }
-
-      for (const child of node.childNodes) {
-        visit(child);
-      }
-    }
-
-    visit(container);
-    if (targetOffset === -1) {
-      return "";
-    }
-
-    const lineStart = text.lastIndexOf("\n", Math.max(0, targetOffset - 1)) + 1;
-    const lineEnd = text.indexOf("\n", targetOffset);
-    return text.slice(lineStart, lineEnd === -1 ? text.length : lineEnd);
-  }
-
-  function collectTextAfterTimestampLink(link) {
-    const container = link.closest(".ytAttributedStringHost, yt-attributed-string, #description, div, li, p");
-    const startNode = link.closest(".ytAttributedStringLinkInheritColor") || link;
-    if (!container || !container.contains(startNode)) {
-      return "";
-    }
-
-    let collecting = false;
-    let text = "";
-
-    function visit(node) {
-      if (node === startNode) {
-        collecting = true;
-        return false;
-      }
-
-      if (collecting && node.nodeType === Node.ELEMENT_NODE && node.matches("a")) {
-        return true;
-      }
-
-      if (collecting && node.nodeType === Node.TEXT_NODE) {
-        text += node.nodeValue;
-        return false;
-      }
-
-      if (collecting && node.nodeType === Node.ELEMENT_NODE && node.tagName === "BR") {
-        text += "\n";
-        return false;
-      }
-
-      for (const child of node.childNodes) {
-        if (visit(child)) {
-          return true;
-        }
-      }
-
-      return false;
-    }
-
-    visit(container);
-    return text;
   }
 
   function closePlayer() {
