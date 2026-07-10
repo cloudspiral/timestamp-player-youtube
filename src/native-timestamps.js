@@ -29,6 +29,9 @@
     parseTimeParam,
     parseTimestampText,
   } = globalThis.TimestampPlayerTimestamps;
+  const {
+    getWatchShellVideoId,
+  } = globalThis.TimestampPlayerVideoOwnership;
 
   function getNativeTimestampCandidates(videoId, root = document) {
     return getNativeTimestampDiscovery(videoId, root).candidates;
@@ -122,8 +125,8 @@
     if (!watchShell) {
       return false;
     }
-    const shellVideoId = watchShell.getAttribute?.("video-id") || watchShell.videoId || "";
-    return Boolean(shellVideoId && String(shellVideoId).trim() !== videoId);
+    const shellVideoId = getWatchShellVideoId(watchShell);
+    return Boolean(shellVideoId && shellVideoId !== videoId);
   }
 
   function toNativeTimestampCandidate(link, videoId) {
@@ -147,7 +150,7 @@
     const itemText = getScopedItemLabel(link, item);
     const lineKey = normalizeTitleText(itemText || `${timestampText}:${title}`);
     const watchShell = link.closest?.("ytd-watch-flexy") || null;
-    const shellVideoId = watchShell?.getAttribute?.("video-id") || watchShell?.videoId || "";
+    const shellVideoId = getWatchShellVideoId(watchShell);
 
     return {
       start,
@@ -155,7 +158,7 @@
       title,
       lineKey,
       linkedVideoId: linkedVideoId || "",
-      shellVideoId: typeof shellVideoId === "string" ? shellVideoId.trim() : "",
+      shellVideoId,
     };
   }
 

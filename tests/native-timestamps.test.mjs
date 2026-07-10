@@ -29,8 +29,11 @@ const NATIVE_LABEL_SELECTOR = [
 ].join(",");
 
 async function loadNativeTimestamps() {
-  const timestampSource = await readFile(new URL("../src/timestamps.js", import.meta.url), "utf8");
-  const nativeSource = await readFile(new URL("../src/native-timestamps.js", import.meta.url), "utf8");
+  const [timestampSource, ownershipSource, nativeSource] = await Promise.all([
+    readFile(new URL("../src/timestamps.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/video-ownership.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/native-timestamps.js", import.meta.url), "utf8"),
+  ]);
   const context = vm.createContext({
     location: {
       href: PAGE_URL,
@@ -39,6 +42,7 @@ async function loadNativeTimestamps() {
     URL,
   });
   vm.runInContext(timestampSource, context);
+  vm.runInContext(ownershipSource, context);
   vm.runInContext(nativeSource, context);
   return context.TimestampPlayerNativeTimestamps;
 }

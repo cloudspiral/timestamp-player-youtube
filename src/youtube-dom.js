@@ -130,6 +130,10 @@
     isNativeTimestampSectionElement,
   } = globalThis.TimestampPlayerNativeTimestamps || {};
   const {
+    getMusicPlayerVideoId,
+    getWatchShellVideoId,
+  } = globalThis.TimestampPlayerVideoOwnership;
+  const {
     cleanTrackTitle,
     getTextTimestampCandidates,
     isTimestampRangeEndMarker,
@@ -345,24 +349,6 @@
       return Number.isFinite(timeParamStart) || Number.isFinite(textStart)
         ? linkedVideoId
         : "";
-    }
-
-    function getWatchShellVideoId(watchShell) {
-      const videoId = watchShell?.getAttribute?.("video-id") || watchShell?.videoId;
-      return typeof videoId === "string" ? videoId.trim() : "";
-    }
-
-    function getMusicPlayerVideoId(playerPage) {
-      const candidates = [
-        playerPage?.getAttribute?.("video-id"),
-        playerPage?.getAttribute?.("data-video-id"),
-        playerPage?.videoId,
-        playerPage?.data?.videoId,
-        playerPage?.data?.watchEndpoint?.videoId,
-      ];
-      return candidates.find((candidate) => {
-        return typeof candidate === "string" && candidate.trim();
-      })?.trim() || "";
     }
 
     function getOwningRenderer(element) {

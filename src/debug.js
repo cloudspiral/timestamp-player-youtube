@@ -222,6 +222,7 @@
     ]),
     status: DISCOVERY_STATUS_VALUES,
     videoReason: new Set([
+      "current-music-player",
       "current-watch-player",
       "main-player-ad-showing",
       "no-eligible-video",

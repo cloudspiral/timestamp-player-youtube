@@ -16,6 +16,7 @@
   });
   const OWNERSHIP_RANKS = Object.freeze({
     "watch-current": 400,
+    "music-current": 350,
     "music-primary": 300,
     "watch-pending": 100,
     rejected: 0,
@@ -41,11 +42,19 @@
     "ytmusic-player-page",
     "#player-page",
   ]);
+  const MUSIC_PLAYER_PAGE_SELECTORS = Object.freeze([
+    "ytmusic-player-page",
+    "#player-page",
+  ]);
   const WATCH_SHELL_SELECTOR = "ytd-watch-flexy";
   const PLAYER_CONTAINER_SELECTORS = Object.freeze([
     "#movie_player",
     ".html5-video-player",
   ]);
+  const {
+    getMusicPlayerVideoId,
+    getWatchShellVideoId,
+  } = globalThis.TimestampPlayerVideoOwnership;
 
   function describeVideoElement(element, {
     getComputedStyle: getComputedStyleFn = globalThis.getComputedStyle,
@@ -57,6 +66,7 @@
     const adVideoRoot = closestAny(element, AD_VIDEO_SELECTORS);
     const watchShell = element?.closest?.(WATCH_SHELL_SELECTOR) || null;
     const musicRoot = closestAny(element, MUSIC_PLAYER_SELECTORS);
+    const musicPlayerPage = closestAny(element, MUSIC_PLAYER_PAGE_SELECTORS);
     const playerContainer = closestAny(element, PLAYER_CONTAINER_SELECTORS);
     const rect = element?.getBoundingClientRect?.() || { width: 0, height: 0 };
     const explicitlyHidden = isTreeExplicitlyHidden(element, getComputedStyleFn);
@@ -103,11 +113,12 @@
       hasPrimaryPlayerStructure,
       hostname,
       isMainVideo,
+      musicVideoId: getMusicPlayerVideoId(musicPlayerPage),
       order,
       playerKind,
       readyState: Number.isFinite(element?.readyState) ? element.readyState : 0,
       shellActive: Boolean(watchShell && !shellExplicitlyHidden),
-      shellVideoId: getElementVideoId(watchShell),
+      shellVideoId: getWatchShellVideoId(watchShell),
       visible: !explicitlyHidden && rect.width > 0 && rect.height > 0,
     };
   }
@@ -172,7 +183,11 @@
     return createResolution(
       best,
       VIDEO_RESOLUTION_STATUSES.READY,
-      bestOwnership === "music-primary" ? "youtube-music-fallback" : "current-watch-player"
+      bestOwnership === "music-primary"
+        ? "youtube-music-fallback"
+        : bestOwnership === "music-current"
+          ? "current-music-player"
+          : "current-watch-player"
     );
   }
 
@@ -209,6 +224,9 @@
       && descriptor.hostname === "music.youtube.com"
       && descriptor.playerKind === VIDEO_PLAYER_KINDS.MUSIC
     ) {
+      if (descriptor.musicVideoId) {
+        return descriptor.musicVideoId === videoId ? "music-current" : "rejected";
+      }
       return "music-primary";
     }
     return "rejected";
@@ -241,7 +259,7 @@
   function candidateRank(descriptor, ownership, previousElement) {
     return [
       OWNERSHIP_RANKS[ownership] || 0,
-      descriptor.shellActive || ownership === "music-primary" ? 1 : 0,
+      descriptor.shellActive || ownership.startsWith("music-") ? 1 : 0,
       descriptor.visible ? 1 : 0,
       descriptor.adShowing ? 0 : 1,
       hasUsableDuration(descriptor) ? 1 : 0,
@@ -277,12 +295,6 @@
     }
     return null;
   }
-
-  function getElementVideoId(element) {
-    const videoId = element?.getAttribute?.("video-id") || element?.videoId;
-    return typeof videoId === "string" ? videoId.trim() : "";
-  }
-
   function isTreeExplicitlyHidden(element, getComputedStyleFn) {
     for (let current = element; current; current = current.parentElement) {
       if (

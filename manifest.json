@@ -35,6 +35,7 @@
         "src/debug.js",
         "src/session-diagnostics.js",
         "src/timestamps.js",
+        "src/video-ownership.js",
         "src/native-timestamps.js",
         "src/comment-scoring.js",
         "src/comment-data.js",

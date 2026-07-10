@@ -9,6 +9,7 @@
     "check:manifest": "node -e \"JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')); console.log('manifest ok')\"",
     "test:timestamps": "node --test tests/timestamps.test.mjs",
     "test:native-timestamps": "node --test tests/native-timestamps.test.mjs",
+    "test:video-ownership": "node --test tests/video-ownership.test.mjs",
     "test:youtube-dom": "node --test tests/youtube-dom.test.mjs",
     "test:comment-fetching": "node --test tests/comment-fetching.test.mjs",
     "test:comment-data": "node --test tests/comment-data.test.mjs",

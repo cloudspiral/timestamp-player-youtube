@@ -386,6 +386,7 @@ test("observer configuration covers narrow visibility, text, and video-id hydrat
     "aria-expanded",
     "aria-hidden",
     "class",
+    "data-video-id",
     "hidden",
     "inert",
     "style",

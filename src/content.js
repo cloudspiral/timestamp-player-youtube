@@ -219,6 +219,7 @@
         "aria-expanded",
         "aria-hidden",
         "class",
+        "data-video-id",
         "hidden",
         "inert",
         "style",

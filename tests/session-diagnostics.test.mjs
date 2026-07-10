@@ -125,6 +125,10 @@ test("deduplicates video resolution and launcher snapshots per session", async (
     reason: "main-player-ad-showing",
     status: "ad-playing",
   }), true);
+  assert.equal(diagnostics.videoResolution(session, {
+    reason: "current-music-player",
+    status: "ready",
+  }), true);
 
   assert.equal(diagnostics.launcherSync(session, false), true);
   assert.equal(diagnostics.launcherSync(session, false), false);
@@ -138,6 +142,7 @@ test("deduplicates video resolution and launcher snapshots per session", async (
     [
       ["ready", "current-watch-player"],
       ["ad-playing", "main-player-ad-showing"],
+      ["ready", "current-music-player"],
     ]
   );
   assert.deepEqual(

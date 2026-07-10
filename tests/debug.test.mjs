@@ -222,6 +222,17 @@ test("accepts every discovery status and reason without enum drift", async () =>
   }
 });
 
+test("accepts current Watch and Music media ownership reasons", async () => {
+  const { DEBUG_EVENTS, sanitizeDebugFields } = await loadDebug();
+
+  for (const videoReason of ["current-watch-player", "current-music-player"]) {
+    assert.deepEqual(
+      plain(sanitizeDebugFields(DEBUG_EVENTS.VIDEO_RESOLUTION, { videoReason })),
+      { videoReason }
+    );
+  }
+});
+
 test("drops bodies, identities, titles, tokens, URLs, errors, and unsafe enum strings", async () => {
   const { DEBUG_EVENTS, createDebugLogger, sanitizeDebugFields } = await loadDebug();
   let getterRead = false;

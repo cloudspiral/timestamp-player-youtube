@@ -5,11 +5,13 @@ import vm from "node:vm";
 
 async function loadRuntime() {
   const [
+    ownershipSource,
     resolverSource,
     sessionSource,
     sessionMediaSource,
     mutationSource,
   ] = await Promise.all([
+    readFile(new URL("../src/video-ownership.js", import.meta.url), "utf8"),
     readFile(new URL("../src/video-resolver.js", import.meta.url), "utf8"),
     readFile(new URL("../src/watch-session.js", import.meta.url), "utf8"),
     readFile(new URL("../src/session-media.js", import.meta.url), "utf8"),
@@ -33,6 +35,7 @@ async function loadRuntime() {
       createTrackSelectionState: () => ({}),
     },
   });
+  vm.runInContext(ownershipSource, context);
   vm.runInContext(resolverSource, context);
   vm.runInContext(sessionSource, context);
   vm.runInContext(sessionMediaSource, context);
@@ -498,12 +501,14 @@ test("extension and package wiring load and verify media ownership before conten
     readFile(new URL("../package.json", import.meta.url), "utf8").then(JSON.parse),
   ]);
   const scripts = manifest.content_scripts[0].js;
+  const ownershipIndex = scripts.indexOf("src/video-ownership.js");
   const resolverIndex = scripts.indexOf("src/video-resolver.js");
   const watchSessionIndex = scripts.indexOf("src/watch-session.js");
   const sessionMediaIndex = scripts.indexOf("src/session-media.js");
   const contentIndex = scripts.indexOf("src/content.js");
 
-  assert.ok(resolverIndex >= 0);
+  assert.ok(ownershipIndex >= 0);
+  assert.ok(resolverIndex > ownershipIndex);
   assert.ok(watchSessionIndex > resolverIndex);
   assert.ok(sessionMediaIndex > watchSessionIndex);
   assert.ok(contentIndex > sessionMediaIndex);

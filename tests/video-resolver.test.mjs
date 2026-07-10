@@ -4,8 +4,12 @@ import test from "node:test";
 import vm from "node:vm";
 
 async function loadVideoResolver() {
-  const source = await readFile(new URL("../src/video-resolver.js", import.meta.url), "utf8");
+  const [ownershipSource, source] = await Promise.all([
+    readFile(new URL("../src/video-ownership.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/video-resolver.js", import.meta.url), "utf8"),
+  ]);
   const context = vm.createContext({});
+  vm.runInContext(ownershipSource, context);
   vm.runInContext(source, context);
   return context.TimestampPlayerVideoResolver;
 }
@@ -139,8 +143,11 @@ function createAuxiliaryVideo(kind) {
   return video;
 }
 
-function createMusicVideo({ mainVideoClass = true } = {}) {
-  const playerPage = new FakeElement({ selectors: ["ytmusic-player-page", "#player-page"] });
+function createMusicVideo({ mainVideoClass = true, videoId = null } = {}) {
+  const playerPage = new FakeElement({
+    attributes: videoId === null ? {} : { "video-id": videoId },
+    selectors: ["ytmusic-player-page", "#player-page"],
+  });
   const player = playerPage.append(new FakeElement({ selectors: ["#movie_player"] }));
   return player.append(new FakeElement({
     classes: mainVideoClass ? ["html5-main-video"] : [],
@@ -431,6 +438,35 @@ test("YouTube Music fallback is hostname scoped and loses to an exact watch shel
     videoId: "album",
   });
   assert.equal(exactWatchResolution.element, watch.video);
+});
+
+test("YouTube Music ownership rejects stale players and prefers the current route ID", async () => {
+  const api = await loadVideoResolver();
+  const stale = createMusicVideo({ videoId: "previous-song" });
+  const current = createMusicVideo({ videoId: "current-song" });
+  const unresolved = createMusicVideo();
+  const descriptors = [
+    describe(api, stale, { hostname: "music.youtube.com", order: 0 }),
+    describe(api, unresolved, { hostname: "music.youtube.com", order: 1 }),
+    describe(api, current, { hostname: "music.youtube.com", order: 2 }),
+  ];
+  const resolution = api.selectActiveVideoCandidate(descriptors, {
+    hostname: "music.youtube.com",
+    previousElement: stale,
+    videoId: "current-song",
+  });
+
+  assert.equal(descriptors[0].musicVideoId, "previous-song");
+  assert.equal(descriptors[2].musicVideoId, "current-song");
+  assert.equal(resolution.element, current);
+  assert.equal(resolution.status, api.VIDEO_RESOLUTION_STATUSES.READY);
+  assert.equal(resolution.reason, "current-music-player");
+
+  const staleOnly = api.selectActiveVideoCandidate([descriptors[0]], {
+    hostname: "music.youtube.com",
+    videoId: "current-song",
+  });
+  assert.equal(staleOnly.status, api.VIDEO_RESOLUTION_STATUSES.NOT_FOUND);
 });
 
 test("resolveActiveVideo collects candidate elements from a lightweight root", async () => {

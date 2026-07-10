@@ -94,7 +94,10 @@ const NATIVE_TIMESTAMP_SECTION_SELECTOR = [
 async function loadYouTubeDom(document, location = {
   href: "https://www.youtube.com/watch?v=album",
 }) {
-  const source = await readFile(new URL("../src/youtube-dom.js", import.meta.url), "utf8");
+  const [ownershipSource, source] = await Promise.all([
+    readFile(new URL("../src/video-ownership.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/youtube-dom.js", import.meta.url), "utf8"),
+  ]);
   const context = vm.createContext({
     Node: NodeTypes,
     URL,
@@ -111,6 +114,7 @@ async function loadYouTubeDom(document, location = {
     },
     TimestampPlayerTimestamps: createTimestampApi(),
   });
+  vm.runInContext(ownershipSource, context);
   vm.runInContext(source, context);
   return context.TimestampPlayerYouTubeDom.createYouTubeDom({
     Node: NodeTypes,
