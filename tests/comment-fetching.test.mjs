@@ -568,11 +568,32 @@ test("distinguishes a valid empty comment source from unsupported page data", as
 
 test("visible DOM comments and native moments are not gated on the network fetch", async () => {
   const source = await readFile(new URL("../src/content.js", import.meta.url), "utf8");
-  const domScanIndex = source.indexOf("const domCommentDiscovery = getDomCommentSourceResults(");
-  const fetchStartIndex = source.indexOf("const fetchedCommentDiscovery = getFetchedCommentDiscoveryForSession");
-  const nativeScanIndex = source.indexOf("const nativeDiscovery = getNativeSourceDiscovery");
+  const descriptionWaitStart = source.indexOf("const descriptionNeedsHydration = (");
+  const domScanIndex = source.search(
+    /const domCommentDiscovery = (?:trackDiscovery\.)?getDomCommentSourceResults\(/
+  );
+  const fetchStartIndex = source.search(
+    /const fetchedCommentDiscovery = (?:trackDiscovery\.)?getFetchedCommentDiscoveryForSession\(/
+  );
+  const nativeScanIndex = source.search(
+    /const nativeDiscovery = (?:trackDiscovery\.)?getNativeSourceDiscovery\(/
+  );
 
   assert.ok(domScanIndex >= 0, "the synchronous DOM comment scan should remain in discovery");
+  assert.ok(descriptionWaitStart >= 0, "description readiness should remain explicit");
+  assert.doesNotMatch(
+    source.slice(descriptionWaitStart, domScanIndex),
+    /\breturn;/,
+    "description readiness must not return before provisional alternatives are scanned"
+  );
+  assert.match(
+    source,
+    /descriptionDiscoveryPending = descriptionDiscoveryPending[\s\S]*?!session\.retries\.sourceDiscovery\.exhausted/
+  );
+  assert.match(
+    source,
+    /if \(!descriptionDiscoveryPending\) \{\s*collapseDescriptionIfNeeded\(session\);/
+  );
   assert.ok(domScanIndex < fetchStartIndex, "visible comments should be checked before network discovery starts");
   assert.ok(nativeScanIndex > fetchStartIndex, "native discovery should remain a synchronous fallback while fetch is pending");
   assert.doesNotMatch(source, /commentFetchPending|tracksLocked|shouldLockSessionTracks/);

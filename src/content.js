@@ -600,6 +600,7 @@
     }
     const observation = beginTrackSelectionObservation(session.trackSelection);
     let awaitingSourceConfirmation = false;
+    let descriptionDiscoveryPending = false;
     const quietDescriptionReadable = canReadQuietDescription(videoId);
     const descriptionDiscovery = getDescriptionSourceResults(session, video.duration, observation);
     awaitingSourceConfirmation = considerTrackSourceResults(
@@ -614,39 +615,17 @@
       || awaitingSourceConfirmation;
     const descriptionSelected = selectedSourceKind(session) === TRACK_SOURCE_KINDS.DESCRIPTION;
 
-    if (
+    const descriptionNeedsHydration = (
       !descriptionSelected
       && descriptionDiscovery.candidateCount < 2
       && !quietDescriptionReadable
-      && shouldWaitForQuietDescriptionScan(session)
-    ) {
-      transitionSessionDiscovery(
-        session,
-        DISCOVERY_STATUSES.PENDING,
-        DISCOVERY_REASONS.WAITING_FOR_DESCRIPTION
-      );
-      scheduleSourceDiscoveryRetry(session);
-      applySelectedTracksForSession(session, video);
-      updateUi();
-      return;
+    );
+    if (descriptionNeedsHydration) {
+      descriptionDiscoveryPending = true;
+      if (!shouldWaitForQuietDescriptionScan(session)) {
+        expandDescriptionIfAvailable(session);
+      }
     }
-
-    if (
-      !descriptionSelected
-      && descriptionDiscovery.candidateCount < 2
-      && !quietDescriptionReadable
-      && expandDescriptionIfAvailable(session)
-    ) {
-      transitionSessionDiscovery(
-        session,
-        DISCOVERY_STATUSES.PENDING,
-        DISCOVERY_REASONS.WAITING_FOR_DESCRIPTION
-      );
-      applySelectedTracksForSession(session, video);
-      updateUi();
-      return;
-    }
-
     const shouldDiscoverAlternativeSources = !descriptionSelected
       || trackSourceNeedsTitleEnrichment(session.trackSelection.current);
     if (shouldDiscoverAlternativeSources) {
@@ -702,15 +681,19 @@
     if (
       selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED
       && !awaitingSourceConfirmation
+      && !descriptionDiscoveryPending
     ) {
       resetSessionRetry(session, "sourceDiscovery");
     } else {
       scheduleSourceDiscoveryRetry(session);
     }
+    descriptionDiscoveryPending = descriptionDiscoveryPending
+      && !session.retries.sourceDiscovery.exhausted;
 
     const discoveryTarget = deriveDiscoveryTarget({
       awaitingSourceConfirmation,
       commentDiscoveryPending: isCommentDiscoveryPending(session),
+      descriptionDiscoveryPending,
       hasSelectedSource: Boolean(selectedResult),
       selectedSourceSettled: selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED,
       sourceDiscoveryExhausted: session.retries.sourceDiscovery.exhausted,
@@ -727,7 +710,9 @@
 
     applySelectedTracksForSession(session, video);
     maybeAutoOpenCompact(session);
-    collapseDescriptionIfNeeded(session);
+    if (!descriptionDiscoveryPending) {
+      collapseDescriptionIfNeeded(session);
+    }
     updateUi();
   }
 
@@ -896,7 +881,6 @@
     session.description.expanded = true;
     session.description.shouldCollapse = true;
     expandButton.click();
-    scheduleScan(session);
     return true;
   }
 

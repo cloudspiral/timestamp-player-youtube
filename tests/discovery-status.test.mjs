@@ -203,6 +203,10 @@ test("derives ready, pending, and exhausted outcomes from separable session fact
       expected: [DISCOVERY_STATUSES.PENDING, DISCOVERY_REASONS.PROVISIONAL_SOURCE],
     },
     {
+      facts: { descriptionDiscoveryPending: true, hasSelectedSource: true },
+      expected: [DISCOVERY_STATUSES.PENDING, DISCOVERY_REASONS.PROVISIONAL_SOURCE],
+    },
+    {
       facts: { awaitingSourceConfirmation: true, hasSelectedSource: true },
       expected: [DISCOVERY_STATUSES.PENDING, DISCOVERY_REASONS.VERIFYING_SOURCE],
     },
@@ -221,6 +225,10 @@ test("derives ready, pending, and exhausted outcomes from separable session fact
     {
       facts: { commentDiscoveryPending: true, sourceDiscoveryExhausted: true },
       expected: [DISCOVERY_STATUSES.PENDING, DISCOVERY_REASONS.WAITING_FOR_COMMENT_FETCH],
+    },
+    {
+      facts: { descriptionDiscoveryPending: true, sourceDiscoveryExhausted: true },
+      expected: [DISCOVERY_STATUSES.PENDING, DISCOVERY_REASONS.WAITING_FOR_DESCRIPTION],
     },
     {
       facts: { awaitingSourceConfirmation: true },

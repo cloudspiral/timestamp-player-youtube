@@ -85,6 +85,7 @@
     adPlaying = false,
     awaitingSourceConfirmation = false,
     commentDiscoveryPending = false,
+    descriptionDiscoveryPending = false,
     hasSelectedSource = false,
     sourceDiscoveryExhausted = false,
     selectedSourceSettled = false,
@@ -132,6 +133,13 @@
         awaitingSourceConfirmation
           ? DISCOVERY_REASONS.VERIFYING_SOURCE
           : DISCOVERY_REASONS.PROVISIONAL_SOURCE
+      );
+    }
+
+    if (descriptionDiscoveryPending) {
+      return createTarget(
+        DISCOVERY_STATUSES.PENDING,
+        DISCOVERY_REASONS.WAITING_FOR_DESCRIPTION
       );
     }
 
