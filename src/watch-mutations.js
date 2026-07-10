@@ -9,6 +9,8 @@
   const WATCH_MUTATION_ROOT_SELECTOR = "ytd-page-manager, ytmusic-app-layout";
   const DIRECT_MATCH_ONLY_SELECTORS = new Set([
     "ytd-watch-flexy",
+    "ytmusic-player-page",
+    "#player-page",
   ]);
 
   const DOMAIN_SELECTORS = Object.freeze({
@@ -16,6 +18,7 @@
       "#top-level-buttons-computed",
       "ytd-watch-metadata #actions",
       "#above-the-fold #actions",
+      "ytmusic-player-page #actions",
     ]),
     [WATCH_MUTATION_DOMAINS.COMMENTS]: Object.freeze([
       "ytd-comments",
@@ -31,6 +34,7 @@
       "ytd-watch-metadata ytd-text-inline-expander",
       "ytd-expandable-video-description-body-renderer",
       "ytd-structured-description-content-renderer",
+      "ytmusic-description-shelf-renderer",
     ]),
     [WATCH_MUTATION_DOMAINS.NATIVE]: Object.freeze([
       "ytd-watch-metadata ytd-horizontal-card-list-renderer",

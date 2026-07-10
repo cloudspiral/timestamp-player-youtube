@@ -287,6 +287,34 @@ test("late text and watch-shell hydration route discovery and media work indepen
   assert.equal(settledWatchShellMutation.media, true);
 });
 
+test("late YouTube Music description and action hydration trigger focused work", async () => {
+  const { mutations } = await loadRuntime();
+  const musicPage = new FakeNode("ytmusic-player-page", "#player-page");
+  const description = new FakeNode("ytmusic-description-shelf-renderer");
+  const actionRow = new FakeNode("ytmusic-player-page #actions");
+  const player = new FakeNode("ytmusic-player");
+  const playerChild = new FakeNode("video.html5-main-video");
+  const unrelatedChild = new FakeNode("ytmusic-tab-renderer");
+  musicPage.append(description, actionRow, player, unrelatedChild);
+  player.append(playerChild);
+
+  const descriptionResult = mutations.classifyWatchMutations([mutation(description)]);
+  const actionResult = mutations.classifyWatchMutations([mutation(actionRow)]);
+  const playerResult = mutations.classifyWatchMutations([mutation(playerChild)]);
+  const unrelatedResult = mutations.classifyWatchMutations([mutation(unrelatedChild)]);
+
+  assert.equal(descriptionResult.discovery, true);
+  assert.equal(descriptionResult.domains.has(mutations.WATCH_MUTATION_DOMAINS.DESCRIPTION), true);
+  assert.equal(actionResult.launcher, true);
+  assert.equal(actionResult.discovery, false);
+  assert.equal(playerResult.media, true);
+  assert.equal(
+    unrelatedResult.media,
+    false,
+    "ordinary player-page descendants must not all become media mutations"
+  );
+});
+
 test("player mutations dispatch lightweight media work without parser discovery", async () => {
   const { mutations } = await loadRuntime();
   const player = new FakeNode("#movie_player", ".html5-video-player");
