@@ -6,6 +6,8 @@
   const PLAYER_MIN_VISIBLE_WIDTH = 180;
   const PLAYER_MIN_VISIBLE_HEIGHT = 100;
   const COMPACT_PLAYER_MIN_WIDTH = 300;
+  const KEYBOARD_LAYOUT_STEP = 10;
+  const KEYBOARD_LAYOUT_FINE_STEP = 1;
   const PANEL_MODES = Object.freeze({
     ANCHORED: "anchored",
     FLOATING: "floating",
@@ -31,6 +33,7 @@
     let resizeHandle = null;
     let compactHost = null;
     let connected = false;
+    let keyboardInteraction = null;
 
     let playerPosition = null;
     let playerSize = null;
@@ -78,7 +81,11 @@
       dragHandle = nextDragHandle;
       resizeHandle = nextResizeHandle;
       dragHandle?.addEventListener?.("pointerdown", handleDragPointerDown);
+      dragHandle?.addEventListener?.("keydown", handleDragKeyDown);
+      dragHandle?.addEventListener?.("blur", handleDragBlur);
       resizeHandle?.addEventListener?.("pointerdown", handleResizePointerDown);
+      resizeHandle?.addEventListener?.("keydown", handleResizeKeyDown);
+      resizeHandle?.addEventListener?.("blur", handleResizeBlur);
       windowObject?.addEventListener?.("resize", schedule);
       windowObject?.visualViewport?.addEventListener?.("resize", schedule);
       connected = true;
@@ -86,9 +93,14 @@
     }
 
     function disconnect() {
+      finishKeyboardInteraction(false);
       cancelPointerInteractions();
       dragHandle?.removeEventListener?.("pointerdown", handleDragPointerDown);
+      dragHandle?.removeEventListener?.("keydown", handleDragKeyDown);
+      dragHandle?.removeEventListener?.("blur", handleDragBlur);
       resizeHandle?.removeEventListener?.("pointerdown", handleResizePointerDown);
+      resizeHandle?.removeEventListener?.("keydown", handleResizeKeyDown);
+      resizeHandle?.removeEventListener?.("blur", handleResizeBlur);
       windowObject?.removeEventListener?.("resize", schedule);
       windowObject?.visualViewport?.removeEventListener?.("resize", schedule);
       cancelScheduledLayout();
@@ -131,10 +143,14 @@
 
     function layoutNow(nextView = null) {
       if (nextView) {
-        view = {
+        const candidateView = {
           ...view,
           ...nextView,
         };
+        if (keyboardInteraction && !keyboardInteractionMatchesView(candidateView)) {
+          finishKeyboardInteraction(false);
+        }
+        view = candidateView;
       }
       if (!root || !view.visible) {
         return false;
@@ -218,13 +234,7 @@
       }
 
       const rect = root.getBoundingClientRect();
-      const viewport = getViewportSize();
-      const position = clampPlayerPosition(
-        viewport.width - rect.width - 18,
-        viewport.height - rect.height - 88,
-        rect.width,
-        rect.height
-      );
+      const position = getDefaultFloatingPosition(rect.width, rect.height);
       applyPlayerPosition(position);
     }
 
@@ -526,6 +536,361 @@
       };
     }
 
+    function handleDragKeyDown(event) {
+      handleKeyboardLayoutKey(event, "drag");
+    }
+
+    function handleResizeKeyDown(event) {
+      handleKeyboardLayoutKey(event, "resize");
+    }
+
+    function handleDragBlur() {
+      if (keyboardInteraction?.kind === "drag") {
+        finishKeyboardInteraction(false);
+      }
+    }
+
+    function handleResizeBlur() {
+      if (keyboardInteraction?.kind === "resize") {
+        finishKeyboardInteraction(false);
+      }
+    }
+
+    function handleKeyboardLayoutKey(event, kind) {
+      const key = event.key === "Spacebar" ? " " : event.key;
+      const active = keyboardInteraction?.kind === kind;
+      if (!active) {
+        if ((key === "Enter" || key === " ") && !event.repeat) {
+          if (keyboardInteraction) {
+            finishKeyboardInteraction(false);
+          }
+          const started = kind === "drag"
+            ? startKeyboardDrag()
+            : startKeyboardResize();
+          if (started) {
+            consumeKeyboardEvent(event);
+          }
+        }
+        return;
+      }
+
+      if (key === "Enter") {
+        consumeKeyboardEvent(event);
+        if (!event.repeat) {
+          finishKeyboardInteraction(true);
+        }
+        return;
+      }
+      if (key === " ") {
+        consumeKeyboardEvent(event);
+        return;
+      }
+      if (key === "Escape") {
+        consumeKeyboardEvent(event);
+        finishKeyboardInteraction(false);
+        return;
+      }
+      if (key === "Home") {
+        consumeKeyboardEvent(event);
+        resetKeyboardInteraction();
+        return;
+      }
+      if (!["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp"].includes(key)) {
+        return;
+      }
+
+      consumeKeyboardEvent(event);
+      const step = event.shiftKey ? KEYBOARD_LAYOUT_FINE_STEP : KEYBOARD_LAYOUT_STEP;
+      if (kind === "drag") {
+        movePlayerFromKeyboard(key, step);
+      } else {
+        resizePlayerFromKeyboard(key, step);
+      }
+    }
+
+    function consumeKeyboardEvent(event) {
+      event.preventDefault();
+      event.stopPropagation?.();
+    }
+
+    function startKeyboardDrag() {
+      if (
+        !root
+        || !dragHandle
+        || !view.visible
+        || view.panelMode !== PANEL_MODES.FLOATING
+        || dragPointerId !== null
+        || resizePointerId !== null
+      ) {
+        return false;
+      }
+
+      const snapshot = captureLayoutSnapshot();
+      const rect = root.getBoundingClientRect();
+      applyPlayerPosition(clampPlayerPosition(rect.left, rect.top, rect.width, rect.height));
+      keyboardInteraction = {
+        kind: "drag",
+        reset: false,
+        resizeMode: null,
+        snapshot,
+      };
+      root.classList.add("is-dragging");
+      dragHandle.setAttribute?.("aria-pressed", "true");
+      return true;
+    }
+
+    function startKeyboardResize() {
+      const mode = getCurrentResizeMode();
+      if (
+        !root
+        || !resizeHandle
+        || !view.visible
+        || !mode
+        || dragPointerId !== null
+        || resizePointerId !== null
+      ) {
+        return false;
+      }
+
+      const snapshot = captureLayoutSnapshot();
+      const rect = root.getBoundingClientRect();
+      if (mode === RESIZE_MODES.ANCHORED) {
+        const { alignmentRect, anchorRect } = getResizeAnchors();
+        applyAnchoredPlayerSize(
+          clampAnchoredPlayerSize(rect.width, rect.height, alignmentRect, anchorRect)
+        );
+        layoutNow();
+      } else if (mode === RESIZE_MODES.COMPACT_WIDTH) {
+        const { alignmentRect } = getResizeAnchors();
+        applyCompactPlayerWidth(clampCompactPlayerWidth(rect.width, alignmentRect));
+        layoutNow();
+      } else {
+        const size = clampPlayerSize(rect.width, rect.height);
+        applyPlayerPosition(clampPlayerPosition(rect.left, rect.top, size.width, size.height));
+        applyPlayerSize(size);
+      }
+
+      keyboardInteraction = {
+        kind: "resize",
+        reset: false,
+        resizeMode: mode,
+        snapshot,
+      };
+      root.classList.add("is-resizing");
+      resizeHandle.setAttribute?.("aria-pressed", "true");
+      return true;
+    }
+
+    function movePlayerFromKeyboard(key, step) {
+      if (keyboardInteraction?.kind !== "drag" || !root) {
+        return false;
+      }
+
+      const rect = root.getBoundingClientRect();
+      const horizontal = key === "ArrowLeft" ? -step : key === "ArrowRight" ? step : 0;
+      const vertical = key === "ArrowUp" ? -step : key === "ArrowDown" ? step : 0;
+      applyPlayerPosition(
+        clampPlayerPosition(
+          rect.left + horizontal,
+          rect.top + vertical,
+          rect.width,
+          rect.height
+        )
+      );
+      keyboardInteraction.reset = false;
+      return true;
+    }
+
+    function resizePlayerFromKeyboard(key, step) {
+      const mode = keyboardInteraction?.resizeMode;
+      if (keyboardInteraction?.kind !== "resize" || !root || !mode) {
+        return false;
+      }
+
+      const rect = root.getBoundingClientRect();
+      const width = rect.width
+        + (key === "ArrowLeft" ? step : key === "ArrowRight" ? -step : 0);
+      const height = rect.height
+        + (key === "ArrowUp" ? step : key === "ArrowDown" ? -step : 0);
+      const { alignmentRect, anchorRect } = getResizeAnchors();
+      if (mode === RESIZE_MODES.ANCHORED) {
+        applyAnchoredPlayerSize(
+          clampAnchoredPlayerSize(width, height, alignmentRect, anchorRect)
+        );
+        layoutNow();
+      } else if (mode === RESIZE_MODES.COMPACT_WIDTH) {
+        if (key === "ArrowLeft" || key === "ArrowRight") {
+          applyCompactPlayerWidth(clampCompactPlayerWidth(width, alignmentRect));
+          layoutNow();
+        }
+      } else {
+        const size = clampTopLeftResizeSize(width, height, rect.right, rect.bottom);
+        applyPlayerPosition({
+          left: rect.right - size.width,
+          top: rect.bottom - size.height,
+        });
+        applyPlayerSize(size);
+      }
+      keyboardInteraction.reset = false;
+      return true;
+    }
+
+    function resetKeyboardInteraction() {
+      if (!keyboardInteraction || !root) {
+        return false;
+      }
+
+      if (keyboardInteraction.kind === "drag") {
+        const rect = root.getBoundingClientRect();
+        applyPlayerPosition(getDefaultFloatingPosition(rect.width, rect.height));
+      } else if (keyboardInteraction.resizeMode === RESIZE_MODES.ANCHORED) {
+        anchoredWidth = null;
+        anchoredHeight = null;
+        clearPlayerSize();
+        layoutNow();
+      } else if (keyboardInteraction.resizeMode === RESIZE_MODES.COMPACT_WIDTH) {
+        compactWidth = null;
+        clearPlayerSize();
+        layoutNow();
+      } else {
+        playerSize = null;
+        clearPlayerSize();
+        const rect = root.getBoundingClientRect();
+        positionPlayer(rect.left, rect.top);
+      }
+      keyboardInteraction.reset = true;
+      return true;
+    }
+
+    function finishKeyboardInteraction(commit) {
+      const interaction = keyboardInteraction;
+      if (!interaction) {
+        return false;
+      }
+
+      keyboardInteraction = null;
+      root?.classList.remove(interaction.kind === "drag" ? "is-dragging" : "is-resizing");
+      dragHandle?.setAttribute?.("aria-pressed", "false");
+      resizeHandle?.setAttribute?.("aria-pressed", "false");
+      if (!commit) {
+        restoreLayoutSnapshot(interaction);
+        return true;
+      }
+
+      if (interaction.kind === "drag") {
+        if (interaction.reset) {
+          playerPosition = null;
+        }
+        saveFloatingPlayerLayout();
+      } else if (interaction.resizeMode === RESIZE_MODES.ANCHORED) {
+        saveAnchoredPlayerLayout();
+      } else if (interaction.resizeMode === RESIZE_MODES.COMPACT_WIDTH) {
+        saveCompactPlayerLayout();
+      } else {
+        saveFloatingPlayerLayout();
+      }
+      return true;
+    }
+
+    function captureLayoutSnapshot() {
+      const rect = root.getBoundingClientRect();
+      return {
+        anchoredHeight,
+        anchoredWidth,
+        compactWidth,
+        playerPosition: playerPosition ? { ...playerPosition } : null,
+        playerSize: playerSize ? { ...playerSize } : null,
+        rect: {
+          height: rect.height,
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+        },
+      };
+    }
+
+    function restoreLayoutSnapshot(interaction) {
+      const snapshot = interaction.snapshot;
+      anchoredHeight = snapshot.anchoredHeight;
+      anchoredWidth = snapshot.anchoredWidth;
+      compactWidth = snapshot.compactWidth;
+      playerPosition = snapshot.playerPosition ? { ...snapshot.playerPosition } : null;
+      playerSize = snapshot.playerSize ? { ...snapshot.playerSize } : null;
+
+      if (interaction.kind === "drag") {
+        restoreFloatingPosition(snapshot);
+        return;
+      }
+      if (interaction.resizeMode === RESIZE_MODES.FLOATING) {
+        if (snapshot.playerSize) {
+          applyPlayerSize(snapshot.playerSize);
+        } else {
+          playerSize = null;
+          clearPlayerSize();
+        }
+        restoreFloatingPosition(snapshot);
+        return;
+      }
+
+      clearPlayerSize();
+      layoutNow();
+    }
+
+    function restoreFloatingPosition(snapshot) {
+      if (snapshot.playerPosition) {
+        applyPlayerPosition(snapshot.playerPosition);
+        return;
+      }
+      applyRootPosition({ left: snapshot.rect.left, top: snapshot.rect.top });
+      playerPosition = null;
+    }
+
+    function getCurrentResizeMode() {
+      return getResizeModeForView(view);
+    }
+
+    function getResizeModeForView(candidateView) {
+      if (candidateView.panelMode === PANEL_MODES.FLOATING) {
+        return RESIZE_MODES.FLOATING;
+      }
+      if (candidateView.panelMode === PANEL_MODES.ANCHORED && candidateView.anchoredCompact) {
+        return RESIZE_MODES.COMPACT_WIDTH;
+      }
+      if (candidateView.panelMode === PANEL_MODES.ANCHORED) {
+        return RESIZE_MODES.ANCHORED;
+      }
+      return null;
+    }
+
+    function keyboardInteractionMatchesView(candidateView) {
+      if (!candidateView.visible) {
+        return false;
+      }
+      if (keyboardInteraction.kind === "drag") {
+        return candidateView.panelMode === PANEL_MODES.FLOATING;
+      }
+      return keyboardInteraction.resizeMode === getResizeModeForView(candidateView);
+    }
+
+    function getResizeAnchors() {
+      const launcher = getLauncherElement();
+      return {
+        alignmentRect: findCompactActionAnchor()?.getBoundingClientRect()
+          || (launcher?.isConnected ? launcher.getBoundingClientRect() : null),
+        anchorRect: launcher?.isConnected ? launcher.getBoundingClientRect() : null,
+      };
+    }
+
+    function getDefaultFloatingPosition(width, height) {
+      const viewport = getViewportSize();
+      return clampPlayerPosition(
+        viewport.width - width - 18,
+        viewport.height - height - 88,
+        width,
+        height
+      );
+    }
+
     function handleDragPointerDown(event) {
       if (view.panelMode !== PANEL_MODES.FLOATING || !root || !dragHandle) {
         return;
@@ -534,6 +899,8 @@
         return;
       }
 
+      finishKeyboardInteraction(false);
+      dragHandle.focus?.({ preventScroll: true });
       event.preventDefault();
       const rect = root.getBoundingClientRect();
       dragPointerId = event.pointerId;
@@ -582,6 +949,8 @@
         return;
       }
 
+      finishKeyboardInteraction(false);
+      resizeHandle.focus?.({ preventScroll: true });
       event.preventDefault();
       const rect = root.getBoundingClientRect();
       const launcher = getLauncherElement();
@@ -744,6 +1113,8 @@
         connected,
         dragPointerId,
         framePending: playerLayoutFrame !== null,
+        keyboardMode: keyboardInteraction?.kind || null,
+        keyboardReset: keyboardInteraction?.reset || false,
         playerPosition: playerPosition ? { ...playerPosition } : null,
         playerSize: playerSize ? { ...playerSize } : null,
         resizeMode,

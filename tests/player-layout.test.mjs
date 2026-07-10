@@ -89,6 +89,7 @@ class FakeElement extends FakeEventTarget {
     this.documentObject = documentObject;
     this.parentElement = null;
     this.children = [];
+    this.attributes = new Map();
     this.classList = new FakeClassList();
     this.style = {};
     this.id = "";
@@ -186,6 +187,18 @@ class FakeElement extends FakeEventTarget {
     };
   }
 
+  focus() {
+    this.documentObject.activeElement = this;
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
   setPointerCapture(pointerId) {
     this.pointerCaptures.add(pointerId);
   }
@@ -203,6 +216,7 @@ class FakeElement extends FakeEventTarget {
 class FakeDocument {
   constructor(windowObject) {
     this.windowObject = windowObject;
+    this.activeElement = null;
     this.documentElement = new FakeElement(this);
   }
 
@@ -270,6 +284,24 @@ function pointerEvent(type, overrides = {}) {
       this.defaultPrevented = true;
     },
     type,
+    ...overrides,
+  };
+}
+
+function keyEvent(key, overrides = {}) {
+  return {
+    defaultPrevented: false,
+    key,
+    propagationStopped: false,
+    repeat: false,
+    shiftKey: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+    stopPropagation() {
+      this.propagationStopped = true;
+    },
+    type: "keydown",
     ...overrides,
   };
 }
@@ -458,7 +490,11 @@ test("connecting identical elements is idempotent and preserves an active compac
   assert.equal(host.isConnected, true);
   assert.equal(harness.root.parentElement, host);
   assert.equal(harness.dragHandle.listenerCount("pointerdown"), 1);
+  assert.equal(harness.dragHandle.listenerCount("keydown"), 1);
+  assert.equal(harness.dragHandle.listenerCount("blur"), 1);
   assert.equal(harness.resizeHandle.listenerCount("pointerdown"), 1);
+  assert.equal(harness.resizeHandle.listenerCount("keydown"), 1);
+  assert.equal(harness.resizeHandle.listenerCount("blur"), 1);
   assert.equal(harness.windowObject.listenerCount("resize"), 1);
   assert.equal(harness.windowObject.visualViewport.listenerCount("resize"), 1);
 });
@@ -613,6 +649,10 @@ test("floating drag clamps, captures the pointer, and persists on cancel", async
   assert.equal(down.defaultPrevented, true);
   assert.equal(harness.dragHandle.hasPointerCapture(7), true);
   assert.equal(harness.root.classList.contains("is-dragging"), true);
+  const keyboardWhilePointerActive = keyEvent("Enter");
+  harness.dragHandle.dispatchEvent(keyboardWhilePointerActive);
+  assert.equal(keyboardWhilePointerActive.defaultPrevented, false);
+  assert.equal(harness.controller.getSnapshot().keyboardMode, null);
 
   harness.dragHandle.dispatchEvent(pointerEvent("pointermove", {
     clientX: 999,
@@ -670,6 +710,228 @@ test("floating top-left resize preserves the opposite corner and persists", asyn
   }]);
 });
 
+test("keyboard floating drag supports mode entry, coarse and fine arrows, rollback, and commit", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 200, left: 100, top: 100, width: 400 },
+  });
+  harness.controller.hydrate({
+    floatingPlayerPosition: { left: 100, top: 100 },
+    floatingPlayerSize: { height: 200, width: 400 },
+  });
+  harness.controller.layoutNow({
+    panelMode: harness.runtime.PANEL_MODES.FLOATING,
+    visible: true,
+  });
+
+  const inactiveArrow = keyEvent("ArrowRight");
+  harness.dragHandle.dispatchEvent(inactiveArrow);
+  assert.equal(inactiveArrow.defaultPrevented, false);
+  assert.deepEqual(plain(harness.controller.getSnapshot().playerPosition), { left: 100, top: 100 });
+
+  const enter = keyEvent("Enter");
+  harness.dragHandle.dispatchEvent(enter);
+  assert.equal(enter.defaultPrevented, true);
+  assert.equal(enter.propagationStopped, true);
+  assert.equal(harness.controller.getSnapshot().keyboardMode, "drag");
+  assert.equal(harness.root.classList.contains("is-dragging"), true);
+  assert.equal(harness.dragHandle.getAttribute("aria-pressed"), "true");
+
+  harness.dragHandle.dispatchEvent(keyEvent("ArrowRight"));
+  harness.dragHandle.dispatchEvent(keyEvent("ArrowDown", { shiftKey: true }));
+  assert.deepEqual(plain(harness.controller.getSnapshot().playerPosition), { left: 110, top: 101 });
+
+  const escape = keyEvent("Escape");
+  harness.dragHandle.dispatchEvent(escape);
+  assert.equal(escape.propagationStopped, true, "layout Escape must not close the panel");
+  assert.deepEqual(plain(harness.controller.getSnapshot().playerPosition), { left: 100, top: 100 });
+  assert.equal(harness.controller.getSnapshot().keyboardMode, null);
+  assert.equal(harness.root.classList.contains("is-dragging"), false);
+  assert.equal(harness.dragHandle.getAttribute("aria-pressed"), "false");
+  assert.deepEqual(harness.saves, []);
+
+  harness.dragHandle.dispatchEvent(keyEvent(" "));
+  for (let index = 0; index < 20; index += 1) {
+    harness.dragHandle.dispatchEvent(keyEvent("ArrowLeft", { repeat: index > 0 }));
+  }
+  assert.deepEqual(plain(harness.controller.getSnapshot().playerPosition), { left: 8, top: 100 });
+  harness.dragHandle.dispatchEvent(keyEvent("Enter"));
+  assert.deepEqual(harness.saves, [{
+    floatingPlayerPosition: { left: 8, top: 100 },
+    floatingPlayerSize: { height: 200, width: 400 },
+  }]);
+});
+
+test("keyboard drag Home previews a default reset that Escape can undo or Enter can persist", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 200, left: 100, top: 100, width: 400 },
+  });
+  harness.controller.hydrate({
+    floatingPlayerPosition: { left: 100, top: 100 },
+    floatingPlayerSize: { height: 200, width: 400 },
+  });
+  harness.controller.layoutNow({
+    panelMode: harness.runtime.PANEL_MODES.FLOATING,
+    visible: true,
+  });
+
+  harness.dragHandle.dispatchEvent(keyEvent("Enter"));
+  harness.dragHandle.dispatchEvent(keyEvent("Home"));
+  assert.equal(harness.controller.getSnapshot().keyboardReset, true);
+  assert.deepEqual(plain(harness.controller.getSnapshot().playerPosition), { left: 582, top: 412 });
+  harness.dragHandle.dispatchEvent(keyEvent("Escape"));
+  assert.deepEqual(plain(harness.controller.getSnapshot().playerPosition), { left: 100, top: 100 });
+  assert.deepEqual(harness.saves, []);
+
+  harness.dragHandle.dispatchEvent(keyEvent("Enter"));
+  harness.dragHandle.dispatchEvent(keyEvent("Home"));
+  harness.dragHandle.dispatchEvent(keyEvent("Enter"));
+  assert.equal(harness.controller.getSnapshot().playerPosition, null);
+  assert.deepEqual(harness.saves, [{
+    floatingPlayerPosition: null,
+    floatingPlayerSize: { height: 200, width: 400 },
+  }]);
+});
+
+test("keyboard floating resize preserves its opposite corner and rolls back on blur", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 240, left: 200, top: 150, width: 400 },
+  });
+  harness.controller.hydrate({
+    floatingPlayerPosition: { left: 200, top: 150 },
+    floatingPlayerSize: { height: 240, width: 400 },
+  });
+  harness.controller.layoutNow({
+    panelMode: harness.runtime.PANEL_MODES.FLOATING,
+    visible: true,
+  });
+
+  harness.resizeHandle.dispatchEvent(keyEvent("Enter"));
+  harness.resizeHandle.dispatchEvent(keyEvent("ArrowLeft"));
+  harness.resizeHandle.dispatchEvent(keyEvent("ArrowUp", { shiftKey: true }));
+  let snapshot = harness.controller.getSnapshot();
+  assert.deepEqual(plain(snapshot.playerSize), { height: 241, width: 410 });
+  assert.deepEqual(plain(snapshot.playerPosition), { left: 190, top: 149 });
+  assert.equal(snapshot.playerPosition.left + snapshot.playerSize.width, 600);
+  assert.equal(snapshot.playerPosition.top + snapshot.playerSize.height, 390);
+  harness.resizeHandle.dispatchEvent(keyEvent("Enter"));
+  assert.deepEqual(harness.saves, [{
+    floatingPlayerPosition: { left: 190, top: 149 },
+    floatingPlayerSize: { height: 241, width: 410 },
+  }]);
+
+  harness.resizeHandle.dispatchEvent(keyEvent("Enter"));
+  harness.resizeHandle.dispatchEvent(keyEvent("ArrowRight"));
+  harness.resizeHandle.dispatchEvent({ type: "blur" });
+  snapshot = harness.controller.getSnapshot();
+  assert.deepEqual(plain(snapshot.playerSize), { height: 241, width: 410 });
+  assert.deepEqual(plain(snapshot.playerPosition), { left: 190, top: 149 });
+  assert.equal(snapshot.keyboardMode, null);
+  assert.equal(harness.resizeHandle.getAttribute("aria-pressed"), "false");
+  assert.equal(harness.saves.length, 1, "blur rollback must not persist partial geometry");
+
+  harness.resizeHandle.dispatchEvent(keyEvent("Enter"));
+  harness.resizeHandle.dispatchEvent(keyEvent("Home"));
+  assert.equal(harness.controller.getSnapshot().playerSize, null);
+  harness.resizeHandle.dispatchEvent(keyEvent("Escape"));
+  snapshot = harness.controller.getSnapshot();
+  assert.deepEqual(plain(snapshot.playerSize), { height: 241, width: 410 });
+  assert.deepEqual(plain(snapshot.playerPosition), { left: 190, top: 149 });
+  assert.equal(harness.saves.length, 1, "Escape restores a resize reset without saving");
+});
+
+test("keyboard resize uses anchored and compact clamps plus mode-specific saves and resets", async () => {
+  const anchored = await createHarness({
+    rootRect: { height: 240, left: 300, top: 200, width: 400 },
+    viewportHeight: 800,
+    viewportWidth: 1000,
+  });
+  anchored.refs.launcher = anchored.element({ height: 40, left: 760, top: 600, width: 100 });
+  anchored.refs.actionAnchor = anchored.element({ height: 40, left: 450, top: 600, width: 430 });
+  anchored.documentObject.documentElement.append(
+    anchored.refs.launcher,
+    anchored.refs.actionAnchor
+  );
+  anchored.controller.hydrate({
+    anchoredPlayerSize: { height: 240, width: 400 },
+  });
+  anchored.controller.layoutNow({
+    anchoredCompact: false,
+    panelMode: anchored.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+  anchored.resizeHandle.dispatchEvent(keyEvent(" "));
+  anchored.resizeHandle.dispatchEvent(keyEvent("ArrowLeft"));
+  anchored.resizeHandle.dispatchEvent(keyEvent("ArrowUp"));
+  anchored.resizeHandle.dispatchEvent(keyEvent("Enter"));
+  assert.deepEqual(anchored.saves, [{
+    anchoredPlayerSize: { height: 250, width: 410 },
+  }]);
+
+  const compact = await createHarness({
+    rootRect: { height: 80, left: 400, top: 400, width: 360 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  compact.refs.actionAnchor = compact.element({ height: 40, left: 500, top: 500, width: 400 });
+  compact.documentObject.documentElement.append(compact.refs.actionAnchor);
+  compact.controller.hydrate({ compactPlayerWidth: 360 });
+  compact.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: compact.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+  compact.resizeHandle.dispatchEvent(keyEvent("Enter"));
+  compact.resizeHandle.dispatchEvent(keyEvent("ArrowLeft"));
+  const widthAfterHorizontal = compact.controller.getSnapshot().compactWidth;
+  compact.resizeHandle.dispatchEvent(keyEvent("ArrowUp"));
+  assert.equal(compact.controller.getSnapshot().compactWidth, widthAfterHorizontal);
+  compact.resizeHandle.dispatchEvent(keyEvent("Enter"));
+  assert.deepEqual(compact.saves, [{ compactPlayerWidth: 370 }]);
+
+  compact.resizeHandle.dispatchEvent(keyEvent("Enter"));
+  compact.resizeHandle.dispatchEvent(keyEvent("Home"));
+  compact.resizeHandle.dispatchEvent(keyEvent("Enter"));
+  assert.deepEqual(compact.saves, [
+    { compactPlayerWidth: 370 },
+    { compactPlayerWidth: null },
+  ]);
+});
+
+test("keyboard layout transactions roll back on hide and disconnect with listener cleanup", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 200, left: 100, top: 100, width: 400 },
+  });
+  harness.controller.hydrate({ floatingPlayerPosition: { left: 100, top: 100 } });
+  harness.controller.layoutNow({
+    panelMode: harness.runtime.PANEL_MODES.FLOATING,
+    visible: true,
+  });
+  assert.equal(harness.dragHandle.listenerCount("keydown"), 1);
+  assert.equal(harness.dragHandle.listenerCount("blur"), 1);
+  assert.equal(harness.resizeHandle.listenerCount("keydown"), 1);
+  assert.equal(harness.resizeHandle.listenerCount("blur"), 1);
+
+  harness.dragHandle.dispatchEvent(keyEvent("Enter"));
+  harness.dragHandle.dispatchEvent(keyEvent("ArrowRight"));
+  harness.controller.layoutNow({ visible: false });
+  assert.equal(harness.controller.getSnapshot().keyboardMode, null);
+  assert.deepEqual(plain(harness.controller.getSnapshot().playerPosition), { left: 100, top: 100 });
+  assert.deepEqual(harness.saves, []);
+
+  harness.controller.layoutNow({ visible: true });
+  harness.dragHandle.dispatchEvent(keyEvent("Enter"));
+  harness.dragHandle.dispatchEvent(keyEvent("ArrowDown"));
+  harness.controller.disconnect();
+  assert.equal(harness.controller.getSnapshot().keyboardMode, null);
+  assert.deepEqual(plain(harness.controller.getSnapshot().playerPosition), { left: 100, top: 100 });
+  assert.equal(harness.dragHandle.listenerCount("keydown"), 0);
+  assert.equal(harness.dragHandle.listenerCount("blur"), 0);
+  assert.equal(harness.resizeHandle.listenerCount("keydown"), 0);
+  assert.equal(harness.resizeHandle.listenerCount("blur"), 0);
+  assert.deepEqual(harness.saves, []);
+});
+
 test("disconnect cancels transient work without persisting partial pointer state", async () => {
   const harness = await createHarness();
   harness.controller.layoutNow({
@@ -724,12 +986,14 @@ test("disconnect and reconnect preserve hydrated geometry without duplicating li
     { height: 260, width: 420 }
   );
   assert.equal(harness.dragHandle.listenerCount("pointerdown"), 1);
+  assert.equal(harness.dragHandle.listenerCount("keydown"), 1);
   assert.equal(harness.resizeHandle.listenerCount("pointerdown"), 1);
+  assert.equal(harness.resizeHandle.listenerCount("keydown"), 1);
   assert.equal(harness.windowObject.listenerCount("resize"), 1);
   assert.equal(harness.windowObject.visualViewport.listenerCount("resize"), 1);
 });
 
-test("content delegates layout ownership and tears down progress scrubbing before disconnect", async () => {
+test("content delegates layout ownership and disconnects before tearing down the view", async () => {
   const source = await contentSourcePromise;
 
   assert.match(source, /createPlayerLayoutController\(\{/);
@@ -749,13 +1013,12 @@ test("content delegates layout ownership and tears down progress scrubbing befor
   assert.doesNotMatch(source, /const (?:COMPACT_HOST_ID|DRAG_VIEWPORT_PADDING|RESIZE_MODES)\b/);
 
   const removeUiStart = source.indexOf("function removeWatchPageUi()");
-  const progressCleanup = source.indexOf("cancelProgressPointerInteraction();", removeUiStart);
   const layoutDisconnect = source.indexOf("playerLayout.disconnect();", removeUiStart);
   const viewTeardown = source.indexOf("playerView.teardown();", removeUiStart);
   assert.ok(removeUiStart >= 0);
-  assert.ok(progressCleanup > removeUiStart);
-  assert.ok(layoutDisconnect > progressCleanup);
+  assert.ok(layoutDisconnect > removeUiStart);
   assert.ok(viewTeardown > layoutDisconnect);
+  assert.doesNotMatch(source, /cancelProgressPointerInteraction|handleProgressPointer/);
 });
 
 test("extension and package wiring load and verify the layout controller", async () => {

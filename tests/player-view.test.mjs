@@ -15,6 +15,10 @@ const contentSourcePromise = readFile(
   new URL("../src/content.js", import.meta.url),
   "utf8"
 );
+const contentCssPromise = readFile(
+  new URL("../src/content.css", import.meta.url),
+  "utf8"
+);
 const manifestPromise = readFile(
   new URL("../manifest.json", import.meta.url),
   "utf8"
@@ -113,10 +117,15 @@ class FakeElement extends FakeEventTarget {
     this.classList = new FakeClassList();
     this.style = new FakeStyle();
     this.disabled = false;
+    this.hidden = false;
     this.id = "";
+    this.max = "";
+    this.min = "";
+    this.step = "";
     this.textContent = "";
     this.title = "";
     this.type = "";
+    this.value = "";
     this._innerHTML = "";
   }
 
@@ -142,7 +151,7 @@ class FakeElement extends FakeEventTarget {
   set innerHTML(value) {
     this._innerHTML = String(value);
     this.children = [];
-    const tagPattern = /<(div|button|span|svg|text)\b([^>]*)>/gi;
+    const tagPattern = /<(div|button|input|span|svg|text)\b([^>]*)>/gi;
     for (const match of this._innerHTML.matchAll(tagPattern)) {
       const child = new FakeElement(this.documentObject, match[1]);
       const attributePattern = /([a-zA-Z][\w:-]*)="([^"]*)"/g;
@@ -230,6 +239,14 @@ class FakeElement extends FakeEventTarget {
       this.title = stringValue;
     } else if (name === "type") {
       this.type = stringValue;
+    } else if (name === "max") {
+      this.max = stringValue;
+    } else if (name === "min") {
+      this.min = stringValue;
+    } else if (name === "step") {
+      this.step = stringValue;
+    } else if (name === "value") {
+      this.value = stringValue;
     }
   }
 }
@@ -360,15 +377,30 @@ test("ensure constructs and binds one stable player shell", async () => {
   assert.equal(harness.documentObject.createdElements.length, 1);
   assert.equal(harness.rendererRecords.length, 1);
   assert.equal(harness.rendererRecords[0].dependencies.listElement, first.listEl);
-  assert.match(first.root.innerHTML, /class="ts-progress-remaining" role="button" aria-pressed="false"/);
-  assert.match(first.root.innerHTML, /class="ts-progress-slider" aria-label="Seek within current track" aria-disabled="false"/);
+  assert.equal(first.root.getAttribute("role"), "region");
+  assert.equal(first.root.getAttribute("aria-label"), "Timestamp player");
+  assert.equal(first.root.getAttribute("aria-hidden"), "true");
+  assert.equal(first.root.hidden, true);
+  assert.equal(first.trackEl.tagName, "BUTTON");
+  assert.equal(first.progressRemainingEl.tagName, "BUTTON");
+  assert.equal(first.progressSlider.tagName, "INPUT");
+  assert.equal(first.progressSlider.type, "range");
+  assert.equal(first.progressSlider.step, "0.1");
+  assert.equal(first.dragHandle.tagName, "BUTTON");
+  assert.equal(first.resizeHandle.tagName, "BUTTON");
+  assert.equal(first.dragHandle.getAttribute("aria-pressed"), "false");
+  assert.match(first.dragHandle.getAttribute("aria-keyshortcuts"), /ArrowLeft/);
+  assert.equal(first.resizeHandle.getAttribute("aria-pressed"), "false");
+  assert.equal(first.liveStatusEl.getAttribute("aria-live"), "polite");
+  assert.equal(first.root.querySelector(".ts-controls").getAttribute("role"), "group");
   assert.equal(first.dragHandle.listenerCount("pointerdown"), 0);
   assert.equal(first.resizeHandle.listenerCount("pointerdown"), 0);
 });
 
-test("stable controls delegate callbacks while preserving mouse-focus behavior", async () => {
+test("native controls delegate callbacks without suppressing mouse focus", async () => {
   const called = [];
   const handlerNames = [
+    "onPlayerKeyDown",
     "onCompactToggle",
     "onPanelModeToggle",
     "onClose",
@@ -378,7 +410,7 @@ test("stable controls delegate callbacks while preserving mouse-focus behavior",
     "onShuffleToggle",
     "onRepeatToggle",
     "onNextTrack",
-    "onProgressPointerDown",
+    "onProgressInput",
     "onProgressTimeModeToggle",
     "onTrackListClick",
   ];
@@ -388,6 +420,7 @@ test("stable controls delegate callbacks while preserving mouse-focus behavior",
   const harness = await createHarness({ handlers });
   const elements = harness.controller.ensure();
   const bindings = [
+    [elements.root, "keydown", "onPlayerKeyDown"],
     [elements.compactButton, "click", "onCompactToggle"],
     [elements.popoutButton, "click", "onPanelModeToggle"],
     [elements.closeButton, "click", "onClose"],
@@ -397,7 +430,7 @@ test("stable controls delegate callbacks while preserving mouse-focus behavior",
     [elements.toggleButton, "click", "onShuffleToggle"],
     [elements.repeatButton, "click", "onRepeatToggle"],
     [elements.nextButton, "click", "onNextTrack"],
-    [elements.progressSlider, "pointerdown", "onProgressPointerDown"],
+    [elements.progressSlider, "input", "onProgressInput"],
     [elements.progressRemainingEl, "click", "onProgressTimeModeToggle"],
     [elements.listEl, "click", "onTrackListClick"],
   ];
@@ -407,19 +440,10 @@ test("stable controls delegate callbacks while preserving mouse-focus behavior",
   }
   assert.deepEqual(called, handlerNames);
 
-  const rightTimeDown = event("pointerdown");
-  elements.progressRemainingEl.dispatchEvent(rightTimeDown);
-  assert.equal(rightTimeDown.defaultPrevented, true);
-
   const primaryMouseDown = event("mousedown", { target: elements.playPauseButton });
   elements.root.dispatchEvent(primaryMouseDown);
-  assert.equal(primaryMouseDown.defaultPrevented, true);
-  const secondaryMouseDown = event("mousedown", {
-    button: 2,
-    target: elements.playPauseButton,
-  });
-  elements.root.dispatchEvent(secondaryMouseDown);
-  assert.equal(secondaryMouseDown.defaultPrevented, false);
+  assert.equal(primaryMouseDown.defaultPrevented, false);
+  assert.equal(elements.root.listenerCount("mousedown"), 0);
 });
 
 test("render reflects classes, controls, current-track text, and keyed-list state", async () => {
@@ -458,16 +482,20 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   assert.equal(elements.root.classList.contains("is-floating"), false);
   assert.equal(elements.playPauseButton.disabled, false);
   assert.equal(elements.playPauseButton.getAttribute("aria-label"), "Pause");
-  assert.equal(elements.toggleButton.getAttribute("aria-label"), "Turn shuffle off");
-  assert.equal(elements.toggleButton.title, "Shuffle on");
-  assert.equal(elements.repeatButton.getAttribute("aria-label"), "Turn repeat off");
-  assert.equal(elements.repeatButton.title, "Repeat on");
-  assert.equal(elements.compactButton.getAttribute("aria-label"), "Expand player");
+  assert.equal(elements.toggleButton.getAttribute("aria-label"), "Shuffle");
+  assert.equal(elements.toggleButton.getAttribute("aria-pressed"), "true");
+  assert.equal(elements.repeatButton.getAttribute("aria-label"), "Repeat current track");
+  assert.equal(elements.repeatButton.getAttribute("aria-pressed"), "true");
+  assert.equal(elements.compactButton.getAttribute("aria-label"), "Compact player");
   assert.equal(elements.compactButton.getAttribute("aria-pressed"), "true");
   assert.equal(elements.popoutButton.getAttribute("aria-label"), "Pop out player");
+  assert.equal(elements.popoutButton.getAttribute("aria-pressed"), "false");
   assert.equal(elements.trackEl.textContent, "Track: Opening");
   assert.equal(elements.trackEl.title, "Track: Opening");
+  assert.equal(elements.trackEl.disabled, true, "compact current-track control has no action");
   assert.equal(elements.countEl.textContent, "1 / 2");
+  assert.equal(elements.root.hidden, false);
+  assert.equal(elements.root.getAttribute("aria-hidden"), "false");
 
   const renderer = harness.rendererRecords[0];
   assert.equal(renderer.collectionCalls[0], tracks);
@@ -477,10 +505,12 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   harness.controller.render({ floating: true });
   assert.equal(elements.root.classList.contains("is-visible"), false);
   assert.equal(elements.root.classList.contains("is-floating"), true);
+  assert.equal(elements.root.hidden, true);
   assert.equal(elements.playPauseButton.disabled, true);
   assert.equal(elements.playPauseButton.getAttribute("aria-label"), "Play");
   assert.equal(elements.compactButton.disabled, true);
-  assert.equal(elements.popoutButton.getAttribute("aria-label"), "Dock player");
+  assert.equal(elements.popoutButton.getAttribute("aria-label"), "Pop out player");
+  assert.equal(elements.popoutButton.getAttribute("aria-pressed"), "true");
   assert.equal(elements.trackEl.textContent, "No track selected");
   assert.equal(elements.trackEl.title, "");
   assert.equal(elements.countEl.textContent, "");
@@ -510,7 +540,7 @@ test("render keeps discovered tracks visible while media controls are unavailabl
   assert.equal(elements.toggleButton.disabled, true);
   assert.equal(elements.repeatButton.disabled, true);
   assert.equal(elements.nextButton.disabled, true);
-  assert.equal(elements.progressSlider.getAttribute("aria-disabled"), "true");
+  assert.equal(elements.progressSlider.disabled, true);
   assert.equal(elements.compactButton.disabled, false, "layout controls remain available");
   assert.deepEqual(harness.rendererRecords[0].enabledCalls, [false]);
 
@@ -522,7 +552,7 @@ test("render keeps discovered tracks visible while media controls are unavailabl
     visible: true,
   });
   assert.equal(elements.playPauseButton.disabled, false);
-  assert.equal(elements.progressSlider.getAttribute("aria-disabled"), "false");
+  assert.equal(elements.progressSlider.disabled, false);
   assert.deepEqual(harness.rendererRecords[0].enabledCalls, [false, true]);
 });
 
@@ -537,9 +567,13 @@ test("progress rendering preserves remaining, duration, and reset presentations"
   const elements = harness.controller.getElements();
   assert.equal(elements.progressElapsedEl.textContent, "0:25");
   assert.equal(elements.progressRemainingEl.textContent, "-1:15");
-  assert.equal(elements.progressRemainingEl.title, "Show track duration");
+  assert.equal(elements.progressRemainingEl.title, "Toggle duration and remaining time");
+  assert.equal(elements.progressRemainingEl.getAttribute("aria-label"), "Show track duration");
   assert.equal(elements.progressRemainingEl.getAttribute("aria-pressed"), "false");
   assert.equal(elements.progressSlider.style.getPropertyValue("--ts-progress"), "25%");
+  assert.equal(elements.progressSlider.max, "100");
+  assert.equal(elements.progressSlider.value, "25");
+  assert.equal(elements.progressSlider.getAttribute("aria-valuetext"), "0:25 elapsed of 1:40");
   assert.equal(elements.progressSlider.title, "0:25 elapsed, 1:15 remaining");
 
   harness.controller.renderProgress({
@@ -550,9 +584,19 @@ test("progress rendering preserves remaining, duration, and reset presentations"
   });
   assert.equal(elements.progressElapsedEl.textContent, "1:40");
   assert.equal(elements.progressRemainingEl.textContent, "1:40");
-  assert.equal(elements.progressRemainingEl.title, "Show remaining time");
+  assert.equal(elements.progressRemainingEl.title, "Toggle duration and remaining time");
+  assert.equal(elements.progressRemainingEl.getAttribute("aria-label"), "Show track duration");
   assert.equal(elements.progressRemainingEl.getAttribute("aria-pressed"), "true");
   assert.equal(elements.progressSlider.style.getPropertyValue("--ts-progress"), "100%");
+  assert.equal(elements.progressSlider.value, "100");
+
+  harness.controller.renderProgress({
+    active: true,
+    duration: 0.5,
+    elapsed: 0.25,
+  });
+  assert.equal(elements.progressSlider.max, "0.5");
+  assert.equal(elements.progressSlider.value, "0.25");
 
   harness.controller.renderProgress({
     active: false,
@@ -561,7 +605,57 @@ test("progress rendering preserves remaining, duration, and reset presentations"
   assert.equal(elements.progressElapsedEl.textContent, "0:00");
   assert.equal(elements.progressRemainingEl.textContent, "0:00");
   assert.equal(elements.progressSlider.style.getPropertyValue("--ts-progress"), "0%");
+  assert.equal(elements.progressSlider.max, "1");
+  assert.equal(elements.progressSlider.value, "0");
+  assert.equal(elements.progressSlider.getAttribute("aria-valuetext"), null);
   assert.equal(elements.progressSlider.title, "");
+});
+
+test("the polite live region announces track identity changes only while visible", async () => {
+  const harness = await createHarness();
+  const tracks = [
+    { index: 0, start: 0, title: "Opening" },
+    { index: 1, start: 60, title: "Finale" },
+  ];
+  const elements = harness.controller.render({
+    controlsEnabled: true,
+    currentTrackIndex: 0,
+    tracks,
+    tracksAvailable: true,
+    visible: true,
+  });
+  assert.equal(elements.liveStatusEl.textContent, "Track 1 of 2: Track: Opening");
+
+  harness.controller.render({
+    controlsEnabled: true,
+    currentTrackIndex: 0,
+    playing: true,
+    tracks: [{ ...tracks[0], title: "Enriched title" }, tracks[1]],
+    tracksAvailable: true,
+    visible: true,
+  });
+  assert.equal(
+    elements.liveStatusEl.textContent,
+    "Track 1 of 2: Track: Opening",
+    "title hydration and playback rerenders are not track-change announcements"
+  );
+
+  harness.controller.render({
+    controlsEnabled: true,
+    currentTrackIndex: 1,
+    tracks,
+    tracksAvailable: true,
+    visible: true,
+  });
+  assert.equal(elements.liveStatusEl.textContent, "Track 2 of 2: Track: Finale");
+
+  harness.controller.render({
+    currentTrackIndex: 1,
+    tracks,
+    tracksAvailable: true,
+    visible: false,
+  });
+  assert.equal(elements.liveStatusEl.textContent, "");
 });
 
 test("settings map to the existing player CSS variables with current fallbacks", async () => {
@@ -684,25 +778,60 @@ test("content delegates stable shell, settings, rendering, and list ownership to
   assert.doesNotMatch(source, /style\.setProperty\("--ts-(?:progress|active-track|compact-progress)/);
 
   const detachedCheck = source.indexOf("if (currentElements && !currentElements.root.isConnected)");
-  const detachedScrubCleanup = source.indexOf(
-    "cancelProgressPointerInteraction(currentElements.progressSlider);",
-    detachedCheck
-  );
   const detachedLayoutCleanup = source.indexOf("playerLayout.disconnect();", detachedCheck);
   const viewEnsure = source.indexOf("const elements = playerView.ensure();", detachedCheck);
   assert.ok(detachedCheck >= 0);
-  assert.ok(detachedScrubCleanup > detachedCheck);
-  assert.ok(detachedLayoutCleanup > detachedScrubCleanup);
+  assert.ok(detachedLayoutCleanup > detachedCheck);
   assert.ok(viewEnsure > detachedLayoutCleanup);
 
   const removeUiStart = source.indexOf("function removeWatchPageUi()");
-  const progressCleanup = source.indexOf("cancelProgressPointerInteraction();", removeUiStart);
   const layoutDisconnect = source.indexOf("playerLayout.disconnect();", removeUiStart);
   const viewTeardown = source.indexOf("playerView.teardown();", removeUiStart);
   assert.ok(removeUiStart >= 0);
-  assert.ok(progressCleanup > removeUiStart);
-  assert.ok(layoutDisconnect > progressCleanup);
+  assert.ok(layoutDisconnect > removeUiStart);
   assert.ok(viewTeardown > layoutDisconnect);
+  assert.doesNotMatch(source, /cancelProgressPointerInteraction|handleProgressPointer/);
+  assert.match(
+    source,
+    /function handleProgressInput[\s\S]*?getReadySessionVideo\(\)[\s\S]*?slider\.disabled[\s\S]*?Number\(slider\.value\)/
+  );
+});
+
+test("launcher disclosure semantics and focus restoration stay user-driven", async () => {
+  const source = await contentSourcePromise;
+
+  assert.match(source, /ROOT_ID: PLAYER_ROOT_ID/);
+  assert.match(source, /setAttribute\("aria-controls", PLAYER_ROOT_ID\)/);
+  assert.match(source, /setAttribute\("aria-expanded", "false"\)/);
+  assert.match(source, /setAttribute\("aria-label", "Timestamp player tracklist"\)/);
+  assert.match(
+    source,
+    /const expanded = isPlayerPanelVisible\(tracksAvailable\);[\s\S]*?setAttribute\("aria-expanded", String\(expanded\)\)/
+  );
+  assert.doesNotMatch(source, /preventLauncherMouseButtonFocus|addEventListener\("mousedown"/);
+  assert.match(
+    source,
+    /function closePlayer[\s\S]*?playerRoot\.contains\(document\.activeElement\)[\s\S]*?updateUi\(\);[\s\S]*?launcherButton\.focus\(\{ preventScroll: true \}\)/
+  );
+  assert.match(
+    source,
+    /function handlePlayerKeyDown[\s\S]*?event\.key !== "Escape"[\s\S]*?event\.defaultPrevented[\s\S]*?playerRoot\?\.contains\(event\.target\)[\s\S]*?closePlayer\(\)/
+  );
+  const autoOpenStart = source.indexOf("function maybeAutoOpenCompact");
+  const autoOpenEnd = source.indexOf("function tracksBelongToVideo", autoOpenStart);
+  assert.doesNotMatch(source.slice(autoOpenStart, autoOpenEnd), /\.focus\(/);
+});
+
+test("player CSS exposes native range, focus-visible, hidden, and target-size affordances", async () => {
+  const css = await contentCssPromise;
+
+  assert.match(css, /#timestamp-player-root\[hidden\][\s\S]*?display: none !important/);
+  assert.match(css, /\.ts-progress-slider::-webkit-slider-runnable-track/);
+  assert.match(css, /\.ts-progress-slider::-moz-range-progress/);
+  assert.match(css, /button:focus-visible[\s\S]*?input:focus-visible[\s\S]*?outline: 2px solid/);
+  assert.match(css, /\.ts-drag-handle[\s\S]*?min-height: 24px/);
+  assert.match(css, /\.ts-resize-handle[\s\S]*?min-height: 28px/);
+  assert.doesNotMatch(css, /\.ts-progress-fill|\.ts-progress-thumb|aria-disabled/);
 });
 
 test("extension and package wiring load and verify the player view before content", async () => {

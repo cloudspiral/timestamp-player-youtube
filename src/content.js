@@ -101,6 +101,7 @@
   } = globalThis.TimestampPlayerPlayerLayout;
   const {
     PROGRESS_TIME_MODES,
+    ROOT_ID: PLAYER_ROOT_ID,
     createPlayerViewController,
   } = globalThis.TimestampPlayerPlayerView;
   const {
@@ -134,7 +135,6 @@
   };
 
   let launcherButton;
-  let progressSlider;
   let playerShellRoot = null;
   let watchRouteController = null;
   const playerLayout = createPlayerLayoutController({
@@ -160,8 +160,9 @@
       onNextTrack: playNextTrack,
       onPanelModeToggle: togglePanelMode,
       onPlayPause: togglePlayPause,
+      onPlayerKeyDown: handlePlayerKeyDown,
       onPreviousTrack: playPreviousTrack,
-      onProgressPointerDown: handleProgressPointerDown,
+      onProgressInput: handleProgressInput,
       onProgressTimeModeToggle: toggleProgressTimeMode,
       onRepeatToggle: toggleRepeat,
       onShuffleToggle: toggleShuffle,
@@ -240,26 +241,16 @@
   }
 
   function removeWatchPageUi() {
-    cancelProgressPointerInteraction();
     playerLayout.disconnect();
     playerView.teardown();
     launcherButton?.remove();
     launcherButton = null;
-    progressSlider = null;
     playerShellRoot = null;
-  }
-
-  function cancelProgressPointerInteraction(slider = progressSlider) {
-    slider?.classList.remove("is-scrubbing");
-    slider?.removeEventListener("pointermove", handleProgressPointerMove);
-    slider?.removeEventListener("pointerup", handleProgressPointerEnd);
-    slider?.removeEventListener("pointercancel", handleProgressPointerEnd);
   }
 
   function ensurePlayerUi() {
     const currentElements = playerView.getElements();
     if (currentElements && !currentElements.root.isConnected) {
-      cancelProgressPointerInteraction(currentElements.progressSlider);
       playerLayout.disconnect();
       playerShellRoot = null;
     }
@@ -274,7 +265,6 @@
       playerShellRoot = elements.root;
       playerView.applySettings(state.settings);
     }
-    progressSlider = elements.progressSlider;
     return elements;
   }
 
@@ -454,24 +444,12 @@
       return null;
     }
 
-    const previousElement = session.media.element;
-    const previousStatus = session.media.resolution?.status || null;
     const resolution = resolveAndBindSessionMedia(session, {
       hostname: location.hostname,
       onEvent: handleSessionMediaEvent,
       root: document,
       videoId: session.videoId,
     });
-    if (
-      previousElement
-      && (
-        previousElement !== session.media.element
-        || previousStatus === VIDEO_RESOLUTION_STATUSES.READY
-          && resolution.status !== VIDEO_RESOLUTION_STATUSES.READY
-      )
-    ) {
-      cancelProgressPointerInteraction();
-    }
     return resolution;
   }
 
@@ -809,11 +787,16 @@
       insertLauncherButton(actionRow);
     }
 
-    launcherButton.classList.toggle("is-active", state.panelOpen);
-    launcherButton.setAttribute("aria-pressed", String(state.panelOpen));
-    launcherButton.setAttribute("aria-label", state.panelOpen ? "Hide tracklist" : "Open tracklist");
-    launcherButton.title = state.panelOpen ? "Hide tracklist" : "Show tracklist";
+    const expanded = isPlayerPanelVisible(tracksAvailable);
+    launcherButton.classList.toggle("is-active", expanded);
+    launcherButton.setAttribute("aria-expanded", String(expanded));
     return true;
+  }
+
+  function isPlayerPanelVisible(tracksAvailable = tracksBelongToVideo()) {
+    const hiddenByFullscreen = isFullscreenActive()
+      && state.panelMode === PANEL_MODES.ANCHORED;
+    return Boolean(tracksAvailable && state.panelOpen && !hiddenByFullscreen);
   }
 
   function syncLauncherForSession(
@@ -834,8 +817,7 @@
   }
 
   function restorePlayerAfterLauncherSync(tracksAvailable) {
-    const isHiddenByFullscreen = isFullscreenActive() && state.panelMode === PANEL_MODES.ANCHORED;
-    const isVisible = tracksAvailable && state.panelOpen && !isHiddenByFullscreen;
+    const isVisible = isPlayerPanelVisible(tracksAvailable);
     if (!isVisible) {
       return;
     }
@@ -881,8 +863,10 @@
     launcherButton.id = LAUNCHER_ID;
     launcherButton.type = "button";
     launcherButton.className = "ts-launcher-button";
-    launcherButton.setAttribute("aria-label", "Open tracklist");
-    launcherButton.setAttribute("aria-pressed", "false");
+    launcherButton.setAttribute("aria-controls", PLAYER_ROOT_ID);
+    launcherButton.setAttribute("aria-expanded", "false");
+    launcherButton.setAttribute("aria-label", "Timestamp player tracklist");
+    launcherButton.title = "Toggle timestamp player tracklist";
     launcherButton.innerHTML = `
       <svg class="ts-launcher-icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4 6h10"></path>
@@ -892,14 +876,7 @@
       </svg>
       <span>Tracklist</span>
     `;
-    launcherButton.addEventListener("mousedown", preventLauncherMouseButtonFocus);
     launcherButton.addEventListener("click", togglePlayerOpen);
-  }
-
-  function preventLauncherMouseButtonFocus(event) {
-    if (event.button === 0) {
-      event.preventDefault();
-    }
   }
 
   function findActionRow() {
@@ -1659,11 +1636,38 @@
   }
 
   function closePlayer() {
+    const playerRoot = playerView.getElements()?.root;
+    const restoreLauncherFocus = Boolean(
+      playerRoot
+      && document.activeElement
+      && playerRoot.contains(document.activeElement)
+    );
     state.panelOpen = false;
     if (state.session) {
       state.session.userClosedPanel = true;
     }
     updateUi();
+    if (restoreLauncherFocus && launcherButton?.isConnected) {
+      launcherButton.focus({ preventScroll: true });
+    }
+  }
+
+  function handlePlayerKeyDown(event) {
+    if (
+      event.key !== "Escape"
+      || event.defaultPrevented
+      || !state.panelOpen
+    ) {
+      return;
+    }
+
+    const playerRoot = playerView.getElements()?.root;
+    if (!playerRoot?.contains(event.target)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    closePlayer();
   }
 
   function togglePlayerOpen() {
@@ -1833,63 +1837,22 @@
     return Number.isInteger(index) && index >= 0 && index < state.tracks.length;
   }
 
-  function handleProgressPointerDown(event) {
-    progressSlider = event.currentTarget || progressSlider;
-    if (
-      progressSlider.getAttribute("aria-disabled") === "true"
-      || !areMediaControlsEnabled()
-    ) {
-      return;
-    }
-
-    if (event.button !== undefined && event.button !== 0) {
-      return;
-    }
-
-    event.preventDefault();
-    progressSlider.classList.add("is-scrubbing");
-    seekProgressFromPointer(event);
-    progressSlider.setPointerCapture?.(event.pointerId);
-    progressSlider.addEventListener("pointermove", handleProgressPointerMove);
-    progressSlider.addEventListener("pointerup", handleProgressPointerEnd, { once: true });
-    progressSlider.addEventListener("pointercancel", handleProgressPointerEnd, { once: true });
-  }
-
-  function handleProgressPointerMove(event) {
-    if (event.buttons === 0) {
-      handleProgressPointerEnd(event);
-      return;
-    }
-
-    if (!areMediaControlsEnabled()) {
-      handleProgressPointerEnd(event);
-      return;
-    }
-
-    event.preventDefault();
-    seekProgressFromPointer(event);
-  }
-
-  function handleProgressPointerEnd(event) {
-    progressSlider.releasePointerCapture?.(event.pointerId);
-    progressSlider.classList.remove("is-scrubbing");
-    progressSlider.removeEventListener("pointermove", handleProgressPointerMove);
-    progressSlider.removeEventListener("pointerup", handleProgressPointerEnd);
-    progressSlider.removeEventListener("pointercancel", handleProgressPointerEnd);
-  }
-
-  function seekProgressFromPointer(event) {
+  function handleProgressInput(event) {
+    const slider = event.currentTarget;
     const video = getReadySessionVideo();
     const track = getProgressTrack(video);
-    if (!video || !track) {
+    if (!video || !track || slider.disabled || !areMediaControlsEnabled()) {
       updateProgress(video);
       return;
     }
 
-    const rect = progressSlider.getBoundingClientRect();
-    const progress = rect.width > 0 ? clamp((event.clientX - rect.left) / rect.width, 0, 1) : 0;
     const duration = getTrackDuration(track);
-    video.currentTime = track.start + duration * progress;
+    const elapsed = Number(slider.value);
+    if (!Number.isFinite(elapsed)) {
+      updateProgress(video);
+      return;
+    }
+    video.currentTime = track.start + clamp(elapsed, 0, duration);
     state.currentTrackIndex = track.index;
     updateProgress(video);
   }
@@ -2100,8 +2063,7 @@
     const tracksAvailable = tracksBelongToVideo(videoId);
     const controlsEnabled = Boolean(video && tracksAvailable);
     const isAnchoredCompact = state.panelMode === PANEL_MODES.ANCHORED && state.anchoredCompact;
-    const isHiddenByFullscreen = isFullscreenActive() && state.panelMode === PANEL_MODES.ANCHORED;
-    const isVisible = tracksAvailable && state.panelOpen && !isHiddenByFullscreen;
+    const isVisible = isPlayerPanelVisible(tracksAvailable);
     const isInlineCompact = isVisible && isAnchoredCompact;
     syncLauncherForSession(session, tracksAvailable, { restorePlayer: false });
     const mountedInlineCompact = playerLayout.prepareMount({ inlineCompact: isInlineCompact });

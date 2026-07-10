@@ -15,6 +15,7 @@
     progressElapsedEl: ".ts-progress-elapsed",
     progressRemainingEl: ".ts-progress-remaining",
     progressSlider: ".ts-progress-slider",
+    liveStatusEl: ".ts-live-status",
     listEl: ".ts-list",
     previousButton: ".ts-previous",
     playPauseButton: ".ts-play-pause",
@@ -41,6 +42,7 @@
     }
 
     let elements = null;
+    let lastAnnouncedTrackKey = null;
     let trackListRenderer = null;
     let listenerCleanups = [];
 
@@ -68,10 +70,17 @@
     function createShell() {
       const root = documentObject.createElement("div");
       root.id = ROOT_ID;
+      root.hidden = true;
+      root.setAttribute("aria-hidden", "true");
+      root.setAttribute("aria-label", "Timestamp player");
+      root.setAttribute("role", "region");
       root.innerHTML = `
-        <div class="ts-drag-handle" aria-hidden="true"></div>
-        <div class="ts-resize-handle" aria-hidden="true"></div>
-        <button class="ts-compact-toggle" type="button" aria-label="Compact player" title="Compact player">
+        <span id="timestamp-player-layout-instructions" class="ts-visually-hidden">
+          Press Enter or Space to start adjusting. Use arrow keys to move by 10 pixels or Shift plus an arrow for 1 pixel. Press Enter to save, Escape to cancel, or Home to reset.
+        </span>
+        <button class="ts-drag-handle" type="button" aria-label="Move floating player" aria-describedby="timestamp-player-layout-instructions" aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight Home Escape" aria-pressed="false" title="Move floating player"></button>
+        <button class="ts-resize-handle" type="button" aria-label="Resize player" aria-describedby="timestamp-player-layout-instructions" aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight Home Escape" aria-pressed="false" title="Resize player"></button>
+        <button class="ts-compact-toggle" type="button" aria-label="Compact player" aria-pressed="false" title="Compact player">
           <svg class="ts-icon ts-stroke-icon ts-compact-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6 9l6 6 6-6"></path>
           </svg>
@@ -79,7 +88,7 @@
             <path d="M6 15l6-6 6 6"></path>
           </svg>
         </button>
-        <button class="ts-popout" type="button" aria-label="Pop out player" title="Pop out player">
+        <button class="ts-popout" type="button" aria-label="Pop out player" aria-pressed="false" title="Pop out player">
           <svg class="ts-icon ts-stroke-icon ts-popout-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M8 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"></path>
             <path d="M14 4h6v6"></path>
@@ -100,20 +109,17 @@
         <div class="ts-body">
           <div class="ts-now-playing">
             <div class="ts-count"></div>
-            <div class="ts-track">No track selected</div>
+            <button class="ts-track" type="button" aria-label="No current track" disabled>No track selected</button>
           </div>
           <div class="ts-progress">
             <div class="ts-progress-times">
               <span class="ts-progress-elapsed">0:00</span>
-              <span class="ts-progress-remaining" role="button" aria-pressed="false">-0:00</span>
+              <button class="ts-progress-remaining" type="button" aria-label="Show track duration" aria-pressed="false" title="Toggle duration and remaining time">-0:00</button>
             </div>
-            <div class="ts-progress-slider" aria-label="Seek within current track" aria-disabled="false">
-              <div class="ts-progress-fill"></div>
-              <div class="ts-progress-thumb"></div>
-            </div>
+            <input class="ts-progress-slider" type="range" min="0" max="1" step="0.1" value="0" aria-label="Seek within current track">
           </div>
-          <div class="ts-controls" aria-label="Player controls">
-            <button class="ts-icon-button ts-toggle" type="button" aria-label="Turn shuffle on" title="Shuffle">
+          <div class="ts-controls" role="group" aria-label="Playback controls">
+            <button class="ts-icon-button ts-toggle" type="button" aria-label="Shuffle" aria-pressed="false" title="Shuffle">
               <svg class="ts-icon ts-stroke-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M2 18h1.4c1.3 0 2.5-.7 3.2-1.8l4.8-8.4C12.1 6.7 13.3 6 14.6 6H22"></path>
                 <path d="M18 2l4 4-4 4"></path>
@@ -140,7 +146,7 @@
                 <path d="M5 5v14l9-7zM17 5h2v14h-2z"></path>
               </svg>
             </button>
-            <button class="ts-icon-button ts-repeat" type="button" aria-label="Turn repeat on" title="Repeat current track">
+            <button class="ts-icon-button ts-repeat" type="button" aria-label="Repeat current track" aria-pressed="false" title="Repeat current track">
               <svg class="ts-icon ts-stroke-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M17 2l4 4-4 4"></path>
                 <path d="M3 11V9a3 3 0 0 1 3-3h15"></path>
@@ -151,6 +157,7 @@
             </button>
           </div>
           <div class="ts-list" aria-label="Tracks"></div>
+          <div class="ts-live-status ts-visually-hidden" aria-live="polite" aria-atomic="true"></div>
         </div>
       `;
       documentObject.documentElement.append(root);
@@ -170,7 +177,7 @@
     }
 
     function bindStableEvents() {
-      addListener(elements.root, "mousedown", preventMouseButtonFocus);
+      addListener(elements.root, "keydown", handlers.onPlayerKeyDown);
       addListener(elements.compactButton, "click", handlers.onCompactToggle);
       addListener(elements.popoutButton, "click", handlers.onPanelModeToggle);
       addListener(elements.closeButton, "click", handlers.onClose);
@@ -180,8 +187,7 @@
       addListener(elements.toggleButton, "click", handlers.onShuffleToggle);
       addListener(elements.repeatButton, "click", handlers.onRepeatToggle);
       addListener(elements.nextButton, "click", handlers.onNextTrack);
-      addListener(elements.progressSlider, "pointerdown", handlers.onProgressPointerDown);
-      addListener(elements.progressRemainingEl, "pointerdown", preventPointerDefault);
+      addListener(elements.progressSlider, "input", handlers.onProgressInput);
       addListener(elements.progressRemainingEl, "click", handlers.onProgressTimeModeToggle);
       addListener(elements.listEl, "click", handlers.onTrackListClick);
     }
@@ -192,21 +198,6 @@
       }
       target.addEventListener(type, listener);
       listenerCleanups.push(() => target.removeEventListener(type, listener));
-    }
-
-    function preventMouseButtonFocus(event) {
-      if (event.button !== 0) {
-        return;
-      }
-      const button = event.target.closest?.("button");
-      if (!button || !event.currentTarget.contains(button)) {
-        return;
-      }
-      event.preventDefault();
-    }
-
-    function preventPointerDefault(event) {
-      event.preventDefault();
     }
 
     function render({
@@ -234,38 +225,36 @@
       root.classList.toggle("is-anchored-compact", anchoredCompact);
       root.classList.toggle("is-inline-compact", inlineCompact);
       root.classList.toggle("is-floating", floating);
+      root.hidden = !visible;
+      root.setAttribute("aria-hidden", String(!visible));
 
+      elements.dragHandle.disabled = !floating;
+      elements.resizeHandle.disabled = !visible;
       elements.previousButton.disabled = !controlsEnabled;
       elements.playPauseButton.disabled = !controlsEnabled;
       setLabelAndTitle(elements.playPauseButton, playing ? "Pause" : "Play");
-      elements.progressSlider.setAttribute("aria-disabled", String(!controlsEnabled));
+      elements.progressSlider.disabled = !controlsEnabled;
       elements.toggleButton.disabled = !controlsEnabled;
-      elements.toggleButton.setAttribute(
-        "aria-label",
-        shuffleEnabled ? "Turn shuffle off" : "Turn shuffle on"
-      );
-      elements.toggleButton.title = shuffleEnabled ? "Shuffle on" : "Shuffle";
+      elements.toggleButton.setAttribute("aria-pressed", String(shuffleEnabled));
       elements.repeatButton.disabled = !controlsEnabled;
-      elements.repeatButton.setAttribute(
-        "aria-label",
-        repeatEnabled ? "Turn repeat off" : "Turn repeat on"
-      );
-      elements.repeatButton.title = repeatEnabled ? "Repeat on" : "Repeat current track";
+      elements.repeatButton.setAttribute("aria-pressed", String(repeatEnabled));
       elements.nextButton.disabled = !controlsEnabled;
       elements.compactButton.disabled = !tracksAvailable || floating;
       elements.compactButton.setAttribute("aria-pressed", String(anchoredCompact));
-      setLabelAndTitle(
-        elements.compactButton,
-        anchoredCompact ? "Expand player" : "Compact player"
-      );
-      setLabelAndTitle(elements.popoutButton, floating ? "Dock player" : "Pop out player");
+      elements.popoutButton.setAttribute("aria-pressed", String(floating));
 
       const track = tracks[currentTrackIndex];
       const trackLabel = track ? formatTrackLabel(track) : "No track selected";
       elements.trackEl.textContent = trackLabel;
       elements.trackEl.title = track ? trackLabel : "";
+      elements.trackEl.disabled = !track || anchoredCompact;
+      elements.trackEl.setAttribute(
+        "aria-label",
+        track ? `Show current track in list: ${trackLabel}` : "No current track"
+      );
       elements.countEl.textContent = track ? `${track.index + 1} / ${tracks.length}` : "";
       renderTrackList(tracks, currentTrackIndex, controlsEnabled);
+      renderTrackAnnouncement(track, tracks, visible);
       return elements;
     }
 
@@ -285,6 +274,9 @@
         elements.progressElapsedEl.textContent = "0:00";
         renderProgressRightTime("0:00", "0:00", timeMode);
         elements.progressSlider.style.setProperty("--ts-progress", "0%");
+        elements.progressSlider.max = "1";
+        elements.progressSlider.value = "0";
+        elements.progressSlider.removeAttribute("aria-valuetext");
         elements.progressSlider.removeAttribute("title");
         return;
       }
@@ -300,20 +292,40 @@
       elements.progressElapsedEl.textContent = elapsedLabel;
       renderProgressRightTime(remainingLabel, durationLabel, timeMode);
       elements.progressSlider.style.setProperty("--ts-progress", `${progress * 100}%`);
+      elements.progressSlider.max = String(safeDuration || 1);
+      elements.progressSlider.value = String(safeElapsed);
+      elements.progressSlider.setAttribute(
+        "aria-valuetext",
+        `${elapsedLabel} elapsed of ${durationLabel}`
+      );
       elements.progressSlider.title = `${elapsedLabel} elapsed, ${remainingLabel} remaining`;
     }
 
     function renderProgressRightTime(remainingLabel, durationLabel, timeMode) {
       const showingDuration = timeMode === PROGRESS_TIME_MODES.DURATION;
       elements.progressRemainingEl.textContent = showingDuration ? durationLabel : `-${remainingLabel}`;
-      elements.progressRemainingEl.title = showingDuration
-        ? "Show remaining time"
-        : "Show track duration";
       elements.progressRemainingEl.setAttribute("aria-pressed", String(showingDuration));
-      elements.progressRemainingEl.setAttribute(
-        "aria-label",
-        showingDuration ? "Showing track duration" : "Showing remaining time"
-      );
+    }
+
+    function renderTrackAnnouncement(track, tracks, visible) {
+      const trackKey = track ? `${track.index}\u0000${track.start}` : null;
+      if (!visible) {
+        lastAnnouncedTrackKey = trackKey;
+        elements.liveStatusEl.textContent = "";
+        return false;
+      }
+      if (trackKey === lastAnnouncedTrackKey) {
+        return false;
+      }
+
+      lastAnnouncedTrackKey = trackKey;
+      if (!track) {
+        elements.liveStatusEl.textContent = "";
+        return true;
+      }
+      elements.liveStatusEl.textContent =
+        `Track ${track.index + 1} of ${tracks.length}: ${formatTrackLabel(track)}`;
+      return true;
     }
 
     function renderTrackList(tracks = [], currentTrackIndex = -1, enabled = true) {
@@ -370,6 +382,7 @@
       listenerCleanups = [];
       trackListRenderer?.clear();
       trackListRenderer = null;
+      lastAnnouncedTrackKey = null;
       elements?.root?.remove();
       elements = null;
     }
