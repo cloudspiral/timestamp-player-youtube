@@ -1201,14 +1201,12 @@
         retryable: false,
         status: COMMENT_FETCH_OUTCOMES.UNSUPPORTED,
       };
-      discovery.outcome = result.status;
       discovery.status = COMMENT_DISCOVERY_STATUSES.DONE;
       diagnostics.commentFetchResult(session, result, 0);
       discovery.attemptStartedAt = null;
       return discovery;
     }
 
-    discovery.outcome = null;
     discovery.status = COMMENT_DISCOVERY_STATUSES.PENDING;
     fetchCommentRecords({
       maxBatches: COMMENT_FETCH_BATCH_LIMIT,
@@ -1238,7 +1236,6 @@
 
     const discovery = session.commentDiscovery;
     const records = Array.isArray(result?.records) ? result.records : [];
-    discovery.outcome = result?.status || COMMENT_FETCH_OUTCOMES.UNSUPPORTED;
     const retryable = shouldRetryCommentFetch(result);
     const retryScheduled = retryable && scheduleTrackedSessionRetry(
       session,

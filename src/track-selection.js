@@ -23,7 +23,6 @@
     return {
       current: null,
       observation: 0,
-      resultsBySourceId: new Map(),
       weakOwnershipObservations: new Map(),
     };
   }
@@ -179,8 +178,6 @@
       return unchangedSelection(selection.current, "ineligible");
     }
 
-    const sourceKey = getTrackSourceKey(candidate);
-    selection.resultsBySourceId.set(sourceKey, candidate);
     const previous = selection.current;
     if (!previous) {
       selection.current = candidate;
@@ -400,7 +397,6 @@
         coverage,
         firstStart,
         titleScore: tracks.reduce((score, track) => score + titleQuality(track.title), 0),
-        titledCount: tracks.filter((track) => titleQuality(track.title) > 0).length,
         trackCount: tracks.length,
       },
     };
@@ -469,11 +465,9 @@
   }
 
   globalThis.TimestampPlayerTrackSelection = {
-    MINIMUM_WEAK_OWNERSHIP_OBSERVATIONS,
     OWNERSHIP_CONFIDENCE,
     TRACK_SOURCE_KINDS,
     TRACK_SOURCE_STATUSES,
-    TRACK_SOURCE_TIERS,
     beginTrackSelectionObservation,
     classifyNativeTrackSourceOwnership,
     classifyTrackSourceOwnership,
@@ -482,12 +476,8 @@
     createTrackSourceResult,
     createTrackTitleCacheEntry,
     enrichTrackSourceFromCache,
-    getTrackSourceKey,
-    isTrackSourceEligible,
     observeTrackSourceOwnership,
-    sameTrackStarts,
     shouldConsiderNativeSource,
     trackSourceNeedsTitleEnrichment,
-    titleQuality,
   };
 })();

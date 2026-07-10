@@ -485,3 +485,17 @@ test("title cache entries retain only immutable enrichment data", async () => {
   assert.deepEqual(enriched.tracks.map(({ title }) => title), ["Cached one", "Cached two"]);
   assert.throws(() => api.createTrackTitleCacheEntry(null), /required for title caching/);
 });
+
+test("track selection exposes only cross-runtime operations", async () => {
+  const api = await loadTrackSelection();
+  for (const internalName of [
+    "MINIMUM_WEAK_OWNERSHIP_OBSERVATIONS",
+    "TRACK_SOURCE_TIERS",
+    "getTrackSourceKey",
+    "isTrackSourceEligible",
+    "sameTrackStarts",
+    "titleQuality",
+  ]) {
+    assert.equal(Object.hasOwn(api, internalName), false);
+  }
+});

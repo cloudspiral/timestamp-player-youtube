@@ -545,13 +545,6 @@
     return `${minutes}:${paddedSeconds}`;
   }
 
-  function trackTitleScore(tracks) {
-    return tracks.reduce((score, track) => {
-      const title = (track.title || "").trim();
-      return score + (title ? 1 : 0);
-    }, 0);
-  }
-
   globalThis.TimestampPlayerTimestamps = {
     cleanTrackTitle,
     findTracks,
@@ -564,6 +557,5 @@
     parseTimeParam,
     parseTimestampText,
     titleFromLineFragment,
-    trackTitleScore,
   };
 })();

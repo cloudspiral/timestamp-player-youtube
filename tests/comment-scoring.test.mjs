@@ -118,20 +118,3 @@ test("title coverage and raw track count have bounded influence", async () => {
   }));
   assert.equal(hundred, forty, "track-count contribution should cap at 40 timestamps");
 });
-
-test("comparison sorts by descending score and then stable source order", async () => {
-  const {
-    compareCommentTrackSources,
-    scoreCommentTrackSource,
-  } = await loadCommentScoring();
-  const low = source({ id: "low", order: 0, tracks: makeTracks([180, 240], { titled: false }) });
-  const high = source({ id: "high", order: 9, sourceType: "pinned", tracks: makeTracks([0, 500]) });
-  const sorted = [low, high].sort(compareCommentTrackSources);
-
-  assert.ok(scoreCommentTrackSource(high) > scoreCommentTrackSource(low));
-  assert.deepEqual(sorted.map(({ id }) => id), ["high", "low"]);
-
-  const later = source({ id: "later", order: 4 });
-  const earlier = source({ id: "earlier", order: 1 });
-  assert.deepEqual([later, earlier].sort(compareCommentTrackSources).map(({ id }) => id), ["earlier", "later"]);
-});

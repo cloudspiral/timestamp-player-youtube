@@ -576,7 +576,6 @@ test("each session owns isolated provenance selection and comment discovery stat
   assert.notEqual(session.commentDiscovery, nextSession.commentDiscovery);
   assert.equal(session.trackSelection.current, null);
   assert.notEqual(session.trackSelection, nextSession.trackSelection);
-  assert.notEqual(session.trackSelection.resultsBySourceId, nextSession.trackSelection.resultsBySourceId);
   assert.notEqual(session.domSources.ids, nextSession.domSources.ids);
 });
 

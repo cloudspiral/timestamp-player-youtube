@@ -67,7 +67,6 @@
       commentDiscovery: {
         attempt: 0,
         attemptStartedAt: null,
-        outcome: null,
         result: null,
         status: COMMENT_DISCOVERY_STATUSES.IDLE,
       },

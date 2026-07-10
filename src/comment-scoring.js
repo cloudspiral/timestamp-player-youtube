@@ -43,15 +43,6 @@
       + TRACK_COUNT_SCORE_PER_TRACK * Math.min(tracks.length, TRACK_COUNT_SCORE_CAP);
   }
 
-  function compareCommentTrackSources(left, right) {
-    const scoreDifference = scoreCommentTrackSource(right) - scoreCommentTrackSource(left);
-    if (scoreDifference !== 0) {
-      return scoreDifference;
-    }
-
-    return left.order - right.order;
-  }
-
   function parseCommentLikeCount(text) {
     const normalized = (text || "")
       .replace(/,/g, "")
@@ -85,7 +76,6 @@
   }
 
   globalThis.TimestampPlayerCommentScoring = {
-    compareCommentTrackSources,
     parseCommentLikeCount,
     scoreCommentTrackSource,
   };
