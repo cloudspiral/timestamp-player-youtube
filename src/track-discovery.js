@@ -315,15 +315,6 @@
       discovery.attemptStartedAt = null;
     }
 
-    function canReadQuietDescription(videoId) {
-      return youtubeDom.getQuietDescriptionRoots(videoId).some((root) => {
-        if (!getDomSourceOwnership(root, videoId)) {
-          return false;
-        }
-        return youtubeDom.isDescriptionRootReadable(root);
-      });
-    }
-
     function getDomSourceOwnership(root, videoId) {
       return classifyTrackSourceOwnership({
         ...youtubeDom.getOwnershipEvidence(root),
@@ -342,7 +333,6 @@
     }
 
     return Object.freeze({
-      canReadQuietDescription,
       getDescriptionSourceResults,
       getDomCommentSourceResults,
       getFetchedCommentDiscoveryForSession,

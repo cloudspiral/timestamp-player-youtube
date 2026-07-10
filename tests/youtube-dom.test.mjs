@@ -34,8 +34,9 @@ const YOUTUBE_MUSIC_DESCRIPTION_ROOT_SELECTORS = [
 const QUIET_DESCRIPTION_SELECTORS = [
   "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-structured-description'] ytd-expandable-video-description-body-renderer",
   "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-structured-description'] ytd-structured-description-content-renderer",
-  "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-structured-description']",
 ];
+const STRUCTURED_DESCRIPTION_PANEL_SELECTOR =
+  "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-structured-description']";
 const DESCRIPTION_TOGGLE_SELECTOR = [
   "ytd-watch-metadata ytd-text-inline-expander #expand",
   "ytd-watch-metadata ytd-text-inline-expander #collapse",
@@ -558,11 +559,9 @@ test("uses centralized YouTube Music description and action fallbacks", async ()
 test("deduplicates description roots and extracts same-video link candidates", async () => {
   const document = new FakeDocument();
   const quietRoot = new FakeElement("div", { textContent: "Quiet description" });
-  const panelRoot = new FakeElement("div", { textContent: "Panel description" });
   const descriptionRoot = new FakeElement("div", { innerText: "Album notes" });
   document.setQuery(QUIET_DESCRIPTION_SELECTORS[0], quietRoot);
   document.setQuery(QUIET_DESCRIPTION_SELECTORS[1], quietRoot);
-  document.setQuery(QUIET_DESCRIPTION_SELECTORS[2], panelRoot);
   document.setQuery("ytd-watch-metadata #description-inline-expander #expanded", descriptionRoot);
   document.setQuery("ytd-watch-metadata #description-inline-expander", descriptionRoot);
   document.setQuery("ytd-watch-metadata #description", []);
@@ -592,10 +591,21 @@ test("deduplicates description roots and extracts same-video link candidates", a
     videoId: "album",
   });
 
-  assert.deepEqual(Array.from(roots), [quietRoot, panelRoot, descriptionRoot]);
+  assert.deepEqual(Array.from(roots), [quietRoot, descriptionRoot]);
   assert.equal(result.candidateCount, 1);
   assert.equal(result.candidates[0].start, 120);
   assert.equal(result.candidates[0].title, "Track C");
+});
+
+test("does not mistake structured-description panel chrome for hydrated quiet content", async () => {
+  const document = new FakeDocument();
+  const panelChrome = new FakeElement("div", { textContent: "Description" });
+  document.setQuery(STRUCTURED_DESCRIPTION_PANEL_SELECTOR, panelChrome);
+
+  const dom = await loadYouTubeDom(document);
+
+  assert.deepEqual(Array.from(dom.getQuietDescriptionRoots("album")), []);
+  assert.deepEqual(Array.from(dom.getDescriptionRoots("album")), []);
 });
 
 test("uses structural collapse state and excludes nested native sections without English headers", async () => {

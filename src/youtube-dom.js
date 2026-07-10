@@ -114,7 +114,6 @@
   const QUIET_DESCRIPTION_SELECTORS = [
     "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-structured-description'] ytd-expandable-video-description-body-renderer",
     "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-structured-description'] ytd-structured-description-content-renderer",
-    "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-structured-description']",
   ];
   const DESCRIPTION_ROOT_SELECTORS = [
     "ytd-watch-metadata #description-inline-expander #expanded",

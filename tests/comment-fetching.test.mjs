@@ -672,6 +672,16 @@ test("visible DOM comments and native moments are not gated on the network fetch
 
   assert.ok(domScanIndex >= 0, "the synchronous DOM comment scan should remain in discovery");
   assert.ok(descriptionWaitStart >= 0, "description readiness should remain explicit");
+  assert.match(
+    source.slice(descriptionWaitStart, domScanIndex),
+    /descriptionDiscovery\.results\.length === 0/,
+    "description expansion must be gated by viable parsed sources, not generic panel text"
+  );
+  assert.doesNotMatch(
+    source.slice(descriptionWaitStart, domScanIndex),
+    /quietDescriptionReadable|canReadQuietDescription/,
+    "a nonempty structured-description shell must not suppress the fallback expansion"
+  );
   assert.doesNotMatch(
     source.slice(descriptionWaitStart, domScanIndex),
     /\breturn;/,
