@@ -74,14 +74,16 @@ that every copied runtime file is referenced:
 npm run verify:packages
 ```
 
-Run the packaged Chrome cold-navigation smoke test:
+Run the packaged Chrome cold-navigation smoke tests:
 
 ```sh
 npm run smoke:chrome
 ```
 
-The smoke requires Chrome or Chromium plus OpenSSL. Set `CHROME_BIN` if the
-browser is not installed in a standard location.
+The smoke runs independent synthetic cold-SPA scenarios for standard YouTube
+Watch and YouTube Music, with each description and action row hydrating several
+seconds after the player route. It requires Chrome or Chromium plus OpenSSL.
+Set `CHROME_BIN` if the browser is not installed in a standard location.
 
 Build Chrome and Firefox upload packages:
 

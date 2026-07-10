@@ -83,7 +83,27 @@ test("content bootstrapped off-watch activates after same-document navigation to
   assert.equal(leftRoutes.length, 1);
   assert.equal(leftRoutes[0].previousVideoId, "related-album");
 
+  currentUrl = "https://www.youtube.com/watch?v=watch-reentry";
+  document.dispatch("yt-navigate-finish");
+
+  assert.equal(controller.isActive(), true);
+  assert.deepEqual(
+    enteredRoutes.map(({ videoId }) => videoId),
+    ["first-album", "watch-reentry"],
+    "leaving Watch must not prevent a later Watch route from activating"
+  );
+  assert.equal(
+    enteredRoutes[1].previousUrl,
+    "https://www.youtube.com/results?search_query=albums"
+  );
+  assert.deepEqual(navigatedRoutes.map(({ videoId }) => videoId), ["related-album"]);
+
   controller.stop();
+  assert.equal(controller.isActive(), false);
+  assert.deepEqual(
+    leftRoutes.map(({ previousVideoId }) => previousVideoId),
+    ["related-album", "watch-reentry"]
+  );
   assert.equal(intervals.size, 0);
 });
 

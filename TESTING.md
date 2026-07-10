@@ -19,8 +19,9 @@ npm run smoke:chrome
   package with `web-ext`.
 - `npm run verify:packages` proves the generated manifests, referenced assets,
   runtime file coverage, and copied bytes match the source tree.
-- `npm run smoke:chrome` loads the generated Chrome extension and exercises a
-  cold non-watch to watch SPA transition without a document reload.
+- `npm run smoke:chrome` loads the generated Chrome extension and exercises
+  independent standard YouTube Watch and YouTube Music cold-SPA transitions
+  without document reloads.
 
 Every major area also has a targeted script, such as `npm run test:timestamps`,
 `npm run test:watch-session`, or `npm run test:settings`. Targeted scripts are
@@ -45,9 +46,13 @@ Use the smallest test layer that proves the behavior:
 The browser smoke is intentionally separate from the fast `npm run check`
 suite. It requires Chrome or Chromium and OpenSSL; set `CHROME_BIN` when the
 browser executable is outside the standard macOS, Linux, or Windows locations.
-The test maps `www.youtube.com` to an ephemeral local HTTPS fixture, starts on a
-non-watch page, navigates with `history.pushState`, and passes only if the
-packaged extension inserts the Tracklist launcher without a reload.
+The test maps both `www.youtube.com` and `music.youtube.com` to ephemeral local
+HTTPS fixtures. Each scenario starts in a fresh browser on a non-watch page,
+navigates with `history.pushState`, then hydrates the description and action row
+after separate multi-second delays. It passes only if the packaged extension
+recognizes that origin's synthetic player/description/action markup, renders the
+three expected tracks, and inserts the Tracklist launcher in the action row
+without a reload.
 
 The fake DOMs are intentionally local to their test files. They implement only
 the methods used by the production helper, which keeps failures readable and
@@ -98,6 +103,6 @@ Automated fixtures complement rather than replace the real-world catalog in
 - A long tracklist and keyboard focus while the active track changes.
 
 Generated Chrome and Firefox packages are verified byte-for-byte, Firefox is
-linted with `web-ext`, and the Chrome package is loaded by the automated cold-SPA
-smoke. Continue using the real-world catalog above for YouTube layout and media
-behavior that a synthetic fixture cannot represent.
+linted with `web-ext`, and the Chrome package is loaded by the automated Watch
+and Music cold-SPA smokes. Continue using the real-world catalog above for
+YouTube layout and media behavior that synthetic fixtures cannot represent.
