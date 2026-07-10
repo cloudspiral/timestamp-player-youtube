@@ -689,7 +689,7 @@ test("visible DOM comments and native moments are not gated on the network fetch
   );
   assert.match(
     source,
-    /descriptionDiscoveryPending = descriptionDiscoveryPending[\s\S]*?!session\.retries\.sourceDiscovery\.exhausted/
+    /descriptionDiscoveryPending = descriptionDiscoveryPending[\s\S]*?!sourceDiscoveryExhaustedForStatus/
   );
   assert.match(
     source,
@@ -719,6 +719,6 @@ test("extension-triggered description expansion starts a fresh bounded discovery
   assert.ok(markExpandedIndex < clickIndex);
   assert.match(
     source,
-    /expandDescriptionIfAvailable\(session\)[\s\S]*scheduleSourceDiscoveryRetry\(session\)[\s\S]*descriptionDiscoveryPending = descriptionDiscoveryPending[\s\S]*!session\.retries\.sourceDiscovery\.exhausted/
+    /expandDescriptionIfAvailable\(session\)[\s\S]*scheduleSourceDiscoveryRetry\(session\)[\s\S]*descriptionDiscoveryPending = descriptionDiscoveryPending[\s\S]*!sourceDiscoveryExhaustedForStatus/
   );
 });

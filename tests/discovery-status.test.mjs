@@ -312,6 +312,45 @@ test("new media and ownership reasons are valid only for their intended statuses
   );
 });
 
+test("source retry actions keep exhausted mutation scans bounded to one weak-source confirmation", async () => {
+  const {
+    SOURCE_DISCOVERY_RETRY_ACTIONS,
+    deriveSourceDiscoveryRetryAction,
+  } = await loadDiscoveryStatus();
+
+  assert.equal(
+    deriveSourceDiscoveryRetryAction({ sourceDiscoveryExhausted: true }),
+    SOURCE_DISCOVERY_RETRY_ACTIONS.NONE,
+    "a timestamp-free mutation cannot renew an exhausted retry cycle"
+  );
+  assert.equal(
+    deriveSourceDiscoveryRetryAction({
+      awaitingSourceConfirmation: true,
+      sourceDiscoveryExhausted: true,
+    }),
+    SOURCE_DISCOVERY_RETRY_ACTIONS.CONFIRM,
+    "fresh weak ownership evidence receives one confirmation scan"
+  );
+  assert.equal(
+    deriveSourceDiscoveryRetryAction({
+      allowExhaustedConfirmation: false,
+      awaitingSourceConfirmation: true,
+      sourceDiscoveryExhausted: true,
+    }),
+    SOURCE_DISCOVERY_RETRY_ACTIONS.NONE,
+    "the confirmation scan cannot schedule itself again"
+  );
+  assert.equal(
+    deriveSourceDiscoveryRetryAction({}),
+    SOURCE_DISCOVERY_RETRY_ACTIONS.RETRY
+  );
+  assert.equal(
+    deriveSourceDiscoveryRetryAction({ selectedSourceSettled: true }),
+    SOURCE_DISCOVERY_RETRY_ACTIONS.RESET
+  );
+  assert.equal(Object.isFrozen(SOURCE_DISCOVERY_RETRY_ACTIONS), true);
+});
+
 test("an exhausted unconfirmed source remains eligible for a later owned upgrade", async () => {
   const {
     DISCOVERY_REASONS,

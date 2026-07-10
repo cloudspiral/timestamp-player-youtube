@@ -156,21 +156,25 @@ test("relevant mutation storms coalesce through the generation-scoped scan task"
   assert.equal(scans, 1);
 });
 
-test("content rearms exhausted discovery only for relevant discovery mutations", async () => {
+test("relevant mutations scan once without renewing an exhausted discovery budget", async () => {
   const { mutations, sessions } = await loadRuntime();
   const contentSource = await readFile(new URL("../src/content.js", import.meta.url), "utf8");
+  const clock = new FakeClock();
   const session = sessions.createWatchSession({ generation: 1, videoId: "album" });
   const description = new FakeNode("#description-inline-expander");
   const player = new FakeNode("#movie_player");
   const unrelated = new FakeNode("ytd-rich-item-renderer");
   let discoveryDispatches = 0;
+  let scans = 0;
 
   session.retries.sourceDiscovery.attempt = 6;
   session.retries.sourceDiscovery.startedAt = 1;
   session.retries.sourceDiscovery.exhausted = true;
   const onDiscovery = () => {
     discoveryDispatches += 1;
-    sessions.rearmExhaustedSessionRetry(session, "sourceDiscovery");
+    sessions.scheduleSessionTask(session, "scan", () => {
+      scans += 1;
+    }, { delay: 600, ...clock.dependencies() });
   };
 
   mutations.dispatchWatchMutations([mutation(player)], { onDiscovery });
@@ -186,15 +190,35 @@ test("content rearms exhausted discovery only for relevant discovery mutations",
       exhausted: session.retries.sourceDiscovery.exhausted,
       startedAt: session.retries.sourceDiscovery.startedAt,
     },
-    { attempt: 0, exhausted: false, startedAt: null }
+    { attempt: 6, exhausted: true, startedAt: 1 }
   );
+  clock.advance(600);
+  assert.equal(scans, 1);
+  assert.equal(clock.timers.size, 0);
   assert.match(
     contentSource,
     /onDiscovery: \(\) => scheduleMutationDiscoveryScan\(session\)/
   );
   assert.match(
     contentSource,
-    /function scheduleMutationDiscoveryScan[\s\S]*rearmExhaustedSessionRetry\(session, "sourceDiscovery"\)[\s\S]*scheduleScan\(session\)/
+    /function scheduleMutationDiscoveryScan[\s\S]*return scheduleScan\(session\)/
+  );
+  const mutationScheduleStart = contentSource.indexOf("function scheduleMutationDiscoveryScan");
+  const mutationScheduleEnd = contentSource.indexOf(
+    "function getSessionMutationInterests",
+    mutationScheduleStart
+  );
+  assert.doesNotMatch(
+    contentSource.slice(mutationScheduleStart, mutationScheduleEnd),
+    /rearmExhaustedSessionRetry|resetSessionRetry/
+  );
+  assert.match(
+    contentSource,
+    /SOURCE_DISCOVERY_RETRY_ACTIONS\.CONFIRM[\s\S]*scheduleSourceOwnershipConfirmation\(session\)/
+  );
+  assert.match(
+    contentSource,
+    /scanPage\(session, \{ allowExhaustedConfirmation: false \}\)/
   );
 });
 

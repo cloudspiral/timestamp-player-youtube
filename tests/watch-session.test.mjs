@@ -566,34 +566,6 @@ test("resetting source discovery after a media outage grants a fresh search budg
   assert.equal(session.retries.sourceDiscovery.attempt, 1);
 });
 
-test("only an exhausted live retry can be rearmed by new external evidence", async () => {
-  const {
-    createWatchSession,
-    disposeWatchSession,
-    rearmExhaustedSessionRetry,
-  } = await loadWatchSession();
-  const session = createWatchSession({ generation: 1, videoId: "album" });
-  const retry = session.retries.sourceDiscovery;
-
-  retry.attempt = 6;
-  retry.startedAt = 100;
-  assert.equal(rearmExhaustedSessionRetry(session, "sourceDiscovery"), false);
-  assert.equal(retry.attempt, 6, "an active bounded cycle must not be renewed");
-
-  retry.exhausted = true;
-  assert.equal(rearmExhaustedSessionRetry(session, "sourceDiscovery"), true);
-  assert.deepEqual(
-    { attempt: retry.attempt, exhausted: retry.exhausted, startedAt: retry.startedAt },
-    { attempt: 0, exhausted: false, startedAt: null }
-  );
-  assert.equal(rearmExhaustedSessionRetry(session, "missing"), false);
-
-  retry.exhausted = true;
-  disposeWatchSession(session);
-  assert.equal(rearmExhaustedSessionRetry(session, "sourceDiscovery"), false);
-  assert.equal(retry.exhausted, true, "disposed generations cannot be renewed");
-});
-
 test("resetting for description expansion cancels old work and restores a full retry budget", async () => {
   const {
     createWatchSession,

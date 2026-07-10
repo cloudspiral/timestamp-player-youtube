@@ -497,7 +497,7 @@ test("content uses only READY session media and guards playback state before mut
 
 test("content clears stale playback and uses one duration snapshot for each ready scan", async () => {
   const source = await readFile(new URL("../src/content.js", import.meta.url), "utf8");
-  const scanStart = source.indexOf("function scanPage(session)");
+  const scanStart = source.indexOf("function scanPage(session,");
   const scanEnd = source.indexOf("function maybeAutoOpenCompact", scanStart);
   const scanSource = source.slice(scanStart, scanEnd);
 

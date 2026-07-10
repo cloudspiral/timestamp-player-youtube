@@ -2,6 +2,7 @@
   const LAUNCHER_ID = "timestamp-player-launcher";
   const SCAN_DELAY_MS = 600;
   const LAUNCHER_SYNC_DELAY_MS = 50;
+  const SOURCE_OWNERSHIP_CONFIRMATION_DELAY_MS = 100;
   const DESCRIPTION_EXPAND_FALLBACK_DELAY_MS = 2500;
   const PREVIOUS_RESTART_SECONDS = 3;
   const {
@@ -10,7 +11,9 @@
   const {
     DISCOVERY_REASONS,
     DISCOVERY_STATUSES,
+    SOURCE_DISCOVERY_RETRY_ACTIONS,
     deriveDiscoveryTarget,
+    deriveSourceDiscoveryRetryAction,
     transitionDiscoveryState,
   } = globalThis.TimestampPlayerDiscoveryStatus;
   const {
@@ -60,7 +63,6 @@
     createWatchSession,
     disposeWatchSession,
     isWatchSessionCurrent,
-    rearmExhaustedSessionRetry,
     resetSessionRetry,
     scheduleSessionRetry,
     scheduleSessionTask,
@@ -375,10 +377,9 @@
       return false;
     }
 
-    // A relevant external DOM change is new evidence. Give an exhausted
-    // discovery cycle one fresh bounded budget so a newly hydrated weak-owned
-    // source receives the two consecutive observations ownership requires.
-    rearmExhaustedSessionRetry(session, "sourceDiscovery");
+    // A relevant mutation is allowed one coalesced evidence scan. Exhausted
+    // retries stay exhausted until that scan proves a weak-owned source needs
+    // exactly one follow-up ownership observation.
     return scheduleScan(session);
   }
 
@@ -482,6 +483,22 @@
     );
   }
 
+  function scheduleSourceOwnershipConfirmation(session) {
+    if (
+      !isCurrentSession(session)
+      || !session.retries.sourceDiscovery.exhausted
+    ) {
+      return false;
+    }
+
+    return scheduleSessionTask(
+      session,
+      "scan",
+      () => scanPage(session, { allowExhaustedConfirmation: false }),
+      { delay: SOURCE_OWNERSHIP_CONFIRMATION_DELAY_MS }
+    );
+  }
+
   function resolveSessionMedia(session) {
     if (!isCurrentSession(session)) {
       return null;
@@ -555,7 +572,7 @@
     );
   }
 
-  function scanPage(session) {
+  function scanPage(session, { allowExhaustedConfirmation = true } = {}) {
     if (!isCurrentSession(session)) {
       return;
     }
@@ -672,17 +689,26 @@
     }
 
     const selectedResult = session.trackSelection.current;
-    if (
-      selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED
-      && !awaitingSourceConfirmation
-      && !descriptionDiscoveryPending
-    ) {
+    const sourceRetryAction = deriveSourceDiscoveryRetryAction({
+      allowExhaustedConfirmation,
+      awaitingSourceConfirmation,
+      descriptionDiscoveryPending,
+      selectedSourceSettled: selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED,
+      sourceDiscoveryExhausted: session.retries.sourceDiscovery.exhausted,
+    });
+    if (sourceRetryAction === SOURCE_DISCOVERY_RETRY_ACTIONS.RESET) {
       resetSessionRetry(session, "sourceDiscovery");
-    } else {
+    } else if (sourceRetryAction === SOURCE_DISCOVERY_RETRY_ACTIONS.RETRY) {
       scheduleSourceDiscoveryRetry(session);
+    } else if (sourceRetryAction === SOURCE_DISCOVERY_RETRY_ACTIONS.CONFIRM) {
+      scheduleSourceOwnershipConfirmation(session);
     }
+    const sourceDiscoveryExhaustedForStatus = (
+      session.retries.sourceDiscovery.exhausted
+      && sourceRetryAction !== SOURCE_DISCOVERY_RETRY_ACTIONS.CONFIRM
+    );
     descriptionDiscoveryPending = descriptionDiscoveryPending
-      && !session.retries.sourceDiscovery.exhausted;
+      && !sourceDiscoveryExhaustedForStatus;
 
     const discoveryTarget = deriveDiscoveryTarget({
       awaitingSourceConfirmation,
@@ -690,7 +716,7 @@
       descriptionDiscoveryPending,
       hasSelectedSource: Boolean(selectedResult),
       selectedSourceSettled: selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED,
-      sourceDiscoveryExhausted: session.retries.sourceDiscovery.exhausted,
+      sourceDiscoveryExhausted: sourceDiscoveryExhaustedForStatus,
     });
     transitionSessionDiscovery(
       session,

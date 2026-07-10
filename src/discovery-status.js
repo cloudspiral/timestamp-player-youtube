@@ -22,6 +22,12 @@
     WAITING_FOR_VIDEO: "waiting-for-video",
     WAITING_FOR_VIDEO_OWNERSHIP: "waiting-for-video-ownership",
   });
+  const SOURCE_DISCOVERY_RETRY_ACTIONS = Object.freeze({
+    CONFIRM: "confirm",
+    NONE: "none",
+    RESET: "reset",
+    RETRY: "retry",
+  });
 
   const REASONS_BY_STATUS = Object.freeze({
     [DISCOVERY_STATUSES.EMPTY]: new Set([
@@ -176,6 +182,28 @@
     );
   }
 
+  function deriveSourceDiscoveryRetryAction({
+    allowExhaustedConfirmation = true,
+    awaitingSourceConfirmation = false,
+    descriptionDiscoveryPending = false,
+    selectedSourceSettled = false,
+    sourceDiscoveryExhausted = false,
+  } = {}) {
+    if (
+      selectedSourceSettled
+      && !awaitingSourceConfirmation
+      && !descriptionDiscoveryPending
+    ) {
+      return SOURCE_DISCOVERY_RETRY_ACTIONS.RESET;
+    }
+    if (sourceDiscoveryExhausted) {
+      return allowExhaustedConfirmation && awaitingSourceConfirmation
+        ? SOURCE_DISCOVERY_RETRY_ACTIONS.CONFIRM
+        : SOURCE_DISCOVERY_RETRY_ACTIONS.NONE;
+    }
+    return SOURCE_DISCOVERY_RETRY_ACTIONS.RETRY;
+  }
+
   function validateDiscoveryState(state) {
     if (!state || typeof state !== "object") {
       throw new TypeError("Discovery state is required");
@@ -219,8 +247,10 @@
   globalThis.TimestampPlayerDiscoveryStatus = {
     DISCOVERY_REASONS,
     DISCOVERY_STATUSES,
+    SOURCE_DISCOVERY_RETRY_ACTIONS,
     createDiscoveryState,
     deriveDiscoveryTarget,
+    deriveSourceDiscoveryRetryAction,
     transitionDiscoveryState,
     validateDiscoveryState,
   };
