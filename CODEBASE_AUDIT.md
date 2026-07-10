@@ -598,3 +598,119 @@ Move one boundary at a time with tests; avoid a flag-day rewrite.
 - Did not run the unpacked extension in a live YouTube tab; F1 is a static diagnosis corroborated by official browser behavior and the exact symptom sequence.
 
 No runtime code was changed as part of this audit.
+
+---
+
+## Implementation resolution ledger
+
+Completed: 2026-07-10
+
+Implementation branch: `codex/full-codebase-hardening`
+
+Baseline: `a7091e9` (`master`)
+
+Final code revision verified: `8a1fcee`
+
+This section records the implementation outcome. The audit above remains an
+unchanged historical snapshot of the baseline that was reviewed.
+
+### Outcome summary
+
+- All 18 findings received dedicated implementation and regression coverage.
+- The reported refresh-to-prime failure is fixed at the document lifecycle
+  boundary: the extension now loads on every supported YouTube path and starts
+  expensive work only for a valid Watch route.
+- A packaged Chrome test now begins off-Watch, navigates without a reload, delays
+  player/description/action hydration, and proves the exact three-track list and
+  launcher on both YouTube Watch and YouTube Music.
+- The release-gate smoke exposed an additional browser-only `Window.clearTimeout`
+  receiver failure after source acceptance. That failure was fixed and covered
+  by receiver-strict tests before the browser smoke was accepted as green.
+- `src/content.js` fell from 2,506 to 1,524 lines. Session ownership, discovery,
+  YouTube DOM interpretation, media resolution, playback, rendering, layout,
+  settings synchronization, diagnostics, caches, and visibility rules now have
+  explicit module boundaries. It remains the event/effect orchestrator rather
+  than a literal composition-only bootstrap; a further split would be an
+  architectural preference, not an unresolved correctness finding.
+
+### Original finding dispositions
+
+| ID | Outcome | Resolving commit(s) | Implemented resolution |
+|---|---|---|---|
+| F1 | Resolved and browser-regressed | `8c1b2e3`, `e76758a`, `32a6e5f`, `053c981`, `278cb7b` | Broad-origin injection plus route-gated activation fixes cold SPA entry. The packaged delayed Watch/Music harness proves the launcher and tracks appear without a refresh. |
+| F2 | Resolved | `2af5f50`, `75cb945`, `bf15ad9`, `939c03c`, `9cfe032`, `031376d` | One generation-scoped session owns abort, tasks, independent bounded retry policies, hydration, launcher repair, and explicit description expansion. Exhausted discovery stays quiescent while real weak ownership evidence receives one confirmation scan. |
+| F3 | Resolved | `02e971b`, `c2136a2`, `67ed131`, `f2dc336` | Comment requests are cancellable, timed, typed, partial-preserving, and non-blocking. DOM/native fallbacks run during hydration, safe fetched seeds survive duration changes, and credentialed endpoints are origin/path/redirect constrained. |
+| F4 | Resolved | `a33b401`, `67ed131` | Source selection records provenance, ownership, status, observation, duration, and quality. Deterministic monotonic upgrades replace first-result locking and duration revisions invalidate stale results. |
+| F5 | Resolved | `4208778`, `427354c`, `67ed131` | Clock fields, starts, near-duplicates, intervals, exact playback boundaries, and revised media durations enforce `0 <= start < end <= duration`. |
+| F6 | Resolved | `7a99115`, `1c86e82`, `248c0ab`, `0209854`, `9cfe032` | Mutation work is domain-filtered and coalesced, unchanged media snapshots do not rerender, rows are keyed, logical focus survives source replacement, comment body parsing stops at its real cap, and exhausted sessions do not restart full retry cycles on ordinary churn. |
+| F7 | Resolved | `1287cd1`, `e76758a`, `053c981`, `278cb7b` | Recursive unit/fixture coverage, async lifecycle tests, CI, generated-package assertions, receiver-strict browser semantics, and independent packaged Watch/Music Chrome smoke layers now exist. |
+| F8 | Substantially resolved to a practical orchestration boundary | `3cbe695`, `ab0d309`, `2ff1a7b`, `11e5f3a`, `b7e9c74`, `05966aa`, `76df300`, `a0ceea8` | Playback, layout, stable view, YouTube DOM, comment payloads, source discovery, settings sync, and explicit visibility were extracted one boundary at a time. `content.js` now coordinates those modules instead of implementing them. |
+| F9 | Resolved | `60b80f5`, `b7deeca`, `a0ceea8` | Media resolves structurally inside the current Watch/Music player with route ownership, stale/hidden-player rejection, readiness gating, and direct session binding. |
+| F10 | Resolved | `8dd93f1`, `67ed131` | Cross-video state uses bounded LRU/TTL retention; raw comment bodies/authors are released and only bounded normalized metadata seeds survive safe retries. |
+| F11 | Resolved | `82c91b6`, `d5670dc`, `248c0ab`, `e26d706`, `4613529`, `8a1fcee` | Native controls, ARIA state, keyboard layout operations, focus entry/restoration, logical row focus, reduced motion, persisted floating geometry, action-accurate tooltips, and stable toggle-mode names are covered. |
+| F12 | Resolved | `11e5f3a`, `32a6e5f`, `b7deeca`, `a0ceea8` | Structural YouTube interpretation is centralized, English text is fallback-only, native scoping is repaired, Music has dedicated ownership/hydration coverage, and explicitly hidden SPA remnants cannot capture discovery or launcher ownership. |
+| F13 | Resolved | `b7e9c74`, `11e5f3a`, `0209854` | Pin/uploader/like trust comes from known schema or structural fields, richer duplicates merge deterministically, false-positive fixtures are covered, and cheap classification precedes bounded body parsing. |
+| F14 | Resolved | `a33b401`, `1b1ecd0` | Sources remain separate through run construction and nearby-title promotion is candidate-local rather than controlled by one global layout heuristic. |
+| F15 | Resolved | `f81a5f8` | Sessions expose explicit immutable discovery status/reasons plus opt-in, privacy-safe structured diagnostics. A visible loading panel remains intentionally optional. |
+| F16 | Resolved | `e76758a`, `053c981`, `278cb7b` | CI now checks recursively discovered JavaScript, the Node baseline, tests, generated package bytes/references, Firefox lint, and packaged Chrome cold-SPA behavior. |
+| F17 | Resolved | `22e344f`, `f4c6dac`, `11e5f3a`, `9cfe032` | Dead repeat/status/wrapper/mirrored state, duplicate selectors/APIs, test-only exports, and the superseded broad retry-rearm API were removed. |
+| F18 | Resolved | `427354c`, `60b80f5`, `67ed131`, `e9efe95`, `e26d706`, `f2dc336`, `278cb7b`, `4613529` | Parser token/decimal/cluster gaps, exact playback timing, metadata-duration handling, reduced motion, options lifecycle/feedback, tooltip polish, request restrictions, native timer semantics, and saved floating layout were hardened. |
+
+### Follow-up reconciliation commits
+
+These commits close issues found after the first F1–F18 implementation pass.
+Each concern was kept in its own descriptive commit.
+
+| Commit | Follow-up issue closed |
+|---|---|
+| `32a6e5f` | Observe late YouTube Music description, action, and player hydration. |
+| `b7deeca` | Reject stale Music players after soft navigation and bind media to the current route. |
+| `c2136a2` | Continue visible comment/native/network fallback discovery while descriptions hydrate. |
+| `1c86e82` | Suppress redundant player-mutation scans and unchanged render work. |
+| `f4c6dac` | Remove residual write-only state and test-only runtime APIs. |
+| `05966aa` | Extract source discovery from the content orchestrator. |
+| `053c981` | Strengthen packaged smoke coverage with independent delayed Watch and Music scenarios. |
+| `75cb945` | Let fresh relevant evidence reach an exhausted discovery session. |
+| `bf15ad9` | Reset the bounded source budget before extension-triggered description expansion. |
+| `76df300` | Subscribe before settings load so a late load cannot overwrite newer storage changes. |
+| `67ed131` | Rebase selections and fetched metadata when media duration changes. |
+| `d5670dc` | Move focus into a player explicitly opened from the launcher. |
+| `248c0ab` | Preserve logical row focus across source and timing replacements. |
+| `e9efe95` | Clear stale options feedback as soon as a new edit begins. |
+| `e26d706` | Make layout tooltips describe the next action. |
+| `f2dc336` | Restrict credentialed fallback Watch requests to exact safe origins with redirect blocking. |
+| `278cb7b` | Preserve native Window timer receivers so accepted discovery can finish in Chrome. |
+| `939c03c` | Exclude generic structured-description panel chrome from quiet-content readiness. |
+| `4613529` | Restore saved floating positions instead of overwriting them on every pop-out. |
+| `0209854` | Enforce the regular-comment cap before body and timestamp parsing. |
+| `9cfe032` | Replace mutation-driven full retry renewal with one evidence scan and one weak-source confirmation. |
+| `031376d` | Preserve no-flicker behavior when a real quiet body renderer is already hydrated. |
+| `a0ceea8` | Share ancestor-aware explicit visibility so hidden SPA remnants cannot own UI/media. |
+| `8a1fcee` | Give layout toggles stable accessible mode names while retaining next-action tooltips. |
+
+### Final verification
+
+The following was run at final code revision `8a1fcee`:
+
+- `npm run build`: pass.
+  - Recursive syntax check: 69 JavaScript files.
+  - Manifest parse: valid.
+  - Node test runner: 338 passed, 0 failed.
+  - Generated sources: 37 runtime files; Chrome and Firefox each contain 36
+    referenced assets and 38 total files.
+  - Firefox extension lint: 0 errors, 0 warnings, 0 notices.
+  - Chrome ZIP: `web-ext-artifacts/timestamp-player-youtube-chrome-0.8.0.zip`.
+  - Firefox ZIP: `web-ext-artifacts/timestamp-player-youtube-firefox-0.8.0.zip`.
+- `npm run smoke:chrome`: pass.
+  - YouTube Watch: delayed cold SPA route rendered `Tracklist` without reload.
+  - YouTube Music: delayed cold SPA route rendered `Tracklist` without reload.
+- `git diff --check`: pass.
+- Two independent final read-only reviews were reconciled: one was clear, and
+  the other's sole P2 accessible-name finding was fixed in `8a1fcee`. No other
+  actionable P0–P3 findings remained.
+
+The Chrome smoke is deterministic synthetic-origin coverage using the packaged
+extension and locally served Watch/Music DOM fixtures. It is not a substitute
+for a final manual pass against live YouTube, especially authenticated comment
+continuations and future YouTube DOM experiments. `TEST_VIDEOS.md` remains the
+manual release catalog for that purpose.
