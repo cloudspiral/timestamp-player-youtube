@@ -83,7 +83,7 @@
         </span>
         <button class="ts-drag-handle" type="button" aria-label="Move floating player" aria-describedby="timestamp-player-layout-instructions" aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight Home Escape" aria-pressed="false" title="Move floating player"></button>
         <button class="ts-resize-handle" type="button" aria-label="Resize player" aria-describedby="timestamp-player-layout-instructions" aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight Home Escape" aria-pressed="false" title="Resize player"></button>
-        <button class="ts-compact-toggle" type="button" aria-label="Compact player" aria-pressed="false" title="Compact player">
+        <button class="ts-compact-toggle" type="button" aria-label="Compact player mode" aria-pressed="false" title="Compact player">
           <svg class="ts-icon ts-stroke-icon ts-compact-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6 9l6 6 6-6"></path>
           </svg>
@@ -91,7 +91,7 @@
             <path d="M6 15l6-6 6 6"></path>
           </svg>
         </button>
-        <button class="ts-popout" type="button" aria-label="Pop out player" aria-pressed="false" title="Pop out player">
+        <button class="ts-popout" type="button" aria-label="Floating player mode" aria-pressed="false" title="Pop out player">
           <svg class="ts-icon ts-stroke-icon ts-popout-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M8 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"></path>
             <path d="M14 4h6v6"></path>

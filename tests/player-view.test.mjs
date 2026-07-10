@@ -510,10 +510,10 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   assert.equal(elements.toggleButton.getAttribute("aria-pressed"), "true");
   assert.equal(elements.repeatButton.getAttribute("aria-label"), "Repeat current track");
   assert.equal(elements.repeatButton.getAttribute("aria-pressed"), "true");
-  assert.equal(elements.compactButton.getAttribute("aria-label"), "Compact player");
+  assert.equal(elements.compactButton.getAttribute("aria-label"), "Compact player mode");
   assert.equal(elements.compactButton.getAttribute("aria-pressed"), "true");
   assert.equal(elements.compactButton.title, "Expand player");
-  assert.equal(elements.popoutButton.getAttribute("aria-label"), "Pop out player");
+  assert.equal(elements.popoutButton.getAttribute("aria-label"), "Floating player mode");
   assert.equal(elements.popoutButton.getAttribute("aria-pressed"), "false");
   assert.equal(elements.popoutButton.title, "Pop out player");
   assert.equal(elements.trackEl.textContent, "Track: Opening");
@@ -536,7 +536,7 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   assert.equal(elements.playPauseButton.getAttribute("aria-label"), "Play");
   assert.equal(elements.compactButton.disabled, true);
   assert.equal(elements.compactButton.title, "Compact player");
-  assert.equal(elements.popoutButton.getAttribute("aria-label"), "Pop out player");
+  assert.equal(elements.popoutButton.getAttribute("aria-label"), "Floating player mode");
   assert.equal(elements.popoutButton.getAttribute("aria-pressed"), "true");
   assert.equal(elements.popoutButton.title, "Dock player");
   assert.equal(elements.trackEl.textContent, "No track selected");
@@ -579,7 +579,7 @@ test("explicit-open focus chooses the active layout control without creating or 
   assert.equal(harness.controller.focusOpenControl(), false, "hidden panels are skipped");
 });
 
-test("layout toggle titles describe the next action while accessible names remain stable", async () => {
+test("layout toggle titles describe the next action while names expose stable pressed modes", async () => {
   const harness = await createHarness();
   const elements = harness.controller.render({
     anchored: true,
@@ -597,7 +597,7 @@ test("layout toggle titles describe the next action while accessible names remai
     visible: true,
   });
   assert.equal(elements.compactButton.title, "Expand player");
-  assert.equal(elements.compactButton.getAttribute("aria-label"), "Compact player");
+  assert.equal(elements.compactButton.getAttribute("aria-label"), "Compact player mode");
   assert.equal(elements.compactButton.getAttribute("aria-pressed"), "true");
 
   harness.controller.render({
@@ -606,7 +606,7 @@ test("layout toggle titles describe the next action while accessible names remai
     visible: true,
   });
   assert.equal(elements.popoutButton.title, "Dock player");
-  assert.equal(elements.popoutButton.getAttribute("aria-label"), "Pop out player");
+  assert.equal(elements.popoutButton.getAttribute("aria-label"), "Floating player mode");
   assert.equal(elements.popoutButton.getAttribute("aria-pressed"), "true");
 
   harness.controller.render({
