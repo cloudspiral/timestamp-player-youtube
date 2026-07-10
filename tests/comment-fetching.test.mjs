@@ -215,18 +215,14 @@ test("distinguishes a valid empty comment source from unsupported page data", as
 
 test("visible DOM comments and native moments are not gated on the network fetch", async () => {
   const source = await readFile(new URL("../src/content.js", import.meta.url), "utf8");
-  const domScanIndex = source.indexOf("const domCommentTracks = getCommentTracksForVideo");
+  const domScanIndex = source.indexOf("getDomCommentSourceResults(session");
   const fetchStartIndex = source.indexOf("const fetchedCommentDiscovery = getFetchedCommentDiscoveryForSession");
+  const nativeScanIndex = source.indexOf("const nativeResult = getNativeSourceResult");
 
   assert.ok(domScanIndex >= 0, "the synchronous DOM comment scan should remain in discovery");
   assert.ok(domScanIndex < fetchStartIndex, "visible comments should be checked before network discovery starts");
-  assert.doesNotMatch(source, /commentFetchPending/);
-  assert.match(
-    source,
-    /if \(tracks\.length < 2 && shouldUseNativeTimestampFallback\(\)\)/
-  );
-  assert.match(
-    source,
-    /if \(shouldLockSessionTracks\(session, \{ descriptionTracksFound \}\)\)/
-  );
+  assert.ok(nativeScanIndex > fetchStartIndex, "native discovery should remain a synchronous fallback while fetch is pending");
+  assert.doesNotMatch(source, /commentFetchPending|tracksLocked|shouldLockSessionTracks/);
+  assert.match(source, /TRACK_SOURCE_STATUSES\.PROVISIONAL/);
+  assert.match(source, /session\.trackSelection\.current/);
 });

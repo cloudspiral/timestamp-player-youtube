@@ -1,4 +1,7 @@
 (() => {
+  const {
+    createTrackSelectionState,
+  } = globalThis.TimestampPlayerTrackSelection;
   const COMMENT_DISCOVERY_STATUSES = Object.freeze({
     IDLE: "idle",
     PENDING: "pending",
@@ -45,13 +48,17 @@
         expanded: false,
         shouldCollapse: false,
       },
+      domSources: {
+        ids: new WeakMap(),
+        nextId: 1,
+      },
       commentDiscovery: {
         outcome: null,
         records: [],
+        result: null,
         status: COMMENT_DISCOVERY_STATUSES.IDLE,
-        tracks: [],
       },
-      tracksLocked: false,
+      trackSelection: createTrackSelectionState(),
       autoOpenedCompact: false,
       userClosedPanel: false,
     };
@@ -183,13 +190,6 @@
     retry.exhausted = false;
   }
 
-  function shouldLockSessionTracks(session, { descriptionTracksFound = false } = {}) {
-    return Boolean(
-      descriptionTracksFound
-      || session?.commentDiscovery?.status === COMMENT_DISCOVERY_STATUSES.DONE
-    );
-  }
-
   function disposeWatchSession(session, reason = "watch-session-ended") {
     if (!session || session.abortController.signal.aborted) {
       return;
@@ -212,6 +212,5 @@
     resetSessionRetry,
     scheduleSessionRetry,
     scheduleSessionTask,
-    shouldLockSessionTracks,
   };
 })();

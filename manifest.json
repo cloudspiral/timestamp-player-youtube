@@ -37,6 +37,7 @@
         "src/comment-scoring.js",
         "src/comment-fetching.js",
         "src/watch-route.js",
+        "src/track-selection.js",
         "src/watch-session.js",
         "src/content.js"
       ],

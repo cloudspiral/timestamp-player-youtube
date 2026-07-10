@@ -40,15 +40,15 @@
     REGULAR: "regular",
   };
   const {
-    compareCommentTrackSources,
     parseCommentLikeCount,
+    scoreCommentTrackSource,
   } = globalThis.TimestampPlayerCommentScoring;
   const {
     COMMENT_FETCH_OUTCOMES,
     fetchCommentRecords,
   } = globalThis.TimestampPlayerCommentFetching;
   const {
-    getNativeTimestampCandidates,
+    getNativeTimestampDiscovery,
     isNativeTimestampSectionElement,
   } = globalThis.TimestampPlayerNativeTimestamps;
   const {
@@ -63,7 +63,6 @@
     parseTimeParam,
     parseTimestampText,
     titleFromLineFragment,
-    trackTitleScore,
   } = globalThis.TimestampPlayerTimestamps;
   const {
     COMPACT_PROGRESS_COLORS,
@@ -80,6 +79,20 @@
     getWatchVideoId,
   } = globalThis.TimestampPlayerWatchRoute;
   const {
+    OWNERSHIP_CONFIDENCE,
+    TRACK_SOURCE_KINDS,
+    TRACK_SOURCE_STATUSES,
+    beginTrackSelectionObservation,
+    classifyNativeTrackSourceOwnership,
+    classifyTrackSourceOwnership,
+    considerTrackSource,
+    createTrackSourceResult,
+    enrichTrackSourceFromCache,
+    observeTrackSourceOwnership,
+    shouldConsiderNativeSource,
+    trackSourceNeedsTitleEnrichment,
+  } = globalThis.TimestampPlayerTrackSelection;
+  const {
     COMMENT_DISCOVERY_STATUSES,
     createWatchSession,
     disposeWatchSession,
@@ -87,7 +100,6 @@
     resetSessionRetry,
     scheduleSessionRetry,
     scheduleSessionTask,
-    shouldLockSessionTracks,
   } = globalThis.TimestampPlayerWatchSession;
 
   const state = {
@@ -440,53 +452,67 @@
     }
 
     session.phase = "discovering";
-
-    const lockedTracks = getLockedTracksForSession(session);
-    if (lockedTracks) {
-      applyTracksForSession(session, video, lockedTracks);
-      maybeAutoOpenCompact(session);
-      collapseDescriptionIfNeeded(session);
-      resetSessionRetry(session, "readiness");
-      session.phase = "ready";
-      updateUi();
-      return;
-    }
-
+    const observation = beginTrackSelectionObservation(session.trackSelection);
     const quietDescriptionReadable = canReadQuietDescription(videoId);
-    const candidates = getTimestampCandidates(videoId);
-    let tracks = getTracksForSession(session, video.duration, candidates);
-    const descriptionTracksFound = tracks.length >= 2;
-    if (tracks.length < 2 && candidates.length < 2 && !quietDescriptionReadable && shouldWaitForQuietDescriptionScan(session)) {
+    const descriptionDiscovery = getDescriptionSourceResults(session, video.duration, observation);
+    considerTrackSourceResults(session, descriptionDiscovery.results);
+    const descriptionSelected = selectedSourceKind(session) === TRACK_SOURCE_KINDS.DESCRIPTION;
+
+    if (
+      !descriptionSelected
+      && descriptionDiscovery.candidateCount < 2
+      && !quietDescriptionReadable
+      && shouldWaitForQuietDescriptionScan(session)
+    ) {
       scheduleReadinessRetry(session, "waiting-for-description");
+      applySelectedTracksForSession(session, video);
       updateUi();
       return;
     }
 
-    if (tracks.length < 2 && candidates.length < 2 && !quietDescriptionReadable && expandDescriptionIfAvailable(session)) {
+    if (
+      !descriptionSelected
+      && descriptionDiscovery.candidateCount < 2
+      && !quietDescriptionReadable
+      && expandDescriptionIfAvailable(session)
+    ) {
+      applySelectedTracksForSession(session, video);
       updateUi("Reading description...");
       return;
     }
 
-    if (tracks.length < 2) {
-      const domCommentTracks = getCommentTracksForVideo(videoId, video.duration);
+    const shouldDiscoverAlternativeSources = !descriptionSelected
+      || trackSourceNeedsTitleEnrichment(session.trackSelection.current);
+    if (shouldDiscoverAlternativeSources) {
+      const commentStatus = session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.DONE
+        ? TRACK_SOURCE_STATUSES.SETTLED
+        : TRACK_SOURCE_STATUSES.PROVISIONAL;
+      considerTrackSourceResults(
+        session,
+        getDomCommentSourceResults(session, video.duration, observation, commentStatus)
+      );
       const fetchedCommentDiscovery = getFetchedCommentDiscoveryForSession(session, video.duration);
-      tracks = fetchedCommentDiscovery.tracks.length >= COMMENT_MIN_TRACKS
-        ? fetchedCommentDiscovery.tracks
-        : domCommentTracks;
-    }
-
-    if (tracks.length < 2 && shouldUseNativeTimestampFallback()) {
-      tracks = getTracksForSession(session, video.duration, getNativeTimestampCandidates(videoId));
-    }
-
-    if (tracks.length >= 2) {
-      resetSessionRetry(session, "readiness");
-      if (shouldLockSessionTracks(session, { descriptionTracksFound })) {
-        tracks = lockTracksForSession(session, tracks);
-        session.phase = "ready";
-      } else {
-        session.phase = "provisional";
+      if (fetchedCommentDiscovery.result) {
+        considerTrackSourceResults(session, [fetchedCommentDiscovery.result]);
       }
+    }
+
+    if (
+      shouldConsiderNativeSource(session.trackSelection)
+      && shouldUseNativeTimestampFallback()
+    ) {
+      const nativeResult = getNativeSourceResult(session, video.duration, observation);
+      if (nativeResult) {
+        considerTrackSourceResults(session, [nativeResult]);
+      }
+    }
+
+    const selectedResult = session.trackSelection.current;
+    if (selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED) {
+      resetSessionRetry(session, "readiness");
+      session.phase = "ready";
+    } else if (selectedResult) {
+      scheduleReadinessRetry(session, "provisional");
     } else {
       scheduleReadinessRetry(session, "discovering-sources");
     }
@@ -495,7 +521,7 @@
       return;
     }
 
-    applyTracksForSession(session, video, tracks);
+    applySelectedTracksForSession(session, video);
     maybeAutoOpenCompact(session);
     collapseDescriptionIfNeeded(session);
     updateUi();
@@ -507,7 +533,7 @@
       || !state.settings.autoShowCompact
       || state.panelOpen
       || !tracksBelongToVideo(session.videoId)
-      || !session.tracksLocked
+      || session.trackSelection.current?.status !== TRACK_SOURCE_STATUSES.SETTLED
       || session.autoOpenedCompact
       || session.userClosedPanel
     ) {
@@ -527,28 +553,42 @@
       && session.videoId === videoId;
   }
 
-  function getLockedTracksForSession(session) {
-    if (!session.tracksLocked) {
-      return null;
+  function considerTrackSourceResults(session, results) {
+    for (const result of results) {
+      const ownedResult = observeTrackSourceOwnership(session.trackSelection, result);
+      if (!ownedResult) {
+        continue;
+      }
+
+      const enrichedResult = enrichTrackSourceFromCache(
+        ownedResult,
+        state.trackCache.get(session.videoId)
+      );
+      considerTrackSource(session.trackSelection, enrichedResult, {
+        generation: session.generation,
+        videoId: session.videoId,
+      });
     }
-
-    return state.trackCache.get(session.videoId) || null;
   }
 
-  function lockTracksForSession(session, tracks) {
-    state.trackCache.set(session.videoId, tracks);
-    session.tracksLocked = true;
-    return tracks;
+  function selectedSourceKind(session) {
+    return session.trackSelection.current?.source.kind || null;
   }
 
-  function applyTracksForSession(session, video, tracks) {
+  function applySelectedTracksForSession(session, video) {
     if (!isCurrentSession(session)) {
       return;
     }
-    if (tracksChanged(state.tracks, tracks)) {
+
+    const selectedResult = session.trackSelection.current;
+    const tracks = selectedResult?.tracks || [];
+    if (trackTimingsChanged(state.tracks, tracks)) {
       resetPlaybackOrder();
     }
     state.tracks = tracks;
+    if (selectedResult) {
+      state.trackCache.set(session.videoId, selectedResult);
+    }
     state.currentTrackIndex = getTrackAtTime(video.currentTime)?.index ?? -1;
   }
 
@@ -557,51 +597,14 @@
     state.upcoming = [];
   }
 
-  function tracksChanged(previousTracks, nextTracks) {
+  function trackTimingsChanged(previousTracks, nextTracks) {
     if (previousTracks.length !== nextTracks.length) {
       return true;
     }
 
-    return previousTracks.some((track, index) => track.start !== nextTracks[index]?.start);
-  }
-
-  function getTracksForSession(session, duration, candidates = getTimestampCandidates(session.videoId)) {
-    const tracks = findTracks(duration, candidates);
-    const cachedTracks = state.trackCache.get(session.videoId);
-
-    if (tracks.length >= 2) {
-      const mergedTracks = mergeCachedTrackTitles(tracks, cachedTracks);
-      const bestTracks = chooseBetterTrackSet(mergedTracks, cachedTracks);
-      state.trackCache.set(session.videoId, bestTracks);
-      return bestTracks;
-    }
-
-    // Cached tracks are only a continuity fallback after this video has already
-    // been confirmed in the current page view. During YouTube SPA navigation,
-    // old DOM can briefly linger, and auto-show should never open from cache alone.
-    return session.tracksLocked ? cachedTracks || [] : [];
-  }
-
-  function mergeCachedTrackTitles(tracks, cachedTracks) {
-    if (!cachedTracks || tracks.length !== cachedTracks.length) {
-      return tracks;
-    }
-
-    return tracks.map((track, index) => {
-      const cachedTrack = cachedTracks[index];
-      if (cachedTrack && cachedTrack.start === track.start && !track.title && cachedTrack.title) {
-        return { ...track, title: cachedTrack.title };
-      }
-      return track;
+    return previousTracks.some((track, index) => {
+      return track.start !== nextTracks[index]?.start || track.end !== nextTracks[index]?.end;
     });
-  }
-
-  function chooseBetterTrackSet(tracks, cachedTracks) {
-    if (!cachedTracks) {
-      return tracks;
-    }
-
-    return trackTitleScore(tracks) >= trackTitleScore(cachedTracks) ? tracks : cachedTracks;
   }
 
   function getVideo() {
@@ -814,23 +817,95 @@
     return compactHost;
   }
 
-  function getTimestampCandidates(videoId) {
-    const roots = getTimestampCandidateRoots();
-    const textCandidates = getTextTimestampCandidatesFromRoots(videoId);
-    const titledTextStarts = new Set(
-      textCandidates
-        .filter((candidate) => candidate.title)
-        .map((candidate) => candidate.start)
-    );
-    const linkCandidates = getLinkTimestampCandidates(videoId, roots, { excludeNativeTimestampSections: true })
-      .filter((candidate) => !titledTextStarts.has(candidate.start));
-    return [...textCandidates, ...linkCandidates];
+  function getDescriptionSourceResults(session, duration, observation) {
+    const results = [];
+    let candidateCount = 0;
+
+    for (const root of getTimestampCandidateRoots()) {
+      const ownership = getDomSourceOwnership(root, session.videoId);
+      if (!ownership) {
+        continue;
+      }
+
+      const sourceId = getDomSourceId(session, root);
+      const text = removeNativeTimestampSections(root.innerText || root.textContent || "");
+      const normalizedText = normalizeTitleText(text);
+      if (!normalizedText || isLikelyCollapsedDescriptionTextRoot(root, normalizedText)) {
+        continue;
+      }
+
+      const textCandidates = getTextTimestampCandidates(text, `description-text:${sourceId}`);
+      const titledTextStarts = new Set(
+        textCandidates
+          .filter((candidate) => candidate.title)
+          .map((candidate) => candidate.start)
+      );
+      const linkCandidates = getLinkTimestampCandidates(session.videoId, [root], {
+        excludeNativeTimestampSections: true,
+      }).filter((candidate) => !titledTextStarts.has(candidate.start));
+      const candidates = [...textCandidates, ...linkCandidates];
+      candidateCount = Math.max(candidateCount, candidates.length);
+      const tracks = findTracks(duration, candidates);
+      if (tracks.length < 2) {
+        continue;
+      }
+
+      results.push(createTrackSourceResult({
+        channel: "description-dom",
+        duration,
+        generation: session.generation,
+        kind: TRACK_SOURCE_KINDS.DESCRIPTION,
+        observation,
+        ownership,
+        sourceId,
+        status: TRACK_SOURCE_STATUSES.SETTLED,
+        tracks,
+        videoId: session.videoId,
+      }));
+    }
+
+    return { candidateCount, results };
   }
 
   function shouldUseNativeTimestampFallback() {
     // Keep native YouTube Key moments as an isolated fallback so a future source
     // preference can disable it without changing the rest of the scan pipeline.
     return true;
+  }
+
+  function getNativeSourceResult(session, duration, observation) {
+    const discovery = getNativeTimestampDiscovery(session.videoId);
+    if (discovery.hasMismatchedVideoId) {
+      return null;
+    }
+
+    const tracks = findTracks(duration, discovery.candidates);
+    if (tracks.length < 2) {
+      return null;
+    }
+
+    const ownership = classifyNativeTrackSourceOwnership(
+      discovery.candidates,
+      session.videoId
+    );
+    if (!ownership) {
+      return null;
+    }
+
+    return createTrackSourceResult({
+      channel: "native-dom",
+      duration,
+      generation: session.generation,
+      kind: TRACK_SOURCE_KINDS.NATIVE,
+      observation,
+      ownership,
+      sourceId: "native-page",
+      status: session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.DONE
+        ? TRACK_SOURCE_STATUSES.SETTLED
+        : TRACK_SOURCE_STATUSES.PROVISIONAL,
+      tracks,
+      videoId: session.videoId,
+    });
   }
 
   function getLinkTimestampCandidates(videoId, roots, options = {}) {
@@ -849,40 +924,33 @@
     return links.map((link) => toTimestampCandidate(link, videoId)).filter(Boolean);
   }
 
-  function getTextTimestampCandidatesFromRoots(videoId) {
-    const candidates = [];
-    const seenTexts = new Set();
-    for (const [rootIndex, root] of getTimestampTextCandidateRoots().entries()) {
-      if (!timestampTextRootMatchesVideo(root, videoId)) {
-        continue;
-      }
-
-      const text = removeNativeTimestampSections(root.innerText || root.textContent || "");
-      const normalizedText = normalizeTitleText(text);
-      if (!normalizedText || seenTexts.has(normalizedText)) {
-        continue;
-      }
-      if (isLikelyCollapsedDescriptionTextRoot(root, normalizedText)) {
-        continue;
-      }
-
-      seenTexts.add(normalizedText);
-      candidates.push(...getTextTimestampCandidates(text, `description-text:${rootIndex}`));
-    }
-
-    return candidates;
-  }
-
-  function timestampTextRootMatchesVideo(root, videoId) {
-    const linkedVideoIds = new Set();
+  function getDomSourceOwnership(root, videoId) {
+    const linkedVideoIds = [];
     for (const link of root.querySelectorAll("a[href*='/watch']")) {
       const linkedVideoId = getTimestampLinkVideoId(link);
       if (linkedVideoId) {
-        linkedVideoIds.add(linkedVideoId);
+        linkedVideoIds.push(linkedVideoId);
       }
     }
 
-    return linkedVideoIds.size === 0 || linkedVideoIds.has(videoId);
+    const watchShell = root.closest?.("ytd-watch-flexy") || null;
+    const shellVideoId = getWatchShellVideoId(watchShell);
+    return classifyTrackSourceOwnership({ linkedVideoIds, shellVideoId, videoId });
+  }
+
+  function getWatchShellVideoId(watchShell) {
+    const videoId = watchShell?.getAttribute?.("video-id") || watchShell?.videoId;
+    return typeof videoId === "string" ? videoId.trim() : "";
+  }
+
+  function getDomSourceId(session, root) {
+    let sourceId = session.domSources.ids.get(root);
+    if (!sourceId) {
+      sourceId = String(session.domSources.nextId);
+      session.domSources.nextId += 1;
+      session.domSources.ids.set(root, sourceId);
+    }
+    return sourceId;
   }
 
   function isLikelyCollapsedDescriptionTextRoot(root, text) {
@@ -934,17 +1002,6 @@
     return Number.isFinite(timeParamStart) || Number.isFinite(textStart) ? linkedVideoId : "";
   }
 
-  function getTimestampTextCandidateRoots() {
-    const selectors = [
-      ...getQuietDescriptionSelectors(),
-      "ytd-watch-metadata #description-inline-expander #expanded",
-      "ytd-watch-metadata #description-inline-expander",
-      "ytd-watch-metadata #description",
-    ];
-
-    return getUniqueElements(selectors);
-  }
-
   function getTimestampCandidateRoots() {
     const selectors = [
       ...getQuietDescriptionSelectors(),
@@ -956,13 +1013,54 @@
     return getUniqueElements(selectors);
   }
 
-  function getCommentTracksForVideo(videoId, duration) {
-    const bestSource = getBestTrackSource(getCommentTimestampSources(videoId), duration);
-    if (!bestSource) {
-      return [];
+  function getDomCommentSourceResults(session, duration, observation, status) {
+    const results = [];
+    let regularCommentCount = 0;
+
+    for (const [order, root] of getCommentRoots().entries()) {
+      const ownership = getDomSourceOwnership(root, session.videoId);
+      if (!ownership) {
+        continue;
+      }
+
+      const sourceType = getCommentSourceType(root);
+      if (sourceType === COMMENT_SOURCE_TYPES.REGULAR) {
+        regularCommentCount += 1;
+        if (regularCommentCount > REGULAR_COMMENT_SCAN_LIMIT) {
+          continue;
+        }
+      }
+
+      const sourceId = getDomSourceId(session, root);
+      const candidates = getTextTimestampCandidates(getCommentBodyText(root), `comment:${sourceId}`);
+      const tracks = findTracks(duration, candidates, COMMENT_MIN_TRACKS);
+      if (tracks.length < COMMENT_MIN_TRACKS) {
+        continue;
+      }
+
+      const scoredSource = {
+        duration,
+        likeCount: getCommentLikeCount(root),
+        order,
+        sourceType,
+        tracks,
+      };
+      results.push(createTrackSourceResult({
+        channel: "comment-dom",
+        duration,
+        generation: session.generation,
+        kind: TRACK_SOURCE_KINDS.COMMENT,
+        observation,
+        ownership,
+        sourceId,
+        sourceScore: scoreCommentTrackSource(scoredSource),
+        status,
+        tracks,
+        videoId: session.videoId,
+      }));
     }
 
-    return cacheTrackSourceForVideo(videoId, bestSource);
+    return results;
   }
 
   function getFetchedCommentDiscoveryForSession(session, duration) {
@@ -995,7 +1093,7 @@
         status: COMMENT_FETCH_OUTCOMES.TRANSIENT_ERROR,
       }))
       .finally(() => {
-        if (isCurrentSession(session) && !session.tracksLocked) {
+        if (isCurrentSession(session)) {
           scheduleScan(session);
         }
       });
@@ -1003,22 +1101,16 @@
   }
 
   function finishCommentFetch(session, duration, result) {
-    const { videoId } = session;
     if (!isCurrentSession(session)) {
       return;
     }
 
     const discovery = session.commentDiscovery;
     const records = Array.isArray(result?.records) ? result.records : [];
-    const bestSource = getBestTrackSource(getFetchedCommentTimestampSources(records), duration);
     discovery.outcome = result?.status || COMMENT_FETCH_OUTCOMES.UNSUPPORTED;
     if (records.length > 0 || discovery.records.length === 0) {
       discovery.records = records;
     }
-    if (bestSource) {
-      discovery.tracks = cacheTrackSourceForVideo(videoId, bestSource);
-    }
-
     const retryable = shouldRetryCommentFetch(result);
     const retryScheduled = retryable && scheduleSessionRetry(
       session,
@@ -1032,6 +1124,18 @@
     discovery.status = retryScheduled
       ? COMMENT_DISCOVERY_STATUSES.RETRY_WAIT
       : COMMENT_DISCOVERY_STATUSES.DONE;
+    const sourceStatus = retryScheduled
+      ? TRACK_SOURCE_STATUSES.PROVISIONAL
+      : TRACK_SOURCE_STATUSES.SETTLED;
+    const bestResult = getBestFetchedCommentResult(
+      session,
+      discovery.records,
+      duration,
+      sourceStatus
+    );
+    if (bestResult) {
+      discovery.result = bestResult;
+    }
     if (!retryScheduled && !retryable) {
       resetSessionRetry(session, "commentFetch");
     }
@@ -1048,87 +1152,43 @@
     );
   }
 
-  function getBestTrackSource(sources, duration) {
-    const validSources = sources.map((source) => {
-      return {
-        ...source,
-        duration,
-        tracks: findTracks(duration, source.candidates, COMMENT_MIN_TRACKS),
-      };
-    }).filter((source) => source.tracks.length >= COMMENT_MIN_TRACKS);
-
-    return validSources.sort(compareCommentTrackSources)[0] || null;
-  }
-
-  function cacheTrackSourceForVideo(videoId, source) {
-    const cachedTracks = state.trackCache.get(videoId);
-    const mergedTracks = mergeCachedTrackTitles(source.tracks, cachedTracks);
-    const bestTracks = chooseBetterTrackSet(mergedTracks, cachedTracks);
-    state.trackCache.set(videoId, bestTracks);
-    return bestTracks;
-  }
-
-  function getCommentTimestampSources(videoId) {
-    const sources = [];
-    let regularCommentCount = 0;
-
-    for (const [order, root] of getCommentRoots().entries()) {
-      if (!commentRootMatchesVideo(root, videoId)) {
-        continue;
-      }
-
-      const sourceType = getCommentSourceType(root);
-      if (sourceType === COMMENT_SOURCE_TYPES.REGULAR) {
-        regularCommentCount += 1;
-        if (regularCommentCount > REGULAR_COMMENT_SCAN_LIMIT) {
-          continue;
-        }
-      }
-
-      const candidates = getTextTimestampCandidates(getCommentBodyText(root), `comment:${order}`);
-      if (candidates.length >= COMMENT_MIN_TRACKS) {
-        sources.push({
-          sourceType,
-          order,
-          likeCount: getCommentLikeCount(root),
-          candidates,
-        });
-      }
-    }
-
-    return sources;
-  }
-
-  function commentRootMatchesVideo(root, videoId) {
-    for (const link of root.querySelectorAll("a[href*='/watch']")) {
-      const timestamp = parseTimestampText(link.textContent);
-      if (!Number.isFinite(timestamp)) {
-        continue;
-      }
-
-      const linkedVideoId = new URL(link.href, location.href).searchParams.get("v");
-      if (linkedVideoId && linkedVideoId !== videoId) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  function getFetchedCommentTimestampSources(records) {
-    return records.map((record) => {
+  function getBestFetchedCommentResult(session, records, duration, status) {
+    const results = records.map((record) => {
       const candidates = getTextTimestampCandidates(record.text, `fetched-comment:${record.order}`);
-      if (candidates.length < COMMENT_MIN_TRACKS) {
+      const tracks = findTracks(duration, candidates, COMMENT_MIN_TRACKS);
+      if (tracks.length < COMMENT_MIN_TRACKS) {
         return null;
       }
 
-      return {
-        sourceType: getFetchedCommentSourceType(record),
+      const sourceType = getFetchedCommentSourceType(record);
+      const scoredSource = {
+        duration,
+        sourceType,
         order: record.order,
         likeCount: record.likeCount,
-        candidates,
+        tracks,
       };
+      return createTrackSourceResult({
+        channel: "comment-api",
+        duration,
+        generation: session.generation,
+        kind: TRACK_SOURCE_KINDS.COMMENT,
+        observation: session.trackSelection.observation,
+        ownership: {
+          confidence: OWNERSHIP_CONFIDENCE.STRONG,
+          evidence: "network-request",
+        },
+        sourceId: record.commentId || String(record.order),
+        sourceScore: scoreCommentTrackSource(scoredSource),
+        status,
+        tracks,
+        videoId: session.videoId,
+      });
     }).filter(Boolean);
+
+    return results.reduce((best, candidate) => {
+      return !best || candidate.sourceScore > best.sourceScore ? candidate : best;
+    }, null);
   }
 
   function getFetchedCommentSourceType(record) {
@@ -1303,7 +1363,7 @@
 
   function canReadQuietDescription(videoId) {
     return getUniqueElements(getQuietDescriptionSelectors()).some((root) => {
-      if (!timestampTextRootMatchesVideo(root, videoId)) {
+      if (!getDomSourceOwnership(root, videoId)) {
         return false;
       }
 

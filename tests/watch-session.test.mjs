@@ -4,8 +4,10 @@ import test from "node:test";
 import vm from "node:vm";
 
 async function loadWatchSession() {
+  const trackSelectionSource = await readFile(new URL("../src/track-selection.js", import.meta.url), "utf8");
   const source = await readFile(new URL("../src/watch-session.js", import.meta.url), "utf8");
   const context = vm.createContext({ AbortController });
+  vm.runInContext(trackSelectionSource, context);
   vm.runInContext(source, context);
   return context.TimestampPlayerWatchSession;
 }
@@ -248,26 +250,21 @@ test("comment discovery retries once and is cancelled with its watch generation"
   assert.equal(clock.timers.size, 0);
 });
 
-test("comment and native tracks stay provisional until session comment discovery settles", async () => {
+test("each session owns isolated provenance selection and comment discovery state", async () => {
   const {
     COMMENT_DISCOVERY_STATUSES,
     createWatchSession,
-    shouldLockSessionTracks,
   } = await loadWatchSession();
   const session = createWatchSession({ generation: 1, videoId: "album" });
   const nextSession = createWatchSession({ generation: 2, videoId: "next-album" });
 
   assert.equal(session.commentDiscovery.status, COMMENT_DISCOVERY_STATUSES.IDLE);
+  assert.equal(session.commentDiscovery.result, null);
   assert.notEqual(session.commentDiscovery, nextSession.commentDiscovery);
-  assert.equal(shouldLockSessionTracks(session), false);
-  assert.equal(shouldLockSessionTracks(session, { descriptionTracksFound: true }), true);
-
-  session.commentDiscovery.status = COMMENT_DISCOVERY_STATUSES.PENDING;
-  assert.equal(shouldLockSessionTracks(session), false);
-  session.commentDiscovery.status = COMMENT_DISCOVERY_STATUSES.RETRY_WAIT;
-  assert.equal(shouldLockSessionTracks(session), false);
-  session.commentDiscovery.status = COMMENT_DISCOVERY_STATUSES.DONE;
-  assert.equal(shouldLockSessionTracks(session), true);
+  assert.equal(session.trackSelection.current, null);
+  assert.notEqual(session.trackSelection, nextSession.trackSelection);
+  assert.notEqual(session.trackSelection.resultsBySourceId, nextSession.trackSelection.resultsBySourceId);
+  assert.notEqual(session.domSources.ids, nextSession.domSources.ids);
 });
 
 test("manifest loads the watch-session runtime before content orchestration", async () => {
@@ -275,9 +272,14 @@ test("manifest loads the watch-session runtime before content orchestration", as
   const scripts = manifest.content_scripts[0].js;
 
   assert.ok(scripts.includes("src/watch-session.js"));
+  assert.ok(scripts.includes("src/track-selection.js"));
   assert.ok(
     scripts.indexOf("src/watch-route.js") < scripts.indexOf("src/watch-session.js"),
     "route detection should load before session ownership"
+  );
+  assert.ok(
+    scripts.indexOf("src/track-selection.js") < scripts.indexOf("src/watch-session.js"),
+    "track selection must load before session ownership"
   );
   assert.ok(
     scripts.indexOf("src/watch-session.js") < scripts.indexOf("src/content.js"),
