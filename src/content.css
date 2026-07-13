@@ -574,7 +574,6 @@
 }
 
 #timestamp-player-root.is-inline-compact .ts-resize-handle:hover::before,
-#timestamp-player-root.is-inline-compact .ts-resize-handle:focus-visible::before,
 #timestamp-player-root.is-inline-compact.is-resizing .ts-resize-handle::before {
   opacity: 1;
   transition: opacity 120ms ease;

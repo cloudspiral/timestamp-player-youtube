@@ -268,6 +268,7 @@
         dragHandle: elements.dragHandle,
         resizeHandle: elements.resizeHandle,
         root: elements.root,
+        trackElement: elements.trackEl,
       });
       playerShellRoot = elements.root;
       playerView.applySettings(state.settings);

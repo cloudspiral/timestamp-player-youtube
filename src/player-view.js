@@ -22,6 +22,8 @@
     repeatButton: ".ts-repeat",
     nextButton: ".ts-next",
   });
+  const LAYOUT_INSTRUCTIONS_ID = "timestamp-player-layout-instructions";
+  const LAYOUT_KEY_SHORTCUTS = "Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight Home Escape";
 
   function createPlayerViewController({
     document: documentObject = globalThis.document,
@@ -78,11 +80,11 @@
       root.setAttribute("aria-label", "Timestamp player");
       root.setAttribute("role", "region");
       root.innerHTML = `
-        <span id="timestamp-player-layout-instructions" class="ts-visually-hidden">
+        <span id="${LAYOUT_INSTRUCTIONS_ID}" class="ts-visually-hidden">
           Press Enter or Space to start adjusting. Use arrow keys to move by 10 pixels or Shift plus an arrow for 1 pixel. Press Enter to save, Escape to cancel, or Home to reset.
         </span>
-        <button class="ts-drag-handle" type="button" aria-label="Move floating player" aria-describedby="timestamp-player-layout-instructions" aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight Home Escape" aria-pressed="false" title="Move floating player"></button>
-        <button class="ts-resize-handle" type="button" aria-label="Resize player" aria-describedby="timestamp-player-layout-instructions" aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight Home Escape" aria-pressed="false" title="Resize player"></button>
+        <button class="ts-drag-handle" type="button" aria-label="Move floating player" aria-describedby="${LAYOUT_INSTRUCTIONS_ID}" aria-keyshortcuts="${LAYOUT_KEY_SHORTCUTS}" aria-pressed="false" title="Move floating player"></button>
+        <button class="ts-resize-handle" type="button" aria-label="Resize player" aria-describedby="${LAYOUT_INSTRUCTIONS_ID}" aria-keyshortcuts="${LAYOUT_KEY_SHORTCUTS}" aria-pressed="false" title="Resize player"></button>
         <button class="ts-compact-toggle" type="button" aria-label="Compact player mode" aria-pressed="false" title="Compact player">
           <svg class="ts-icon ts-stroke-icon ts-compact-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6 9l6 6 6-6"></path>
@@ -233,6 +235,7 @@
 
       elements.dragHandle.disabled = !floating;
       elements.resizeHandle.disabled = !visible;
+      configureResizeHandle({ inlineCompact });
       elements.previousButton.disabled = !controlsEnabled;
       elements.playPauseButton.disabled = !controlsEnabled;
       setLabelAndTitle(elements.playPauseButton, playing ? "Pause" : "Play");
@@ -261,6 +264,27 @@
       renderTrackList(tracks, currentTrackIndex, controlsEnabled);
       renderTrackAnnouncement(track, tracks, visible);
       return elements;
+    }
+
+    function configureResizeHandle({ inlineCompact }) {
+      if (inlineCompact) {
+        elements.resizeHandle.tabIndex = -1;
+        elements.resizeHandle.setAttribute("aria-hidden", "true");
+        elements.resizeHandle.removeAttribute("aria-describedby");
+        elements.resizeHandle.removeAttribute("aria-keyshortcuts");
+        elements.resizeHandle.removeAttribute("aria-pressed");
+        elements.resizeHandle.title = "Drag to resize; double-click to fit track title";
+        return;
+      }
+
+      elements.resizeHandle.tabIndex = 0;
+      elements.resizeHandle.removeAttribute("aria-hidden");
+      elements.resizeHandle.setAttribute("aria-describedby", LAYOUT_INSTRUCTIONS_ID);
+      elements.resizeHandle.setAttribute("aria-keyshortcuts", LAYOUT_KEY_SHORTCUTS);
+      if (!elements.resizeHandle.hasAttribute("aria-pressed")) {
+        elements.resizeHandle.setAttribute("aria-pressed", "false");
+      }
+      elements.resizeHandle.title = "Resize player";
     }
 
     function setLabelAndTitle(element, value) {

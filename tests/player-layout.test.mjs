@@ -95,6 +95,9 @@ class FakeElement extends FakeEventTarget {
     this.id = "";
     this.pointerCaptures = new Set();
     this.releasedPointerIds = [];
+    this.scrollWidth = 0;
+    this.textWidth = 0;
+    this.title = "";
     this.setRect(rect);
   }
 
@@ -223,6 +226,19 @@ class FakeDocument {
   createElement() {
     return new FakeElement(this);
   }
+
+  createRange() {
+    let selectedElement = null;
+    return {
+      detach() {},
+      getBoundingClientRect() {
+        return { width: selectedElement?.textWidth || 0 };
+      },
+      selectNodeContents(element) {
+        selectedElement = element;
+      },
+    };
+  }
 }
 
 class FakeWindow extends FakeEventTarget {
@@ -328,7 +344,8 @@ async function createHarness({
   const root = new FakeElement(documentObject, rootRect);
   const dragHandle = new FakeElement(documentObject);
   const resizeHandle = new FakeElement(documentObject);
-  root.append(dragHandle, resizeHandle);
+  const trackElement = new FakeElement(documentObject, { height: 14, width: 160 });
+  root.append(dragHandle, resizeHandle, trackElement);
   documentObject.documentElement.append(root);
 
   const refs = {
@@ -348,7 +365,7 @@ async function createHarness({
     saveSettings: (settings) => saves.push(plain(settings)),
     window: windowObject,
   });
-  controller.connect({ dragHandle, resizeHandle, root });
+  controller.connect({ dragHandle, resizeHandle, root, trackElement });
 
   return {
     controller,
@@ -361,6 +378,7 @@ async function createHarness({
     root,
     runtime,
     saves,
+    trackElement,
     windowObject,
   };
 }
@@ -538,6 +556,7 @@ test("connecting identical elements is idempotent and preserves an active compac
     dragHandle: harness.dragHandle,
     resizeHandle: harness.resizeHandle,
     root: harness.root,
+    trackElement: harness.trackElement,
   });
 
   assert.equal(returned, harness.controller);
@@ -547,6 +566,7 @@ test("connecting identical elements is idempotent and preserves an active compac
   assert.equal(harness.dragHandle.listenerCount("keydown"), 1);
   assert.equal(harness.dragHandle.listenerCount("blur"), 1);
   assert.equal(harness.resizeHandle.listenerCount("pointerdown"), 1);
+  assert.equal(harness.resizeHandle.listenerCount("dblclick"), 1);
   assert.equal(harness.resizeHandle.listenerCount("keydown"), 1);
   assert.equal(harness.resizeHandle.listenerCount("blur"), 1);
   assert.equal(harness.windowObject.listenerCount("resize"), 1);
@@ -925,7 +945,7 @@ test("keyboard floating resize preserves its opposite corner and rolls back on b
   assert.equal(harness.saves.length, 1, "Escape restores a resize reset without saving");
 });
 
-test("keyboard resize uses anchored and compact clamps plus mode-specific saves and resets", async () => {
+test("keyboard resize remains available when anchored and is inert in compact mode", async () => {
   const anchored = await createHarness({
     rootRect: { height: 240, left: 300, top: 200, width: 400 },
     viewportHeight: 800,
@@ -967,21 +987,108 @@ test("keyboard resize uses anchored and compact clamps plus mode-specific saves 
     panelMode: compact.runtime.PANEL_MODES.ANCHORED,
     visible: true,
   });
-  compact.resizeHandle.dispatchEvent(keyEvent("Enter"));
-  compact.resizeHandle.dispatchEvent(keyEvent("ArrowLeft"));
-  const widthAfterHorizontal = compact.controller.getSnapshot().compactWidth;
-  compact.resizeHandle.dispatchEvent(keyEvent("ArrowUp"));
-  assert.equal(compact.controller.getSnapshot().compactWidth, widthAfterHorizontal);
-  compact.resizeHandle.dispatchEvent(keyEvent("Enter"));
-  assert.deepEqual(compact.saves, [{ compactPlayerWidth: 370 }]);
+  for (const key of ["Enter", " ", "ArrowLeft", "ArrowRight", "ArrowUp", "Home", "End", "Escape"]) {
+    const event = keyEvent(key);
+    compact.resizeHandle.dispatchEvent(event);
+    assert.equal(event.defaultPrevented, false, `${key} should remain available to the page`);
+    assert.equal(event.propagationStopped, false, `${key} should keep bubbling`);
+  }
+  assert.equal(compact.controller.getSnapshot().compactWidth, 360);
+  assert.equal(compact.controller.getSnapshot().keyboardMode, null);
+  assert.deepEqual(compact.saves, []);
+});
 
-  compact.resizeHandle.dispatchEvent(keyEvent("Enter"));
-  compact.resizeHandle.dispatchEvent(keyEvent("Home"));
-  compact.resizeHandle.dispatchEvent(keyEvent("Enter"));
-  assert.deepEqual(compact.saves, [
-    { compactPlayerWidth: 370 },
-    { compactPlayerWidth: null },
+test("compact pointer clicks do not focus, resize, or save without a drag", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 36, left: 500, top: 400, width: 360 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  harness.refs.actionAnchor = harness.element({ height: 40, left: 500, top: 500, width: 400 });
+  harness.documentObject.documentElement.append(harness.refs.actionAnchor);
+  harness.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: harness.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+
+  harness.resizeHandle.dispatchEvent(pointerEvent("pointerdown", {
+    clientX: 500,
+    pointerId: 21,
+  }));
+  harness.resizeHandle.dispatchEvent(pointerEvent("pointerup", {
+    clientX: 500,
+    pointerId: 21,
+  }));
+
+  assert.equal(harness.documentObject.activeElement, null);
+  assert.equal(harness.root.style.width, "");
+  assert.equal(harness.controller.getSnapshot().compactWidth, null);
+  assert.deepEqual(harness.saves, []);
+});
+
+test("double-click fits compact width to rendered track text in both directions", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 36, left: 500, top: 400, width: 360 },
+    viewportHeight: 700,
+    viewportWidth: 1200,
+  });
+  harness.refs.actionAnchor = harness.element({ height: 40, left: 500, top: 500, width: 650 });
+  harness.documentObject.documentElement.append(harness.refs.actionAnchor);
+  harness.trackElement.title = "Long current track title";
+  harness.trackElement.textWidth = 260;
+  harness.controller.hydrate({ compactPlayerWidth: 360 });
+  harness.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: harness.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+
+  const grow = pointerEvent("dblclick", {
+    propagationStopped: false,
+    stopPropagation() {
+      this.propagationStopped = true;
+    },
+  });
+  harness.resizeHandle.dispatchEvent(grow);
+  assert.equal(grow.defaultPrevented, true);
+  assert.equal(grow.propagationStopped, true);
+  assert.equal(harness.root.style.width, "462px");
+  assert.deepEqual(harness.saves, [{ compactPlayerWidth: 462 }]);
+
+  harness.trackElement.setRect({ height: 14, width: 262 });
+  harness.trackElement.textWidth = 60;
+  harness.resizeHandle.dispatchEvent(pointerEvent("dblclick"));
+  assert.equal(harness.root.style.width, "300px", "fitting should honor the compact minimum");
+  assert.deepEqual(harness.saves, [
+    { compactPlayerWidth: 462 },
+    { compactPlayerWidth: 300 },
   ]);
+});
+
+test("double-click fitting ignores missing tracks and non-compact layouts", async () => {
+  const harness = await createHarness();
+  harness.trackElement.textWidth = 200;
+  harness.controller.layoutNow({
+    anchoredCompact: false,
+    inlineCompact: false,
+    panelMode: harness.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+  const anchoredEvent = pointerEvent("dblclick");
+  harness.resizeHandle.dispatchEvent(anchoredEvent);
+  assert.equal(anchoredEvent.defaultPrevented, false);
+
+  harness.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+  });
+  const emptyTrackEvent = pointerEvent("dblclick");
+  harness.resizeHandle.dispatchEvent(emptyTrackEvent);
+  assert.equal(emptyTrackEvent.defaultPrevented, false);
+  assert.deepEqual(harness.saves, []);
 });
 
 test("keyboard layout transactions roll back on hide and disconnect with listener cleanup", async () => {
@@ -1015,6 +1122,7 @@ test("keyboard layout transactions roll back on hide and disconnect with listene
   assert.equal(harness.dragHandle.listenerCount("blur"), 0);
   assert.equal(harness.resizeHandle.listenerCount("keydown"), 0);
   assert.equal(harness.resizeHandle.listenerCount("blur"), 0);
+  assert.equal(harness.resizeHandle.listenerCount("dblclick"), 0);
   assert.deepEqual(harness.saves, []);
 });
 
@@ -1059,6 +1167,7 @@ test("disconnect and reconnect preserve hydrated geometry without duplicating li
     dragHandle: harness.dragHandle,
     resizeHandle: harness.resizeHandle,
     root: harness.root,
+    trackElement: harness.trackElement,
   });
   harness.controller.layoutNow({
     panelMode: harness.runtime.PANEL_MODES.FLOATING,
@@ -1076,6 +1185,7 @@ test("disconnect and reconnect preserve hydrated geometry without duplicating li
   assert.equal(harness.dragHandle.listenerCount("pointerdown"), 1);
   assert.equal(harness.dragHandle.listenerCount("keydown"), 1);
   assert.equal(harness.resizeHandle.listenerCount("pointerdown"), 1);
+  assert.equal(harness.resizeHandle.listenerCount("dblclick"), 1);
   assert.equal(harness.resizeHandle.listenerCount("keydown"), 1);
   assert.equal(harness.windowObject.listenerCount("resize"), 1);
   assert.equal(harness.windowObject.listenerCount("scroll"), 1);
@@ -1090,7 +1200,7 @@ test("content delegates layout ownership and disconnects before tearing down the
   assert.match(source, /playerLayout\.hydrate\(state\.settings\)/);
   assert.match(
     source,
-    /playerLayout\.connect\(\{[\s\S]*?dragHandle: elements\.dragHandle,[\s\S]*?resizeHandle: elements\.resizeHandle,[\s\S]*?root: elements\.root/
+    /playerLayout\.connect\(\{[\s\S]*?dragHandle: elements\.dragHandle,[\s\S]*?resizeHandle: elements\.resizeHandle,[\s\S]*?root: elements\.root,[\s\S]*?trackElement: elements\.trackEl/
   );
   assert.match(source, /playerLayout\.ownsNode\(element\)/);
   assert.match(source, /playerLayout\.prepareMount\(/);

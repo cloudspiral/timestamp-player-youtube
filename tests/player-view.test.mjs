@@ -130,6 +130,7 @@ class FakeElement extends FakeEventTarget {
     this.scrollCalls = [];
     this.scrollTop = 0;
     this.step = "";
+    this.tabIndex = 0;
     this.textContent = "";
     this.title = "";
     this.type = "";
@@ -243,6 +244,10 @@ class FakeElement extends FakeEventTarget {
     if (name === "title") {
       this.title = "";
     }
+  }
+
+  hasAttribute(name) {
+    return this.attributes.has(name);
   }
 
   scrollTo(options) {
@@ -415,6 +420,7 @@ test("ensure constructs and binds one stable player shell", async () => {
   assert.equal(first.dragHandle.getAttribute("aria-pressed"), "false");
   assert.match(first.dragHandle.getAttribute("aria-keyshortcuts"), /ArrowLeft/);
   assert.equal(first.resizeHandle.getAttribute("aria-pressed"), "false");
+  assert.match(first.resizeHandle.getAttribute("aria-keyshortcuts"), /ArrowLeft/);
   assert.equal(first.liveStatusEl.getAttribute("aria-live"), "polite");
   assert.equal(first.root.querySelector(".ts-controls").getAttribute("role"), "group");
   assert.equal(first.dragHandle.listenerCount("pointerdown"), 0);
@@ -522,6 +528,15 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   assert.equal(elements.countEl.textContent, "1 / 2");
   assert.equal(elements.root.hidden, false);
   assert.equal(elements.root.getAttribute("aria-hidden"), "false");
+  assert.equal(elements.resizeHandle.tabIndex, -1);
+  assert.equal(elements.resizeHandle.getAttribute("aria-hidden"), "true");
+  assert.equal(elements.resizeHandle.getAttribute("aria-describedby"), null);
+  assert.equal(elements.resizeHandle.getAttribute("aria-keyshortcuts"), null);
+  assert.equal(elements.resizeHandle.getAttribute("aria-pressed"), null);
+  assert.equal(
+    elements.resizeHandle.title,
+    "Drag to resize; double-click to fit track title"
+  );
 
   const renderer = harness.rendererRecords[0];
   assert.equal(renderer.collectionCalls[0], tracks);
@@ -542,6 +557,15 @@ test("render reflects classes, controls, current-track text, and keyed-list stat
   assert.equal(elements.trackEl.textContent, "No track selected");
   assert.equal(elements.trackEl.title, "");
   assert.equal(elements.countEl.textContent, "");
+  assert.equal(elements.resizeHandle.tabIndex, 0);
+  assert.equal(elements.resizeHandle.getAttribute("aria-hidden"), null);
+  assert.equal(
+    elements.resizeHandle.getAttribute("aria-describedby"),
+    "timestamp-player-layout-instructions"
+  );
+  assert.match(elements.resizeHandle.getAttribute("aria-keyshortcuts"), /ArrowLeft/);
+  assert.equal(elements.resizeHandle.getAttribute("aria-pressed"), "false");
+  assert.equal(elements.resizeHandle.title, "Resize player");
 });
 
 test("explicit-open focus chooses the active layout control without creating or focusing hidden UI", async () => {
@@ -993,7 +1017,11 @@ test("inline compact CSS preserves the historical low-profile presentation", asy
   );
   assert.match(
     css,
-    /#timestamp-player-root\.is-inline-compact \.ts-resize-handle:focus-visible::before,[^}]*opacity: 1;/
+    /#timestamp-player-root\.is-inline-compact \.ts-resize-handle:hover::before,[^}]*opacity: 1;/
+  );
+  assert.doesNotMatch(
+    css,
+    /#timestamp-player-root\.is-inline-compact \.ts-resize-handle:focus-visible::before/
   );
   assert.match(
     css,

@@ -6,6 +6,7 @@
   const PLAYER_MIN_VISIBLE_WIDTH = 180;
   const PLAYER_MIN_VISIBLE_HEIGHT = 100;
   const COMPACT_PLAYER_MIN_WIDTH = 300;
+  const COMPACT_FIT_TEXT_PADDING = 2;
   const KEYBOARD_LAYOUT_STEP = 10;
   const KEYBOARD_LAYOUT_FINE_STEP = 1;
   const PANEL_MODES = Object.freeze({
@@ -31,6 +32,7 @@
     let root = null;
     let dragHandle = null;
     let resizeHandle = null;
+    let trackElement = null;
     let compactHost = null;
     let connected = false;
     let keyboardInteraction = null;
@@ -53,6 +55,7 @@
     let resizeStartLeft = 0;
     let resizeStartTop = 0;
     let resizeMode = null;
+    let compactResizeChanged = false;
     let view = {
       visible: false,
       panelMode: PANEL_MODES.ANCHORED,
@@ -64,26 +67,30 @@
       const nextRoot = elements.root || null;
       const nextDragHandle = elements.dragHandle || null;
       const nextResizeHandle = elements.resizeHandle || null;
+      const nextTrackElement = elements.trackElement || null;
       if (
         connected
         && root === nextRoot
         && dragHandle === nextDragHandle
         && resizeHandle === nextResizeHandle
+        && trackElement === nextTrackElement
       ) {
         return controller;
       }
 
-      if (connected || root || dragHandle || resizeHandle) {
+      if (connected || root || dragHandle || resizeHandle || trackElement) {
         disconnect();
       }
 
       root = nextRoot;
       dragHandle = nextDragHandle;
       resizeHandle = nextResizeHandle;
+      trackElement = nextTrackElement;
       dragHandle?.addEventListener?.("pointerdown", handleDragPointerDown);
       dragHandle?.addEventListener?.("keydown", handleDragKeyDown);
       dragHandle?.addEventListener?.("blur", handleDragBlur);
       resizeHandle?.addEventListener?.("pointerdown", handleResizePointerDown);
+      resizeHandle?.addEventListener?.("dblclick", handleResizeDoubleClick);
       resizeHandle?.addEventListener?.("keydown", handleResizeKeyDown);
       resizeHandle?.addEventListener?.("blur", handleResizeBlur);
       windowObject?.addEventListener?.("resize", schedule);
@@ -103,6 +110,7 @@
       dragHandle?.removeEventListener?.("keydown", handleDragKeyDown);
       dragHandle?.removeEventListener?.("blur", handleDragBlur);
       resizeHandle?.removeEventListener?.("pointerdown", handleResizePointerDown);
+      resizeHandle?.removeEventListener?.("dblclick", handleResizeDoubleClick);
       resizeHandle?.removeEventListener?.("keydown", handleResizeKeyDown);
       resizeHandle?.removeEventListener?.("blur", handleResizeBlur);
       windowObject?.removeEventListener?.("resize", schedule);
@@ -118,6 +126,7 @@
       root = null;
       dragHandle = null;
       resizeHandle = null;
+      trackElement = null;
       connected = false;
       view = {
         ...view,
@@ -556,6 +565,9 @@
     }
 
     function handleResizeKeyDown(event) {
+      if (getCurrentResizeMode() === RESIZE_MODES.COMPACT_WIDTH) {
+        return;
+      }
       handleKeyboardLayoutKey(event, "resize");
     }
 
@@ -661,6 +673,7 @@
         || !resizeHandle
         || !view.visible
         || !mode
+        || mode === RESIZE_MODES.COMPACT_WIDTH
         || dragPointerId !== null
         || resizePointerId !== null
       ) {
@@ -965,7 +978,9 @@
       }
 
       finishKeyboardInteraction(false);
-      resizeHandle.focus?.({ preventScroll: true });
+      if (!isCompactResize) {
+        resizeHandle.focus?.({ preventScroll: true });
+      }
       event.preventDefault();
       const rect = root.getBoundingClientRect();
       const launcher = getLauncherElement();
@@ -996,14 +1011,12 @@
       resizeStartHeight = size.height;
       resizeStartLeft = position.left;
       resizeStartTop = position.top;
+      compactResizeChanged = false;
 
       if (resizeMode === RESIZE_MODES.ANCHORED) {
         applyAnchoredPlayerSize(size);
         layoutNow();
-      } else if (resizeMode === RESIZE_MODES.COMPACT_WIDTH) {
-        applyCompactPlayerWidth(size.width);
-        layoutNow();
-      } else {
+      } else if (resizeMode === RESIZE_MODES.FLOATING) {
         applyPlayerPosition(position);
         applyPlayerSize(size);
       }
@@ -1042,9 +1055,15 @@
         const launcher = getLauncherElement();
         const alignmentRect = findCompactActionAnchor()?.getBoundingClientRect()
           || (launcher?.isConnected ? launcher.getBoundingClientRect() : null);
-        applyCompactPlayerWidth(
-          clampCompactPlayerWidth(resizeStartWidth + resizeStartX - event.clientX, alignmentRect)
+        const nextWidth = clampCompactPlayerWidth(
+          resizeStartWidth + resizeStartX - event.clientX,
+          alignmentRect
         );
+        if (Math.abs(nextWidth - root.getBoundingClientRect().width) < 0.5) {
+          return;
+        }
+        compactResizeChanged = true;
+        applyCompactPlayerWidth(nextWidth);
         layoutNow();
         return;
       }
@@ -1081,10 +1100,68 @@
 
       if (completedResizeMode === RESIZE_MODES.ANCHORED) {
         saveAnchoredPlayerLayout();
-      } else if (completedResizeMode === RESIZE_MODES.COMPACT_WIDTH) {
+      } else if (completedResizeMode === RESIZE_MODES.COMPACT_WIDTH && compactResizeChanged) {
         saveCompactPlayerLayout();
       } else if (completedResizeMode === RESIZE_MODES.FLOATING) {
         saveFloatingPlayerLayout();
+      }
+      compactResizeChanged = false;
+    }
+
+    function handleResizeDoubleClick(event) {
+      if (
+        !root
+        || !trackElement
+        || !view.visible
+        || !view.inlineCompact
+        || getCurrentResizeMode() !== RESIZE_MODES.COMPACT_WIDTH
+        || resizePointerId !== null
+        || (event.button !== undefined && event.button !== 0)
+      ) {
+        return false;
+      }
+
+      const trackLabel = String(trackElement.title || "").trim();
+      const rootRect = root.getBoundingClientRect();
+      const trackRect = trackElement.getBoundingClientRect?.();
+      const textWidth = measureRenderedTextWidth(trackElement);
+      if (
+        !trackLabel
+        || !trackRect
+        || rootRect.width <= 0
+        || trackRect.width <= 0
+        || !Number.isFinite(textWidth)
+        || textWidth <= 0
+      ) {
+        return false;
+      }
+
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      const { alignmentRect } = getResizeAnchors();
+      const fixedWidth = Math.max(0, rootRect.width - trackRect.width);
+      const fittedWidth = clampCompactPlayerWidth(
+        Math.ceil(fixedWidth + textWidth + COMPACT_FIT_TEXT_PADDING),
+        alignmentRect
+      );
+      applyCompactPlayerWidth(fittedWidth);
+      layoutNow();
+      saveCompactPlayerLayout();
+      return true;
+    }
+
+    function measureRenderedTextWidth(element) {
+      const range = documentObject?.createRange?.();
+      if (!range) {
+        return Number(element?.scrollWidth) || 0;
+      }
+      try {
+        range.selectNodeContents(element);
+        return Number(range.getBoundingClientRect?.().width) || 0;
+      } catch (_error) {
+        return Number(element?.scrollWidth) || 0;
+      } finally {
+        range.detach?.();
       }
     }
 
@@ -1107,6 +1184,7 @@
       root?.classList.remove("is-resizing");
       resizePointerId = null;
       resizeMode = null;
+      compactResizeChanged = false;
     }
 
     function ownsNode(node) {
