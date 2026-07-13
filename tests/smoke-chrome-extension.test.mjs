@@ -31,6 +31,7 @@ test("Chrome smoke scenarios cover distinct Watch and Music cold-route structure
 
     assert.match(markup, new RegExp(`video-id=["']${scenario.videoId}["']`));
     assert.match(markup, /<video class="html5-main-video"/);
+    assert.match(markup, /id="smoke-video-title"/);
     assert.match(markup, /0:00/);
     assert.match(markup, /0:01/);
     assert.match(markup, /0:02/);
@@ -42,6 +43,12 @@ test("Chrome smoke scenarios cover distinct Watch and Music cold-route structure
     assert.match(html, /launcher\.click\(\)/);
     assert.match(html, /compactButton\.click\(\)/);
     assert.match(html, /getComputedStyle\(resizeHandle, "::before"\)/);
+    assert.match(html, /new PointerEvent\("pointermove"/);
+    assert.match(html, /new MouseEvent\("dblclick"/);
+    assert.match(html, /resizeKeysUnconsumed/);
+    assert.match(html, /automaticTitleGap/);
+    assert.match(html, /extremeTitleOverlap/);
+    assert.match(html, /stickyCollisionWidthAfterScroll/);
     assert.match(html, /root\.parentElement === document\.documentElement/);
     assert.match(html, /window\.scrollTo\(0, 360\)/);
     assert.match(html, /}, 2800\);/);
@@ -55,9 +62,17 @@ test("Chrome smoke scenarios cover distinct Watch and Music cold-route structure
 
   assert.match(createScenarioMarkup(SMOKE_SCENARIOS[0]), /<ytd-watch-flexy/);
   assert.match(createScenarioMarkup(SMOKE_SCENARIOS[0]), /id="top-level-buttons-computed"/);
+  assert.match(
+    createScenarioMarkup(SMOKE_SCENARIOS[0]),
+    /id="title" class="smoke-video-title-container"[\s\S]*?<h1><yt-formatted-string/
+  );
   assert.match(createScenarioMarkup(SMOKE_SCENARIOS[1]), /<ytmusic-player-page/);
   assert.match(createScenarioMarkup(SMOKE_SCENARIOS[1]), /<ytmusic-app-layout/);
   assert.match(createScenarioMarkup(SMOKE_SCENARIOS[1]), /<ytmusic-description-shelf-renderer/);
+  assert.match(
+    createScenarioMarkup(SMOKE_SCENARIOS[1]),
+    /id="header" class="smoke-video-title-container"[\s\S]*?class="title"/
+  );
   assert.throws(
     () => createScenarioMarkup({ kind: "unsupported", videoId: "fixture" }),
     /Unsupported Chrome smoke scenario kind/
@@ -74,21 +89,38 @@ test("smoke result validation binds every proof to its exact scenario", () => {
         actionRightOffsetBeforeScroll: 0,
         anchorTopAfterScroll: 120,
         anchorTopBeforeScroll: 424,
+        automaticTitleGap: 12,
+        automaticWidth: 335,
         clearsVideoBeforeScroll: true,
         compactToggleHeight: 24,
         compactToggleWidth: 24,
+        extremeTitleOverlap: 390,
+        extremeWidth: 300,
+        fitConstrainedWidth: 335,
+        fitExpandedWidth: 512,
+        fitRestoredCollisionWidth: 335,
+        fitShrunkWidth: 300,
         height: 43,
         inlineCompact: true,
+        manualTitleOverlap: 48,
+        manualWidth: 395,
         playerTopBeforeScroll: 375,
+        pointerResizeAvoidedFocus: true,
         position: "absolute",
+        resizeHandleAriaHidden: "true",
+        resizeHandleTabIndex: -1,
         resizeGutterOpacity: 0,
+        resizeKeysPreservedWidth: true,
+        resizeKeysUnconsumed: true,
         rootIdentityPreserved: true,
         rootParentIsDocumentElement: true,
         scrollY: 360,
         seekHitHeight: 24,
+        stickyCollisionWidthAfterScroll: 335,
+        stickyCollisionWidthBeforeScroll: 335,
         titleOpacity: 1,
         videoBottomBeforeScroll: 360,
-        width: 395,
+        width: 335,
       },
       hasActionRow: true,
       hasDescription: true,
@@ -148,6 +180,23 @@ test("smoke result validation binds every proof to its exact scenario", () => {
       withCompactLayout({ height: 45 }),
       withCompactLayout({ width: 397 }),
       withCompactLayout({ width: 299 }),
+      withCompactLayout({ automaticWidth: 300 }),
+      withCompactLayout({ automaticTitleGap: 14 }),
+      withCompactLayout({ extremeWidth: 302 }),
+      withCompactLayout({ extremeTitleOverlap: 0 }),
+      withCompactLayout({ manualWidth: 390 }),
+      withCompactLayout({ manualTitleOverlap: 0 }),
+      withCompactLayout({ fitConstrainedWidth: 340 }),
+      withCompactLayout({ fitExpandedWidth: 400 }),
+      withCompactLayout({ fitRestoredCollisionWidth: 340 }),
+      withCompactLayout({ fitShrunkWidth: 335 }),
+      withCompactLayout({ stickyCollisionWidthBeforeScroll: 340 }),
+      withCompactLayout({ stickyCollisionWidthAfterScroll: 340 }),
+      withCompactLayout({ pointerResizeAvoidedFocus: false }),
+      withCompactLayout({ resizeHandleAriaHidden: null }),
+      withCompactLayout({ resizeHandleTabIndex: 0 }),
+      withCompactLayout({ resizeKeysPreservedWidth: false }),
+      withCompactLayout({ resizeKeysUnconsumed: false }),
       withCompactLayout({ actionGapBeforeScroll: 4 }),
       withCompactLayout({ actionGapAfterScroll: 8 }),
       withCompactLayout({ actionRightOffsetBeforeScroll: 2 }),

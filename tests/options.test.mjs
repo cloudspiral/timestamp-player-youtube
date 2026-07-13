@@ -5,6 +5,7 @@ import vm from "node:vm";
 
 const DEFAULT_SETTINGS = {
   autoShowCompact: false,
+  avoidVideoTitleOverlap: true,
   compactProgressColor: "red",
   compactProgressCustomColor: "#ff0033",
   compactProgressStyle: "subtle",
@@ -104,12 +105,14 @@ async function createOptionsHarness() {
   const source = await readFile(new URL("../src/options.js", import.meta.url), "utf8");
   const form = new FakeElement("settings-form");
   const autoShowInput = new FakeElement("auto-show-compact");
+  const avoidVideoTitleOverlapInput = new FakeElement("avoid-video-title-overlap");
   const compactCustomInput = new FakeElement("compact-progress-custom-color");
   const progressCustomInput = new FakeElement("progress-custom-color");
   const status = new FakeElement("save-status");
   const elements = new Map([
     [form.id, form],
     [autoShowInput.id, autoShowInput],
+    [avoidVideoTitleOverlapInput.id, avoidVideoTitleOverlapInput],
     [compactCustomInput.id, compactCustomInput],
     [progressCustomInput.id, progressCustomInput],
     [status.id, status],
@@ -173,6 +176,7 @@ async function createOptionsHarness() {
 
   return {
     autoShowInput,
+    avoidVideoTitleOverlapInput,
     form,
     loadCallbacks,
     saveCalls,
@@ -196,6 +200,7 @@ test("the options form remains inert and busy until stored settings load", async
   assert.equal(harness.form.hasAttribute("inert"), false);
   assert.equal(harness.form.listenerCount("change"), 1);
   assert.equal(harness.autoShowInput.checked, false);
+  assert.equal(harness.avoidVideoTitleOverlapInput.checked, true);
 });
 
 test("options markup, styles, and scripts expose loading and feedback semantics", async () => {
@@ -207,6 +212,7 @@ test("options markup, styles, and scripts expose loading and feedback semantics"
   const packageJson = JSON.parse(packageSource);
 
   assert.match(html, /id="save-status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
+  assert.match(html, /id="avoid-video-title-overlap"[^>]*name="avoidVideoTitleOverlap"/);
   assert.match(css, /\.settings-form\[inert\]/);
   assert.match(css, /\.save-status\[data-status="success"\]/);
   assert.match(css, /\.save-status\[data-status="error"\]/);
@@ -247,8 +253,9 @@ test("full-form saves serialize and coalesce so the latest snapshot persists las
   harness.form.dispatch("change", { target: harness.autoShowInput });
   harness.autoShowInput.checked = true;
   harness.form.dispatch("change", { target: harness.autoShowInput });
+  harness.avoidVideoTitleOverlapInput.checked = false;
   harness.form.formValues.progressColor = "green";
-  harness.form.dispatch("change", { target: harness.autoShowInput });
+  harness.form.dispatch("change", { target: harness.avoidVideoTitleOverlapInput });
 
   assert.equal(harness.saveCalls.length, 1, "a newer full-form write waits for the active write");
   const persistedSettings = {};
@@ -256,12 +263,14 @@ test("full-form saves serialize and coalesce so the latest snapshot persists las
   harness.saveCalls[0].callback(true);
   assert.equal(harness.saveCalls.length, 2, "the latest pending snapshot starts after completion");
   assert.equal(harness.saveCalls[1].settings.autoShowCompact, true);
+  assert.equal(harness.saveCalls[1].settings.avoidVideoTitleOverlap, false);
   assert.equal(harness.saveCalls[1].settings.progressColor, "green");
   assert.equal(harness.status.textContent, "", "an obsolete completion must not report success");
 
   Object.assign(persistedSettings, harness.saveCalls[1].settings);
   harness.saveCalls[1].callback(true);
   assert.equal(persistedSettings.autoShowCompact, true);
+  assert.equal(persistedSettings.avoidVideoTitleOverlap, false);
   assert.equal(persistedSettings.progressColor, "green");
   assert.equal(harness.saveCalls.length, 2, "the superseded middle snapshot is never written");
   assert.equal(harness.status.textContent, "Saved");

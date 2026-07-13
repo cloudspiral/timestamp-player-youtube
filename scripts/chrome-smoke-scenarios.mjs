@@ -14,7 +14,9 @@ const COMPACT_PLAYER_MIN_HEIGHT_PX = 30;
 const COMPACT_PLAYER_MAX_HEIGHT_PX = 44;
 const COMPACT_PLAYER_MIN_WIDTH_PX = 300;
 const COMPACT_PLAYER_MAX_WIDTH_PX = 396;
+const COMPACT_PLAYER_MAX_FITTED_WIDTH_PX = 512;
 const COMPACT_ANCHOR_GAP_PX = 6;
+const COMPACT_TITLE_GAP_PX = 12;
 const COMPACT_LAYOUT_TOLERANCE_PX = 1.5;
 const COMPACT_GUTTER_MAX_OPACITY = 0.01;
 const COMPACT_TITLE_MIN_OPACITY = 0.99;
@@ -22,6 +24,9 @@ const COMPACT_CONTROL_MIN_SIZE_PX = 24;
 const COMPACT_CONTROL_MAX_SIZE_PX = 48;
 const STICKY_ANCHOR_TOP_PX = 120;
 const STICKY_SCROLL_Y_PX = 360;
+const COMPACT_POINTER_GROWTH_PX = 60;
+const EXTREME_VIDEO_TITLE = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+const MODERATE_VIDEO_TITLE = "Moderate title 123";
 export const SMOKE_SCENARIOS = Object.freeze([
   Object.freeze({
     actionRowSelector: "#top-level-buttons-computed",
@@ -70,7 +75,8 @@ export function createFixtureHtml(scenario) {
       #description, #expanded, #actions,
       #top-level-buttons-computed { display: block; min-width: 320px; min-height: 32px; }
       ytd-watch-metadata, ytmusic-player-page { min-height: 1200px; }
-      #above-the-fold { min-height: 800px; }
+      #above-the-fold { position: relative; min-height: 800px; }
+      ytmusic-player-page { position: relative; }
       ytmusic-description-shelf-renderer,
       #description-inline-expander { min-height: 64px; }
       #movie_player, video { display: block; width: 640px; height: 360px; }
@@ -81,6 +87,23 @@ export function createFixtureHtml(scenario) {
         height: 40px;
       }
       #top-level-buttons-computed { width: 520px; height: 40px; }
+      .smoke-video-title-container {
+        position: absolute;
+        left: 0;
+        z-index: 1;
+        height: 20px;
+        margin: 0;
+        color: #111;
+      }
+      #above-the-fold > .smoke-video-title-container { top: -48px; }
+      ytmusic-player-page > .smoke-video-title-container { top: 376px; }
+      .smoke-video-title-container h1,
+      .smoke-video-title-container .title { margin: 0; font: inherit; }
+      #smoke-video-title {
+        display: inline-block;
+        font: 16px/20px monospace;
+        white-space: nowrap;
+      }
     </style>
   </head>
   <body>
@@ -196,21 +219,111 @@ export function createFixtureHtml(scenario) {
         const progressSlider = root.querySelector(".ts-progress-slider");
         const resizeHandle = root.querySelector(".ts-resize-handle");
         const trackTitle = root.querySelector(".ts-track");
-        if (!actionAnchor || !progressSlider || !resizeHandle || !trackTitle) {
-          throw new Error("Compact layout probe could not find its anchor or compact controls");
+        const videoTitle = document.getElementById("smoke-video-title");
+        if (!actionAnchor || !progressSlider || !resizeHandle || !trackTitle || !videoTitle) {
+          throw new Error("Compact layout probe could not find its anchor, titles, or compact controls");
         }
 
         const originalRoot = root;
-        const before = readCompactLayout(root, actionAnchor);
+        const extreme = readCompactLayout(root, actionAnchor);
+        const extremeTitleRect = readRenderedBottomLine(videoTitle);
+        if (!extremeTitleRect) {
+          throw new Error("Compact layout probe could not measure the extreme video title");
+        }
         const compactButtonRect = compactButton.getBoundingClientRect();
         const progressSliderRect = progressSlider.getBoundingClientRect();
         const videoRect = video.getBoundingClientRect();
         const resizeGutterStyle = getComputedStyle(resizeHandle, "::before");
+        const widthBeforeResizeKeys = roundMetric(root.getBoundingClientRect().width);
+        const resizeKeysUnconsumed = [
+          "Enter",
+          " ",
+          "Home",
+          "End",
+          "ArrowLeft",
+          "ArrowRight",
+          "ArrowUp",
+          "ArrowDown"
+        ].every((key) => {
+          const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key });
+          resizeHandle.dispatchEvent(event);
+          return !event.defaultPrevented;
+        });
+        const resizeKeysPreservedWidth = widthBeforeResizeKeys
+          === roundMetric(root.getBoundingClientRect().width);
+
+        videoTitle.textContent = ${JSON.stringify(MODERATE_VIDEO_TITLE)};
+        await waitForAnimationFrames(3);
+        const before = readCompactLayout(root, actionAnchor);
+        const automaticTitleRect = readRenderedBottomLine(videoTitle);
+        if (!automaticTitleRect) {
+          throw new Error("Compact layout probe could not measure the moderate video title");
+        }
+
+        const pointerStartX = resizeHandle.getBoundingClientRect().left + 2;
+        resizeHandle.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          buttons: 1,
+          clientX: pointerStartX,
+          pointerId: 17,
+          pointerType: "mouse"
+        }));
+        resizeHandle.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          button: 0,
+          buttons: 1,
+          clientX: pointerStartX - ${COMPACT_POINTER_GROWTH_PX},
+          pointerId: 17,
+          pointerType: "mouse"
+        }));
+        resizeHandle.dispatchEvent(new PointerEvent("pointerup", {
+          bubbles: true,
+          button: 0,
+          buttons: 0,
+          clientX: pointerStartX - ${COMPACT_POINTER_GROWTH_PX},
+          pointerId: 17,
+          pointerType: "mouse"
+        }));
+        await waitForAnimationFrames(3);
+        const manual = readCompactLayout(root, actionAnchor);
+        const pointerResizeAvoidedFocus = document.activeElement !== resizeHandle;
+
+        const longTrackTitle = "An intentionally enormous smoke track title that must fit much wider than the compact default";
+        trackTitle.textContent = longTrackTitle;
+        trackTitle.title = longTrackTitle;
+        resizeHandle.dispatchEvent(new MouseEvent("dblclick", {
+          bubbles: true,
+          button: 0,
+          cancelable: true,
+          clientX: resizeHandle.getBoundingClientRect().left + 2
+        }));
+        await waitForAnimationFrames(3);
+        const constrainedFit = readCompactLayout(root, actionAnchor);
+
+        videoTitle.textContent = "";
+        await waitForAnimationFrames(3);
+        const expandedFit = readCompactLayout(root, actionAnchor);
+
+        videoTitle.textContent = ${JSON.stringify(MODERATE_VIDEO_TITLE)};
+        await waitForAnimationFrames(3);
+        const restoredCollision = readCompactLayout(root, actionAnchor);
 
         window.scrollTo(0, ${STICKY_SCROLL_Y_PX});
         await waitForAnimationFrames(3);
 
         const after = readCompactLayout(root, actionAnchor);
+
+        trackTitle.textContent = "Short";
+        trackTitle.title = "Short";
+        resizeHandle.dispatchEvent(new MouseEvent("dblclick", {
+          bubbles: true,
+          button: 0,
+          cancelable: true,
+          clientX: resizeHandle.getBoundingClientRect().left + 2
+        }));
+        await waitForAnimationFrames(3);
+        const shrunkFit = readCompactLayout(root, actionAnchor);
         return {
           actionGapAfterScroll: after.actionGap,
           actionGapBeforeScroll: before.actionGap,
@@ -218,18 +331,35 @@ export function createFixtureHtml(scenario) {
           actionRightOffsetBeforeScroll: before.actionRightOffset,
           anchorTopAfterScroll: after.anchorTop,
           anchorTopBeforeScroll: before.anchorTop,
+          automaticTitleGap: roundMetric(before.playerLeft - automaticTitleRect.right),
+          automaticWidth: before.playerWidth,
           clearsVideoBeforeScroll: before.playerTop >= roundMetric(videoRect.bottom),
           compactToggleHeight: roundMetric(compactButtonRect.height),
           compactToggleWidth: roundMetric(compactButtonRect.width),
+          extremeTitleOverlap: roundMetric(extremeTitleRect.right - extreme.playerLeft),
+          extremeWidth: extreme.playerWidth,
+          fitConstrainedWidth: constrainedFit.playerWidth,
+          fitExpandedWidth: expandedFit.playerWidth,
+          fitRestoredCollisionWidth: restoredCollision.playerWidth,
+          fitShrunkWidth: shrunkFit.playerWidth,
           height: before.playerHeight,
           inlineCompact: root.classList.contains("is-inline-compact"),
+          manualTitleOverlap: roundMetric(automaticTitleRect.right - manual.playerLeft),
+          manualWidth: manual.playerWidth,
           playerTopBeforeScroll: before.playerTop,
+          pointerResizeAvoidedFocus,
           position: getComputedStyle(root).position,
+          resizeHandleAriaHidden: resizeHandle.getAttribute("aria-hidden"),
+          resizeHandleTabIndex: resizeHandle.tabIndex,
           resizeGutterOpacity: Number.parseFloat(resizeGutterStyle.opacity),
+          resizeKeysPreservedWidth,
+          resizeKeysUnconsumed,
           rootIdentityPreserved: originalRoot === document.getElementById("timestamp-player-root"),
           rootParentIsDocumentElement: root.parentElement === document.documentElement,
           scrollY: roundMetric(window.scrollY),
           seekHitHeight: roundMetric(progressSliderRect.height),
+          stickyCollisionWidthAfterScroll: after.playerWidth,
+          stickyCollisionWidthBeforeScroll: restoredCollision.playerWidth,
           titleOpacity: Number.parseFloat(getComputedStyle(trackTitle).opacity),
           videoBottomBeforeScroll: roundMetric(videoRect.bottom),
           width: before.playerWidth
@@ -244,9 +374,40 @@ export function createFixtureHtml(scenario) {
           actionRightOffset: roundMetric(anchorRect.right - playerRect.right),
           anchorTop: roundMetric(anchorRect.top),
           playerHeight: roundMetric(playerRect.height),
+          playerLeft: roundMetric(playerRect.left),
           playerTop: roundMetric(playerRect.top),
           playerWidth: roundMetric(playerRect.width)
         };
+      }
+
+      function readRenderedBottomLine(element) {
+        const range = document.createRange();
+        try {
+          range.selectNodeContents(element);
+          const rects = [...range.getClientRects()].filter((rect) => {
+            return rect.width > 0 && rect.height > 0;
+          });
+          if (!rects.length) {
+            return null;
+          }
+          const rect = rects.reduce((bottomMost, candidate) => {
+            if (
+              candidate.bottom > bottomMost.bottom
+              || (candidate.bottom === bottomMost.bottom && candidate.right > bottomMost.right)
+            ) {
+              return candidate;
+            }
+            return bottomMost;
+          });
+          return {
+            bottom: roundMetric(rect.bottom),
+            left: roundMetric(rect.left),
+            right: roundMetric(rect.right),
+            top: roundMetric(rect.top)
+          };
+        } finally {
+          range.detach?.();
+        }
       }
 
       function roundMetric(value) {
@@ -377,6 +538,9 @@ export function createScenarioMarkup(scenario) {
               <div id="expanded">${timestampMarkup}</div>
             </div>
             <div id="above-the-fold">
+              <div id="title" class="smoke-video-title-container">
+                <h1><yt-formatted-string id="smoke-video-title">${EXTREME_VIDEO_TITLE}</yt-formatted-string></h1>
+              </div>
               <div id="actions">
                 <div id="top-level-buttons-computed">
                   <ytd-button-renderer id="share-button"><button type="button">Localized action</button></ytd-button-renderer>
@@ -399,6 +563,9 @@ export function createScenarioMarkup(scenario) {
           <ytmusic-description-shelf-renderer expanded>
             <div id="description">${timestampMarkup}</div>
           </ytmusic-description-shelf-renderer>
+          <div id="header" class="smoke-video-title-container">
+            <div class="title"><yt-formatted-string id="smoke-video-title">${EXTREME_VIDEO_TITLE}</yt-formatted-string></div>
+          </div>
           <div id="actions">
             <ytmusic-button-renderer id="share-button"><button type="button">Localized music action</button></ytmusic-button-renderer>
           </div>
@@ -445,6 +612,65 @@ export function validateSmokeResult(result, scenario) {
       COMPACT_PLAYER_MIN_WIDTH_PX,
       COMPACT_PLAYER_MAX_WIDTH_PX
     )
+    || !isFiniteBetween(
+      compactLayout?.automaticWidth,
+      COMPACT_PLAYER_MIN_WIDTH_PX + 10,
+      COMPACT_PLAYER_MAX_WIDTH_PX - 10
+    )
+    || !isWithinTolerance(
+      compactLayout?.automaticTitleGap,
+      COMPACT_TITLE_GAP_PX,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || !isWithinTolerance(
+      compactLayout?.extremeWidth,
+      COMPACT_PLAYER_MIN_WIDTH_PX,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || !Number.isFinite(compactLayout?.extremeTitleOverlap)
+    || compactLayout.extremeTitleOverlap <= 0
+    || !isWithinTolerance(
+      compactLayout?.manualWidth - compactLayout?.automaticWidth,
+      COMPACT_POINTER_GROWTH_PX,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || !Number.isFinite(compactLayout?.manualTitleOverlap)
+    || compactLayout.manualTitleOverlap <= 0
+    || !isWithinTolerance(
+      compactLayout?.fitConstrainedWidth,
+      compactLayout?.automaticWidth,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || !isFiniteBetween(
+      compactLayout?.fitExpandedWidth,
+      COMPACT_PLAYER_MAX_WIDTH_PX + 40,
+      COMPACT_PLAYER_MAX_FITTED_WIDTH_PX
+    )
+    || !isWithinTolerance(
+      compactLayout?.fitRestoredCollisionWidth,
+      compactLayout?.automaticWidth,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || !isFiniteBetween(
+      compactLayout?.fitShrunkWidth,
+      COMPACT_PLAYER_MIN_WIDTH_PX,
+      compactLayout?.automaticWidth - 10
+    )
+    || !isWithinTolerance(
+      compactLayout?.stickyCollisionWidthBeforeScroll,
+      compactLayout?.automaticWidth,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || !isWithinTolerance(
+      compactLayout?.stickyCollisionWidthAfterScroll,
+      compactLayout?.automaticWidth,
+      COMPACT_LAYOUT_TOLERANCE_PX
+    )
+    || compactLayout?.pointerResizeAvoidedFocus !== true
+    || compactLayout?.resizeHandleAriaHidden !== "true"
+    || compactLayout?.resizeHandleTabIndex !== -1
+    || compactLayout?.resizeKeysPreservedWidth !== true
+    || compactLayout?.resizeKeysUnconsumed !== true
     || !isWithinTolerance(
       compactLayout?.actionGapBeforeScroll,
       COMPACT_ANCHOR_GAP_PX,

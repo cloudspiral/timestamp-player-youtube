@@ -7,6 +7,9 @@
   const PLAYER_MIN_VISIBLE_HEIGHT = 100;
   const COMPACT_PLAYER_MIN_WIDTH = 300;
   const COMPACT_FIT_TEXT_PADDING = 2;
+  const COMPACT_TITLE_GAP = 12;
+  const COMPACT_TITLE_LINE_TOLERANCE = 1;
+  const COMPACT_ANCHOR_GAP = 6;
   const KEYBOARD_LAYOUT_STEP = 10;
   const KEYBOARD_LAYOUT_FINE_STEP = 1;
   const PANEL_MODES = Object.freeze({
@@ -26,6 +29,7 @@
     getLauncherElement = () => null,
     findActionRow = () => null,
     findCompactActionAnchor = () => null,
+    getVideoTitleLineRects = () => [],
     requestFrame = windowObject?.requestAnimationFrame?.bind(windowObject),
     cancelFrame = windowObject?.cancelAnimationFrame?.bind(windowObject),
   } = {}) {
@@ -42,6 +46,10 @@
     let anchoredWidth = null;
     let anchoredHeight = null;
     let compactWidth = null;
+    let effectiveCompactWidth = null;
+    let avoidVideoTitleOverlap = true;
+    let compactManualOverride = false;
+    let compactVideoSessionKey = null;
     let playerLayoutFrame = null;
 
     let dragPointerId = null;
@@ -135,11 +143,23 @@
     }
 
     function hydrate(settings = {}) {
+      const wasAvoidingVideoTitleOverlap = avoidVideoTitleOverlap;
       playerPosition = settings.floatingPlayerPosition || null;
       playerSize = settings.floatingPlayerSize || null;
       anchoredWidth = settings.anchoredPlayerSize?.width ?? null;
       anchoredHeight = settings.anchoredPlayerSize?.height ?? null;
       compactWidth = settings.compactPlayerWidth ?? null;
+      avoidVideoTitleOverlap = settings.avoidVideoTitleOverlap !== false;
+      if (!wasAvoidingVideoTitleOverlap && avoidVideoTitleOverlap) {
+        compactManualOverride = false;
+      }
+      return controller;
+    }
+
+    function beginVideoSession(sessionKey = null) {
+      compactVideoSessionKey = sessionKey;
+      compactManualOverride = false;
+      effectiveCompactWidth = null;
       return controller;
     }
 
@@ -148,6 +168,7 @@
       if (inlineCompact) {
         removeEmptyCompactHost();
         clearPlayerSize();
+        effectiveCompactWidth = null;
         clearRootPosition();
         return true;
       }
@@ -176,6 +197,8 @@
         }
         return true;
       }
+
+      effectiveCompactWidth = null;
 
       if (view.panelMode === PANEL_MODES.ANCHORED) {
         positionAnchoredPlayer();
@@ -309,16 +332,19 @@
       const actionAnchor = findCompactActionAnchor();
       const actionRect = actionAnchor?.getBoundingClientRect();
 
-      if (compactWidth) {
-        renderCompactPlayerWidth(clampCompactPlayerWidth(compactWidth, actionRect));
-      } else {
-        clearPlayerSize();
-      }
-
-      const rect = root.getBoundingClientRect();
+      const preferredWidth = renderPreferredCompactPlayerWidth(actionRect);
+      let rect = root.getBoundingClientRect();
       if (!actionRect || actionRect.width <= 0 || actionRect.height <= 0 || rect.width <= 0 || rect.height <= 0) {
         clearRootPosition();
         return false;
+      }
+
+      const automaticWidth = resolveAutomaticCompactWidth(preferredWidth, actionRect);
+      if (Math.abs(automaticWidth - rect.width) >= 0.5) {
+        renderCompactPlayerWidth(automaticWidth);
+        rect = root.getBoundingClientRect();
+      } else {
+        effectiveCompactWidth = rect.width;
       }
 
       const scrollOffset = getViewportScrollOffset();
@@ -326,7 +352,10 @@
       const minLeft = DRAG_VIEWPORT_PADDING;
       const maxLeft = Math.max(minLeft, viewport.width - rect.width - DRAG_VIEWPORT_PADDING);
       const left = clamp(actionRect.right - rect.width, minLeft, maxLeft) + scrollOffset.left;
-      const top = Math.max(0, actionRect.top + scrollOffset.top - rect.height - 6);
+      const top = Math.max(
+        0,
+        actionRect.top + scrollOffset.top - rect.height - COMPACT_ANCHOR_GAP
+      );
 
       applyRootPosition({ left, top }, "absolute");
       return true;
@@ -347,11 +376,7 @@
         compactHost.append(root);
       }
 
-      if (compactWidth) {
-        renderCompactPlayerWidth(clampCompactPlayerWidth(compactWidth));
-      } else {
-        clearPlayerSize();
-      }
+      renderPreferredCompactPlayerWidth();
 
       clearRootPosition();
       return true;
@@ -439,9 +464,61 @@
     }
 
     function renderCompactPlayerWidth(width) {
+      effectiveCompactWidth = width;
       root.classList.remove("has-custom-size");
       root.style.width = `${width}px`;
       root.style.height = "";
+    }
+
+    function renderPreferredCompactPlayerWidth(alignmentRect = null) {
+      if (compactWidth !== null) {
+        const preferredWidth = clampCompactPlayerWidth(compactWidth, alignmentRect);
+        renderCompactPlayerWidth(preferredWidth);
+        return preferredWidth;
+      }
+
+      clearPlayerSize();
+      const naturalWidth = root.getBoundingClientRect().width;
+      const preferredWidth = clampCompactPlayerWidth(naturalWidth, alignmentRect);
+      if (Math.abs(preferredWidth - naturalWidth) >= 0.5) {
+        renderCompactPlayerWidth(preferredWidth);
+      } else {
+        effectiveCompactWidth = naturalWidth;
+      }
+      return preferredWidth;
+    }
+
+    function resolveAutomaticCompactWidth(preferredWidth, actionRect) {
+      if (!avoidVideoTitleOverlap || compactManualOverride) {
+        return preferredWidth;
+      }
+
+      let titleRects;
+      try {
+        titleRects = getVideoTitleLineRects() || [];
+      } catch (_error) {
+        return preferredWidth;
+      }
+      const renderedTitleRects = [...titleRects].filter((rect) => {
+        return rect
+          && Number.isFinite(rect.right)
+          && Number.isFinite(rect.bottom);
+      });
+      if (renderedTitleRects.length === 0) {
+        return preferredWidth;
+      }
+
+      const bottomMostTitleLine = Math.max(...renderedTitleRects.map((rect) => rect.bottom));
+      const titleRight = Math.max(...renderedTitleRects
+        .filter((rect) => rect.bottom >= bottomMostTitleLine - COMPACT_TITLE_LINE_TOLERANCE)
+        .map((rect) => rect.right));
+      const viewportRight = getViewportSize().width - DRAG_VIEWPORT_PADDING;
+      const playerRight = Math.min(actionRect.right, viewportRight);
+      const safeWidth = playerRight - titleRight - COMPACT_TITLE_GAP;
+      return Math.min(
+        preferredWidth,
+        clampCompactPlayerWidth(safeWidth, actionRect)
+      );
     }
 
     function saveFloatingPlayerLayout() {
@@ -525,11 +602,16 @@
     function clampCompactPlayerWidth(width, alignmentRect = null) {
       const viewport = getViewportSize();
       const maxViewportWidth = viewport.width - DRAG_VIEWPORT_PADDING * 2;
+      const physicalMaxWidth = Math.max(PLAYER_MIN_VISIBLE_WIDTH, maxViewportWidth);
+      const minimumWidth = Math.min(COMPACT_PLAYER_MIN_WIDTH, physicalMaxWidth);
       const alignmentRight = alignmentRect?.right ?? viewport.width - DRAG_VIEWPORT_PADDING;
       const maxCompactWidth = alignmentRight - DRAG_VIEWPORT_PADDING;
-      const maxWidth = Math.max(PLAYER_MIN_VISIBLE_WIDTH, Math.min(maxViewportWidth, maxCompactWidth));
+      const maxWidth = Math.max(
+        minimumWidth,
+        Math.min(physicalMaxWidth, maxCompactWidth)
+      );
 
-      return clamp(width, Math.min(COMPACT_PLAYER_MIN_WIDTH, maxWidth), maxWidth);
+      return clamp(width, minimumWidth, maxWidth);
     }
 
     function clampAnchoredPlayerSize(width, height, alignmentRect = null, anchorRect = null) {
@@ -935,7 +1017,7 @@
       dragOffsetX = event.clientX - rect.left;
       dragOffsetY = event.clientY - rect.top;
       root.classList.add("is-dragging");
-      dragHandle.setPointerCapture?.(event.pointerId);
+      safelySetPointerCapture(dragHandle, event.pointerId);
       dragHandle.addEventListener("pointermove", handleDragPointerMove);
       dragHandle.addEventListener("pointerup", handleDragPointerEnd, { once: true });
       dragHandle.addEventListener("pointercancel", handleDragPointerEnd, { once: true });
@@ -955,7 +1037,7 @@
         return;
       }
 
-      dragHandle?.releasePointerCapture?.(event.pointerId);
+      safelyReleasePointerCapture(dragHandle, event.pointerId);
       dragPointerId = null;
       root?.classList.remove("is-dragging");
       dragHandle?.removeEventListener?.("pointermove", handleDragPointerMove);
@@ -1022,7 +1104,7 @@
       }
 
       root.classList.add("is-resizing");
-      resizeHandle.setPointerCapture?.(event.pointerId);
+      safelySetPointerCapture(resizeHandle, event.pointerId);
       resizeHandle.addEventListener("pointermove", handleResizePointerMove);
       resizeHandle.addEventListener("pointerup", handleResizePointerEnd, { once: true });
       resizeHandle.addEventListener("pointercancel", handleResizePointerEnd, { once: true });
@@ -1063,6 +1145,7 @@
           return;
         }
         compactResizeChanged = true;
+        compactManualOverride = true;
         applyCompactPlayerWidth(nextWidth);
         layoutNow();
         return;
@@ -1090,7 +1173,7 @@
       }
 
       const completedResizeMode = resizeMode;
-      resizeHandle?.releasePointerCapture?.(event.pointerId);
+      safelyReleasePointerCapture(resizeHandle, event.pointerId);
       resizePointerId = null;
       resizeMode = null;
       root?.classList.remove("is-resizing");
@@ -1144,6 +1227,7 @@
         Math.ceil(fixedWidth + textWidth + COMPACT_FIT_TEXT_PADDING),
         alignmentRect
       );
+      compactManualOverride = false;
       applyCompactPlayerWidth(fittedWidth);
       layoutNow();
       saveCompactPlayerLayout();
@@ -1166,8 +1250,8 @@
     }
 
     function cancelPointerInteractions() {
-      if (dragPointerId !== null && dragHandle?.hasPointerCapture?.(dragPointerId)) {
-        dragHandle.releasePointerCapture(dragPointerId);
+      if (dragPointerId !== null) {
+        safelyReleasePointerCapture(dragHandle, dragPointerId);
       }
       dragHandle?.removeEventListener?.("pointermove", handleDragPointerMove);
       dragHandle?.removeEventListener?.("pointerup", handleDragPointerEnd);
@@ -1175,8 +1259,8 @@
       root?.classList.remove("is-dragging");
       dragPointerId = null;
 
-      if (resizePointerId !== null && resizeHandle?.hasPointerCapture?.(resizePointerId)) {
-        resizeHandle.releasePointerCapture(resizePointerId);
+      if (resizePointerId !== null) {
+        safelyReleasePointerCapture(resizeHandle, resizePointerId);
       }
       resizeHandle?.removeEventListener?.("pointermove", handleResizePointerMove);
       resizeHandle?.removeEventListener?.("pointerup", handleResizePointerEnd);
@@ -1185,6 +1269,28 @@
       resizePointerId = null;
       resizeMode = null;
       compactResizeChanged = false;
+    }
+
+    function safelySetPointerCapture(element, pointerId) {
+      try {
+        element?.setPointerCapture?.(pointerId);
+      } catch (_error) {
+        // The pointer can disappear while YouTube reparents the compact player.
+      }
+    }
+
+    function safelyReleasePointerCapture(element, pointerId) {
+      try {
+        if (
+          typeof element?.hasPointerCapture === "function"
+          && !element.hasPointerCapture(pointerId)
+        ) {
+          return;
+        }
+        element?.releasePointerCapture?.(pointerId);
+      } catch (_error) {
+        // A detached handle or already-ended pointer needs no further cleanup.
+      }
     }
 
     function ownsNode(node) {
@@ -1201,11 +1307,15 @@
       return {
         anchoredHeight,
         anchoredWidth,
+        avoidVideoTitleOverlap,
         compactHost,
+        compactManualOverride,
+        compactVideoSessionKey,
         compactWidth,
         connected,
         dragPointerId,
         framePending: playerLayoutFrame !== null,
+        effectiveCompactWidth,
         keyboardMode: keyboardInteraction?.kind || null,
         keyboardReset: keyboardInteraction?.reset || false,
         playerPosition: playerPosition ? { ...playerPosition } : null,
@@ -1217,6 +1327,7 @@
     }
 
     const controller = {
+      beginVideoSession,
       cancelScheduledLayout,
       connect,
       disconnect,

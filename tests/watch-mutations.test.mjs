@@ -116,6 +116,7 @@ test("unrelated YouTube mutation storms do not request discovery or launcher wor
   const { mutations } = await loadRuntime();
   let discoverySchedules = 0;
   let launcherSchedules = 0;
+  let layoutSchedules = 0;
 
   for (let index = 0; index < 1000; index += 1) {
     mutations.dispatchWatchMutations([
@@ -127,11 +128,15 @@ test("unrelated YouTube mutation storms do not request discovery or launcher wor
       onLauncher: () => {
         launcherSchedules += 1;
       },
+      onLayout: () => {
+        layoutSchedules += 1;
+      },
     });
   }
 
   assert.equal(discoverySchedules, 0);
   assert.equal(launcherSchedules, 0);
+  assert.equal(layoutSchedules, 0);
 });
 
 test("relevant mutation storms coalesce through the generation-scoped scan task", async () => {
@@ -229,6 +234,7 @@ test("action row changes route to launcher sync without full discovery", async (
   const extensionButton = new FakeNode("#timestamp-player-launcher");
   let scans = 0;
   let launcherSyncs = 0;
+  let layoutSchedules = 0;
 
   const result = mutations.dispatchWatchMutations([
     mutation(actionRow, { addedNodes: [ordinaryButton] }),
@@ -238,6 +244,9 @@ test("action row changes route to launcher sync without full discovery", async (
     },
     onLauncher: () => {
       launcherSyncs += 1;
+    },
+    onLayout: () => {
+      layoutSchedules += 1;
     },
   });
   mutations.dispatchWatchMutations([
@@ -254,8 +263,10 @@ test("action row changes route to launcher sync without full discovery", async (
 
   assert.equal(result.discovery, false);
   assert.equal(result.launcher, true);
+  assert.equal(result.layout, true);
   assert.equal(scans, 0);
   assert.equal(launcherSyncs, 1, "inserting the extension launcher must not loop");
+  assert.equal(layoutSchedules, 1);
 });
 
 test("removing an extension launcher from YouTube's action row schedules recovery", async () => {
@@ -336,10 +347,16 @@ test("late text and watch-shell hydration route discovery and media work indepen
   const watchShellMutation = mutations.classifyWatchMutations([mutation(watchShell)]);
   assert.equal(watchShellMutation.discovery, false);
   assert.equal(watchShellMutation.media, true);
+  assert.equal(watchShellMutation.layout, true);
   assert.equal(
     mutations.classifyWatchMutations([mutation(unrelatedChild)]).media,
     false,
     "watch-shell descendants must not all become player mutations"
+  );
+  assert.equal(
+    mutations.classifyWatchMutations([mutation(unrelatedChild)]).layout,
+    false,
+    "watch-shell descendants must not all become layout mutations"
   );
 
   const settledDescriptionInterests = mutations.getTrackMutationInterests({
@@ -351,6 +368,29 @@ test("late text and watch-shell hydration route discovery and media work indepen
   });
   assert.equal(settledWatchShellMutation.discovery, false);
   assert.equal(settledWatchShellMutation.media, true);
+  assert.equal(settledWatchShellMutation.layout, true);
+});
+
+test("video-title and shell hydration dispatch coalescible layout work", async () => {
+  const { mutations } = await loadRuntime();
+  const title = new FakeNode("ytd-watch-metadata #title");
+  const titleText = { nodeType: 3, parentElement: title };
+  const watchShell = new FakeNode("ytd-watch-flexy");
+  const unrelated = new FakeNode("ytd-rich-item-renderer");
+  let layoutSchedules = 0;
+
+  for (const target of [titleText, watchShell, unrelated]) {
+    mutations.dispatchWatchMutations([mutation(target)], {
+      onLayout: () => {
+        layoutSchedules += 1;
+      },
+    });
+  }
+
+  assert.equal(mutations.classifyWatchMutations([mutation(titleText)]).layout, true);
+  assert.equal(mutations.classifyWatchMutations([mutation(watchShell)]).layout, true);
+  assert.equal(mutations.classifyWatchMutations([mutation(unrelated)]).layout, false);
+  assert.equal(layoutSchedules, 2);
 });
 
 test("late YouTube Music description and action hydration trigger focused work", async () => {
@@ -372,6 +412,7 @@ test("late YouTube Music description and action hydration trigger focused work",
   assert.equal(descriptionResult.discovery, true);
   assert.equal(descriptionResult.domains.has(mutations.WATCH_MUTATION_DOMAINS.DESCRIPTION), true);
   assert.equal(actionResult.launcher, true);
+  assert.equal(actionResult.layout, true);
   assert.equal(actionResult.discovery, false);
   assert.equal(playerResult.media, true);
   assert.equal(
@@ -492,6 +533,7 @@ test("observer configuration covers narrow visibility, text, and video-id hydrat
     contentSource,
     /restorePlayerAfterLauncherSync[\s\S]*playerLayout\.prepareMount\(\{ inlineCompact \}\)[\s\S]*playerLayout\.layoutNow\(/
   );
+  assert.match(contentSource, /onLayout: \(\) => playerLayout\.schedule\(\)/);
 });
 
 test("manifest loads focused performance runtimes before content orchestration", async () => {

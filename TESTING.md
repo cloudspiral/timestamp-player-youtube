@@ -52,7 +52,10 @@ navigates with `history.pushState`, then hydrates the description and action row
 after separate multi-second delays. It passes only if the packaged extension
 recognizes that origin's synthetic player/description/action markup, renders the
 three expected tracks, and inserts the Tracklist launcher in the action row
-without a reload.
+without a reload. The same run switches into compact mode and verifies real
+rendered title geometry, the 300px extreme-title floor, the 12px avoidance gap,
+manual pointer overlap, double-click grow and shrink fitting, pointer-only resize
+semantics, and sticky anchoring while scrolling.
 
 The fake DOMs are intentionally local to their test files. They implement only
 the methods used by the production helper, which keeps failures readable and

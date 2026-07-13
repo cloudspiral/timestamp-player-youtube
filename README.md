@@ -8,7 +8,7 @@ It checks for timestamps in both the video description and comments, and intelli
 
 Open and close the player by clicking the new "Tracklist" button located next to the Share button.
 
-You can also use it in compact bar mode below the video, or pop out into floating panel mode. Drag the compact bar's left edge to resize it, or double-click that edge to fit the current track title.
+You can also use it in compact bar mode below the video, or pop out into floating panel mode. Drag the compact bar's left edge to resize it, or double-click that edge to fit the current track title. By default, the compact bar temporarily narrows when needed to avoid covering the video title; this can be disabled with “Avoid covering video titles” in the extension options.
 
 Additional settings can be found in extension options.
 

@@ -3,6 +3,7 @@
     ACTIONS: "actions",
     COMMENTS: "comments",
     DESCRIPTION: "description",
+    LAYOUT: "layout",
     NATIVE: "native",
     PLAYER: "player",
   });
@@ -39,6 +40,14 @@
       "ytd-expandable-video-description-body-renderer",
       "ytd-structured-description-content-renderer",
       "ytmusic-description-shelf-renderer",
+    ]),
+    [WATCH_MUTATION_DOMAINS.LAYOUT]: Object.freeze([
+      "ytd-watch-metadata #title",
+      "#above-the-fold #title",
+      "ytmusic-player-page #header .title",
+      "ytmusic-player-page #header #title",
+      "ytd-watch-flexy",
+      "ytmusic-player-page",
     ]),
     [WATCH_MUTATION_DOMAINS.NATIVE]: Object.freeze([
       "ytd-watch-metadata ytd-horizontal-card-list-renderer",
@@ -93,6 +102,7 @@
     isExtensionNode = () => false,
     onDiscovery = () => {},
     onLauncher = () => {},
+    onLayout = () => {},
     onMedia = () => {},
   } = {}) {
     const classification = classifyWatchMutations(mutations, {
@@ -105,6 +115,9 @@
     }
     if (classification.launcher) {
       onLauncher(classification);
+    }
+    if (classification.layout) {
+      onLayout(classification);
     }
     if (classification.media) {
       onMedia(classification);
@@ -147,6 +160,8 @@
       discovery,
       domains,
       launcher: domains.has(WATCH_MUTATION_DOMAINS.ACTIONS),
+      layout: domains.has(WATCH_MUTATION_DOMAINS.ACTIONS)
+        || domains.has(WATCH_MUTATION_DOMAINS.LAYOUT),
       media,
     };
   }

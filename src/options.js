@@ -12,6 +12,7 @@
 
   const form = document.getElementById("settings-form");
   const autoShowInput = document.getElementById("auto-show-compact");
+  const avoidVideoTitleOverlapInput = document.getElementById("avoid-video-title-overlap");
   const compactProgressCustomColorInput = document.getElementById("compact-progress-custom-color");
   const progressCustomColorInput = document.getElementById("progress-custom-color");
   const customColorInputs = [
@@ -118,6 +119,7 @@
 
   function applySettings(settings) {
     autoShowInput.checked = settings.autoShowCompact;
+    avoidVideoTitleOverlapInput.checked = settings.avoidVideoTitleOverlap;
     checkRadio("progressTimeMode", settings.progressTimeMode);
     checkRadio("compactProgressStyle", settings.compactProgressStyle);
     checkRadio("trackHighlightColor", settings.trackHighlightColor);
@@ -140,6 +142,7 @@
     const formData = new FormData(form);
     return {
       autoShowCompact: autoShowInput.checked,
+      avoidVideoTitleOverlap: avoidVideoTitleOverlapInput.checked,
       compactProgressStyle: formData.get("compactProgressStyle"),
       compactProgressColor: formData.get("compactProgressColor"),
       compactProgressCustomColor: formData.get("compactProgressCustomColor"),

@@ -78,6 +78,18 @@ const COMPACT_ACTION_ANCHOR_SELECTOR = [
   "#above-the-fold #actions",
   "ytmusic-player-page #actions",
 ].join(",");
+const VIDEO_TITLE_SELECTORS = [
+  "ytd-watch-metadata #title h1 yt-attributed-string",
+  "ytd-watch-metadata #title h1 yt-formatted-string",
+  "ytd-watch-metadata #title h1",
+  "#above-the-fold #title h1 yt-attributed-string",
+  "#above-the-fold #title h1 yt-formatted-string",
+  "#above-the-fold #title h1",
+  "ytmusic-player-page #header .title yt-formatted-string",
+  "ytmusic-player-page #header yt-formatted-string.title",
+  "ytmusic-player-page #header .title",
+  "ytmusic-player-page #header #title",
+];
 const SHARE_ACTION_SELECTOR = [
   "ytd-button-renderer#share-button",
   "yt-button-view-model#share-button",
@@ -211,6 +223,7 @@ class FakeElement {
     this.closestResults = new Map();
     this.matchSelectors = new Set();
     this.rect = { height, width };
+    this.textRects = [];
     this.href = "";
     this.nativeSection = false;
     this.videoId = undefined;
@@ -319,6 +332,19 @@ class FakeElement {
 class FakeDocument extends FakeElement {
   constructor() {
     super("document");
+  }
+
+  createRange() {
+    let selectedElement = null;
+    return {
+      detach() {},
+      getClientRects() {
+        return selectedElement?.textRects || [];
+      },
+      selectNodeContents(element) {
+        selectedElement = element;
+      },
+    };
   }
 }
 
@@ -477,6 +503,87 @@ test("binds controls and description roots to the current renderer during SPA ov
   assert.equal(dom.findDescriptionExpandButton("missing-video"), null);
   assert.equal(dom.findActionRow("missing-video"), null);
   assert.deepEqual(Array.from(dom.getDescriptionRoots("missing-video")), []);
+});
+
+test("returns rendered title lines only for the visible current Watch or Music shell", async () => {
+  const lineRects = [
+    { bottom: 320, height: 20, left: 10, right: 510, top: 300, width: 500 },
+    { bottom: 342, height: 20, left: 10, right: 240, top: 322, width: 230 },
+  ];
+  const staleLineRects = [
+    { bottom: 120, height: 20, left: 10, right: 110, top: 100, width: 100 },
+  ];
+  const hiddenLineRects = [
+    { bottom: 220, height: 20, left: 10, right: 210, top: 200, width: 200 },
+  ];
+  const watchDocument = new FakeDocument();
+  const staleWatchShell = new FakeElement("ytd-watch-flexy");
+  staleWatchShell.setAttribute("video-id", "previous-video");
+  const currentWatchShell = new FakeElement("ytd-watch-flexy");
+  currentWatchShell.setAttribute("video-id", "album");
+  const staleTitle = new FakeElement("yt-formatted-string", { textContent: "Stale title" });
+  staleTitle.textRects = staleLineRects;
+  staleTitle.setClosest("ytd-watch-flexy", staleWatchShell);
+  const hiddenTitle = new FakeElement("yt-formatted-string", {
+    height: 0,
+    textContent: "Hidden current title",
+  });
+  hiddenTitle.textRects = hiddenLineRects;
+  hiddenTitle.setClosest("ytd-watch-flexy", currentWatchShell);
+  const ariaHiddenAncestor = new FakeElement("div");
+  ariaHiddenAncestor.setAttribute("aria-hidden", "true");
+  const ariaHiddenTitle = new FakeElement("yt-formatted-string", {
+    textContent: "ARIA-hidden current title",
+  });
+  ariaHiddenTitle.textRects = hiddenLineRects;
+  ariaHiddenTitle.setClosest("ytd-watch-flexy", currentWatchShell);
+  ariaHiddenAncestor.append(ariaHiddenTitle);
+  const currentTitle = new FakeElement("yt-formatted-string", {
+    textContent: "Current title wraps",
+  });
+  currentTitle.textRects = lineRects;
+  currentTitle.setClosest("ytd-watch-flexy", currentWatchShell);
+  watchDocument.setQuery(
+    VIDEO_TITLE_SELECTORS[1],
+    [staleTitle, hiddenTitle, ariaHiddenTitle, currentTitle]
+  );
+
+  const watchDom = await loadYouTubeDom(watchDocument);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(watchDom.getVideoTitleLineRects("album"))),
+    lineRects
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(watchDom.getVideoTitleLineRects("previous-video"))),
+    staleLineRects
+  );
+  assert.deepEqual(Array.from(watchDom.getVideoTitleLineRects("missing-video")), []);
+  assert.deepEqual(Array.from(watchDom.getVideoTitleLineRects()), []);
+
+  const musicDocument = new FakeDocument();
+  const staleMusicPage = new FakeElement("ytmusic-player-page");
+  staleMusicPage.setAttribute("video-id", "previous-music");
+  const currentMusicPage = new FakeElement("ytmusic-player-page");
+  currentMusicPage.setAttribute("video-id", "music-album");
+  const staleMusicTitle = new FakeElement("yt-formatted-string", {
+    textContent: "Stale music title",
+  });
+  staleMusicTitle.textRects = staleLineRects;
+  staleMusicTitle.setClosest("ytmusic-player-page", staleMusicPage);
+  const currentMusicTitle = new FakeElement("yt-formatted-string", {
+    textContent: "Current music title",
+  });
+  currentMusicTitle.textRects = [lineRects[1]];
+  currentMusicTitle.setClosest("ytmusic-player-page", currentMusicPage);
+  musicDocument.setQuery(VIDEO_TITLE_SELECTORS[6], [staleMusicTitle, currentMusicTitle]);
+
+  const musicDom = await loadYouTubeDom(musicDocument, {
+    href: "https://music.youtube.com/watch?v=music-album",
+  });
+  assert.deepEqual(
+    Array.from(musicDom.getVideoTitleLineRects("music-album"), (rect) => ({ ...rect })),
+    [lineRects[1]]
+  );
 });
 
 test("explicit current-video timestamp links outrank a hydrating renderer id", async () => {

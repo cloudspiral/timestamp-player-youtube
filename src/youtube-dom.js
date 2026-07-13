@@ -60,6 +60,18 @@
     "#above-the-fold #actions",
     "ytmusic-player-page #actions",
   ].join(",");
+  const VIDEO_TITLE_SELECTORS = [
+    "ytd-watch-metadata #title h1 yt-attributed-string",
+    "ytd-watch-metadata #title h1 yt-formatted-string",
+    "ytd-watch-metadata #title h1",
+    "#above-the-fold #title h1 yt-attributed-string",
+    "#above-the-fold #title h1 yt-formatted-string",
+    "#above-the-fold #title h1",
+    "ytmusic-player-page #header .title yt-formatted-string",
+    "ytmusic-player-page #header yt-formatted-string.title",
+    "ytmusic-player-page #header .title",
+    "ytmusic-player-page #header #title",
+  ];
   const SHARE_ACTION_SELECTOR = [
     "ytd-button-renderer#share-button",
     "yt-button-view-model#share-button",
@@ -191,6 +203,58 @@
       return candidates.find((element) => {
         return isVisible(element) && elementBelongsToVideo(element, videoId);
       }) || null;
+    }
+
+    function getVideoTitleLineRects(videoId = "") {
+      if (!videoId) {
+        return [];
+      }
+      for (const candidate of getUniqueElements(VIDEO_TITLE_SELECTORS)) {
+        if (
+          !isVisible(candidate)
+          || !elementBelongsToVideo(candidate, videoId)
+          || !normalizeTitleText(candidate.textContent)
+        ) {
+          continue;
+        }
+        const rects = getTextLineRects(candidate);
+        if (rects.length > 0) {
+          return rects;
+        }
+      }
+      return [];
+    }
+
+    function getTextLineRects(element) {
+      const range = document.createRange?.();
+      if (!range) {
+        return [];
+      }
+      try {
+        range.selectNodeContents(element);
+        return [...range.getClientRects()].map(copyRect).filter(Boolean);
+      } catch (_error) {
+        return [];
+      } finally {
+        range.detach?.();
+      }
+    }
+
+    function copyRect(rect) {
+      const left = Number(rect?.left);
+      const top = Number(rect?.top);
+      const right = Number(rect?.right);
+      const bottom = Number(rect?.bottom);
+      const width = Number(rect?.width);
+      const height = Number(rect?.height);
+      if (
+        ![bottom, height, left, right, top, width].every(Number.isFinite)
+        || width <= 0
+        || height <= 0
+      ) {
+        return null;
+      }
+      return { bottom, height, left, right, top, width };
     }
 
     function insertLauncherButton(actionRow, launcherButton) {
@@ -892,6 +956,7 @@
       getDescriptionRoots,
       getOwnershipEvidence,
       getQuietDescriptionRoots,
+      getVideoTitleLineRects,
       insertLauncherButton,
       isDescriptionRootReadable,
       isVideoOwner,

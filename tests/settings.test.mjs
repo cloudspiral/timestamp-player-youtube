@@ -62,6 +62,7 @@ test("normalizes enums, colors, booleans, and persisted geometry", async () => {
   const api = await loadSettings();
   const input = {
     autoShowCompact: true,
+    avoidVideoTitleOverlap: false,
     compactProgressColor: "custom",
     compactProgressCustomColor: "#A1B2C3",
     compactProgressStyle: "normal",
@@ -78,6 +79,7 @@ test("normalizes enums, colors, booleans, and persisted geometry", async () => {
 
   assert.deepEqual(plain(api.normalizeSettings(input)), {
     autoShowCompact: true,
+    avoidVideoTitleOverlap: false,
     compactProgressColor: "custom",
     compactProgressCustomColor: "#a1b2c3",
     compactProgressStyle: "normal",
@@ -97,6 +99,7 @@ test("invalid values fall back atomically to defaults", async () => {
   const api = await loadSettings();
   const normalized = api.normalizeSettings({
     autoShowCompact: 1,
+    avoidVideoTitleOverlap: "yes",
     compactProgressColor: "orange",
     compactProgressCustomColor: "red",
     compactProgressStyle: "large",
@@ -140,6 +143,7 @@ test("the promise-based browser adapter normalizes loads and filters saved keys"
           calls.get.push(defaults);
           return {
             autoShowCompact: true,
+            avoidVideoTitleOverlap: false,
             progressColor: "purple",
             compactPlayerWidth: 300.7,
             trackHighlightColor: "not-valid",
@@ -156,6 +160,7 @@ test("the promise-based browser adapter normalizes loads and filters saved keys"
 
   const loaded = await loadStoredSettings(api);
   assert.equal(loaded.autoShowCompact, true);
+  assert.equal(loaded.avoidVideoTitleOverlap, false);
   assert.equal(loaded.progressColor, "purple");
   assert.equal(loaded.compactPlayerWidth, 301);
   assert.equal(loaded.trackHighlightColor, api.DEFAULT_SETTINGS.trackHighlightColor);
@@ -163,12 +168,14 @@ test("the promise-based browser adapter normalizes loads and filters saved keys"
 
   assert.equal(await saveStoredSettings(api, {
     autoShowCompact: true,
+    avoidVideoTitleOverlap: false,
     compactPlayerWidth: 299.6,
     progressColor: "invalid",
     unknownSetting: "do not persist",
   }), true);
   assert.deepEqual(plain(calls.set[0]), {
     autoShowCompact: true,
+    avoidVideoTitleOverlap: false,
     compactPlayerWidth: 300,
     progressColor: "red",
   });

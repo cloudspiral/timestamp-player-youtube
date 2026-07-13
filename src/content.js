@@ -149,6 +149,9 @@
     findCompactActionAnchor: () => youtubeDom.findCompactActionAnchor(
       state.session?.videoId || ""
     ),
+    getVideoTitleLineRects: () => youtubeDom.getVideoTitleLineRects(
+      state.session?.videoId || ""
+    ),
     getLauncherElement: () => launcherButton,
     saveSettings,
   });
@@ -303,6 +306,7 @@
     state.nextSessionGeneration = session.generation;
     session.description.fallbackReadyAt = now + DESCRIPTION_EXPAND_FALLBACK_DELAY_MS;
     state.session = session;
+    playerLayout.beginVideoSession(session.generation);
     diagnostics.sessionStarted(session);
     resetSessionViewState();
     // YouTube keeps the previous watch DOM around briefly during soft navigation.
@@ -369,6 +373,7 @@
       isExtensionNode,
       onDiscovery: () => scheduleMutationDiscoveryScan(session),
       onLauncher: () => scheduleLauncherSync(session),
+      onLayout: () => playerLayout.schedule(),
       onMedia: () => scheduleMediaRefresh(session),
     });
   }

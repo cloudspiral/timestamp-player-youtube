@@ -352,6 +352,7 @@ async function createHarness({
     actionAnchor: null,
     actionRow: null,
     launcher: null,
+    videoTitleLineRects: [],
   };
   const frames = new FakeAnimationFrames();
   const saves = [];
@@ -360,6 +361,7 @@ async function createHarness({
     document: documentObject,
     findActionRow: () => refs.actionRow,
     findCompactActionAnchor: () => refs.actionAnchor,
+    getVideoTitleLineRects: () => refs.videoTitleLineRects,
     getLauncherElement: () => refs.launcher,
     requestFrame: frames.request,
     saveSettings: (settings) => saves.push(plain(settings)),
@@ -536,6 +538,341 @@ test("compact overlay realigns to a sticky action anchor during coalesced scroll
     6,
     "the compact player should remain six pixels above a sticky anchor"
   );
+});
+
+test("automatic compact width protects rendered title lines without rewriting preference", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 36, left: 0, top: 0, width: 395 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  harness.refs.actionAnchor = harness.element({ height: 40, left: 500, top: 400, width: 450 });
+  harness.refs.videoTitleLineRects = [
+    { bottom: 390, height: 20, left: 10, right: 560, top: 370, width: 550 },
+  ];
+  harness.documentObject.documentElement.append(harness.refs.actionAnchor);
+  harness.controller.beginVideoSession(1);
+  harness.controller.hydrate({ avoidVideoTitleOverlap: true });
+  harness.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: harness.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+
+  assert.equal(harness.root.style.width, "378px");
+  assert.equal(harness.root.style.left, "572px");
+  let snapshot = harness.controller.getSnapshot();
+  assert.equal(snapshot.compactWidth, null);
+  assert.equal(snapshot.effectiveCompactWidth, 378);
+  assert.equal(snapshot.avoidVideoTitleOverlap, true);
+  assert.equal(snapshot.compactManualOverride, false);
+  assert.equal(snapshot.compactVideoSessionKey, 1);
+
+  harness.refs.videoTitleLineRects = [
+    { bottom: 390, height: 20, left: 10, right: 400, top: 370, width: 390 },
+  ];
+  harness.controller.layoutNow();
+  assert.equal(harness.root.style.width, "", "the CSS default should return when space opens");
+  snapshot = harness.controller.getSnapshot();
+  assert.equal(snapshot.compactWidth, null);
+  assert.equal(snapshot.effectiveCompactWidth, 395);
+});
+
+test("automatic compact width follows the bottom title line and keeps a 300px minimum", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 36, left: 0, top: 0, width: 500 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  harness.refs.actionAnchor = harness.element({ height: 40, left: 500, top: 400, width: 450 });
+  harness.documentObject.documentElement.append(harness.refs.actionAnchor);
+  harness.controller.hydrate({
+    avoidVideoTitleOverlap: true,
+    compactPlayerWidth: 500,
+  });
+  harness.refs.videoTitleLineRects = [
+    { bottom: 360, height: 20, left: 10, right: 900, top: 340, width: 890 },
+    { bottom: 390, height: 20, left: 10, right: 800, top: 370, width: 790 },
+  ];
+  harness.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: harness.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+  assert.equal(harness.root.style.width, "300px");
+  assert.equal(harness.controller.getSnapshot().compactWidth, 500);
+
+  harness.refs.videoTitleLineRects = [
+    { bottom: 360, height: 20, left: 10, right: 900, top: 340, width: 890 },
+    { bottom: 389.5, height: 20, left: 10, right: 600, top: 369.5, width: 590 },
+    { bottom: 390, height: 20, left: 10, right: 500, top: 370, width: 490 },
+  ];
+  harness.controller.layoutNow();
+  assert.equal(
+    harness.root.style.width,
+    "338px",
+    "all fragments on the shorter bottom line should define the available space"
+  );
+
+  harness.refs.videoTitleLineRects = [];
+  harness.controller.layoutNow();
+  assert.equal(harness.root.style.width, "500px");
+
+  harness.controller.hydrate({
+    avoidVideoTitleOverlap: false,
+    compactPlayerWidth: 500,
+  });
+  harness.refs.videoTitleLineRects = [
+    { bottom: 390, height: 20, left: 10, right: 800, top: 370, width: 790 },
+  ];
+  harness.controller.layoutNow();
+  assert.equal(harness.root.style.width, "500px");
+});
+
+test("automatic compact width remains stable while its sticky anchor scrolls", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 36, left: 0, top: 0, width: 500 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  harness.refs.actionAnchor = harness.element({ height: 40, left: 500, top: 400, width: 450 });
+  harness.refs.videoTitleLineRects = [
+    { bottom: 390, height: 20, left: 10, right: 588, top: 370, width: 578 },
+  ];
+  harness.documentObject.documentElement.append(harness.refs.actionAnchor);
+  harness.controller.hydrate({
+    avoidVideoTitleOverlap: true,
+    compactPlayerWidth: 500,
+  });
+  harness.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: harness.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+  assert.equal(harness.root.style.width, "350px");
+
+  harness.windowObject.scrollY = 240;
+  harness.refs.actionAnchor.setRect({ height: 40, left: 500, top: 80, width: 450 });
+  harness.refs.videoTitleLineRects[0] = {
+    bottom: 70,
+    height: 20,
+    left: 10,
+    right: 588,
+    top: 50,
+    width: 578,
+  };
+  harness.windowObject.dispatchEvent({ type: "scroll" });
+  harness.frames.flush();
+
+  assert.equal(harness.root.style.width, "350px");
+  assert.equal(harness.controller.getSnapshot().effectiveCompactWidth, 350);
+  assert.equal(
+    harness.refs.actionAnchor.getBoundingClientRect().top
+      - harness.root.getBoundingClientRect().bottom,
+    6
+  );
+});
+
+test("compact width preserves its usable minimum beside a narrow anchor", async () => {
+  const normalViewport = await createHarness({
+    rootRect: { height: 36, left: 0, top: 0, width: 500 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  normalViewport.refs.actionAnchor = normalViewport.element({
+    height: 40,
+    left: 50,
+    top: 400,
+    width: 200,
+  });
+  normalViewport.documentObject.documentElement.append(normalViewport.refs.actionAnchor);
+  normalViewport.controller.hydrate({ compactPlayerWidth: 500 });
+  normalViewport.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: normalViewport.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+  assert.equal(normalViewport.root.style.width, "300px");
+
+  const narrowViewport = await createHarness({
+    rootRect: { height: 36, left: 0, top: 0, width: 500 },
+    viewportHeight: 700,
+    viewportWidth: 250,
+  });
+  narrowViewport.refs.actionAnchor = narrowViewport.element({
+    height: 40,
+    left: 0,
+    top: 400,
+    width: 100,
+  });
+  narrowViewport.documentObject.documentElement.append(narrowViewport.refs.actionAnchor);
+  narrowViewport.controller.hydrate({ compactPlayerWidth: 500 });
+  narrowViewport.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: narrowViewport.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+  assert.equal(narrowViewport.root.style.width, "234px");
+});
+
+test("manual compact dragging overrides collision sizing only for the current video", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 36, left: 0, top: 0, width: 500 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  harness.refs.actionAnchor = harness.element({ height: 40, left: 500, top: 400, width: 450 });
+  harness.refs.videoTitleLineRects = [
+    { bottom: 390, height: 20, left: 10, right: 588, top: 370, width: 578 },
+  ];
+  harness.documentObject.documentElement.append(harness.refs.actionAnchor);
+  harness.controller.beginVideoSession(1);
+  harness.controller.hydrate({
+    avoidVideoTitleOverlap: true,
+    compactPlayerWidth: 500,
+  });
+  harness.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: harness.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+  assert.equal(harness.root.style.width, "350px");
+
+  harness.resizeHandle.dispatchEvent(pointerEvent("pointerdown", {
+    clientX: 600,
+    pointerId: 31,
+  }));
+  harness.resizeHandle.dispatchEvent(pointerEvent("pointermove", {
+    clientX: 560,
+    pointerId: 31,
+  }));
+  harness.resizeHandle.dispatchEvent(pointerEvent("pointerup", {
+    clientX: 560,
+    pointerId: 31,
+  }));
+
+  assert.equal(harness.root.style.width, "390px");
+  assert.equal(harness.controller.getSnapshot().compactManualOverride, true);
+  assert.deepEqual(harness.saves, [{ compactPlayerWidth: 390 }]);
+
+  harness.controller.hydrate({
+    avoidVideoTitleOverlap: true,
+    compactPlayerWidth: 390,
+  });
+  harness.refs.videoTitleLineRects[0].right = 700;
+  harness.controller.layoutNow();
+  assert.equal(harness.root.style.width, "390px", "the storage echo must preserve the override");
+
+  harness.controller.beginVideoSession(2);
+  harness.controller.layoutNow();
+  const snapshot = harness.controller.getSnapshot();
+  assert.equal(snapshot.compactManualOverride, false);
+  assert.equal(snapshot.compactWidth, 390);
+  assert.equal(snapshot.effectiveCompactWidth, 300);
+  assert.equal(harness.root.style.width, "300px");
+});
+
+test("enabling title avoidance clears an existing manual overlap override", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 36, left: 0, top: 0, width: 500 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  harness.refs.actionAnchor = harness.element({ height: 40, left: 500, top: 400, width: 450 });
+  harness.refs.videoTitleLineRects = [
+    { bottom: 390, height: 20, left: 10, right: 800, top: 370, width: 790 },
+  ];
+  harness.documentObject.documentElement.append(harness.refs.actionAnchor);
+  harness.controller.hydrate({
+    avoidVideoTitleOverlap: false,
+    compactPlayerWidth: 500,
+  });
+  harness.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: harness.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+
+  harness.resizeHandle.dispatchEvent(pointerEvent("pointerdown", {
+    clientX: 450,
+    pointerId: 35,
+  }));
+  harness.resizeHandle.dispatchEvent(pointerEvent("pointermove", {
+    clientX: 500,
+    pointerId: 35,
+  }));
+  harness.resizeHandle.dispatchEvent(pointerEvent("pointerup", {
+    clientX: 500,
+    pointerId: 35,
+  }));
+  assert.equal(harness.root.style.width, "450px");
+  assert.equal(harness.controller.getSnapshot().compactManualOverride, true);
+
+  harness.controller.hydrate({
+    avoidVideoTitleOverlap: false,
+    compactPlayerWidth: 450,
+  });
+  harness.controller.layoutNow();
+  assert.equal(harness.controller.getSnapshot().compactManualOverride, true);
+  assert.equal(harness.root.style.width, "450px");
+
+  harness.controller.hydrate({
+    avoidVideoTitleOverlap: true,
+    compactPlayerWidth: 450,
+  });
+  harness.controller.layoutNow();
+  assert.equal(harness.controller.getSnapshot().compactManualOverride, false);
+  assert.equal(harness.controller.getSnapshot().compactWidth, 450);
+  assert.equal(harness.root.style.width, "300px");
+  assert.deepEqual(harness.saves, [{ compactPlayerWidth: 450 }]);
+});
+
+test("double-click fitting clears a drag override but persists the unconstrained preference", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 36, left: 0, top: 0, width: 500 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  harness.refs.actionAnchor = harness.element({ height: 40, left: 500, top: 400, width: 450 });
+  harness.refs.videoTitleLineRects = [
+    { bottom: 390, height: 20, left: 10, right: 588, top: 370, width: 578 },
+  ];
+  harness.documentObject.documentElement.append(harness.refs.actionAnchor);
+  harness.trackElement.title = "A track title that needs substantially more room";
+  harness.trackElement.textWidth = 300;
+  harness.controller.hydrate({
+    avoidVideoTitleOverlap: true,
+    compactPlayerWidth: 500,
+  });
+  harness.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: harness.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+
+  harness.resizeHandle.dispatchEvent(pointerEvent("pointerdown", { clientX: 600, pointerId: 41 }));
+  harness.resizeHandle.dispatchEvent(pointerEvent("pointermove", { clientX: 560, pointerId: 41 }));
+  harness.resizeHandle.dispatchEvent(pointerEvent("pointerup", { clientX: 560, pointerId: 41 }));
+  assert.equal(harness.controller.getSnapshot().compactManualOverride, true);
+
+  harness.resizeHandle.dispatchEvent(pointerEvent("dblclick"));
+  const snapshot = harness.controller.getSnapshot();
+  assert.equal(snapshot.compactManualOverride, false);
+  assert.equal(snapshot.compactWidth, 532);
+  assert.equal(snapshot.effectiveCompactWidth, 350);
+  assert.equal(harness.root.style.width, "350px");
+  assert.deepEqual(harness.saves, [
+    { compactPlayerWidth: 390 },
+    { compactPlayerWidth: 532 },
+  ]);
 });
 
 test("connecting identical elements is idempotent and preserves an active compact mount", async () => {
@@ -1028,6 +1365,49 @@ test("compact pointer clicks do not focus, resize, or save without a drag", asyn
   assert.deepEqual(harness.saves, []);
 });
 
+test("compact pointer resizing survives unavailable native pointer capture", async () => {
+  const harness = await createHarness({
+    rootRect: { height: 36, left: 500, top: 400, width: 360 },
+    viewportHeight: 700,
+    viewportWidth: 1000,
+  });
+  harness.refs.actionAnchor = harness.element({ height: 40, left: 500, top: 500, width: 400 });
+  harness.documentObject.documentElement.append(harness.refs.actionAnchor);
+  harness.controller.layoutNow({
+    anchoredCompact: true,
+    inlineCompact: true,
+    panelMode: harness.runtime.PANEL_MODES.ANCHORED,
+    visible: true,
+  });
+  harness.resizeHandle.setPointerCapture = () => {
+    throw new Error("pointer is no longer active");
+  };
+  harness.resizeHandle.hasPointerCapture = undefined;
+  harness.resizeHandle.releasePointerCapture = () => {
+    throw new Error("handle was detached");
+  };
+
+  assert.doesNotThrow(() => {
+    harness.resizeHandle.dispatchEvent(pointerEvent("pointerdown", {
+      clientX: 500,
+      pointerId: 22,
+    }));
+    harness.resizeHandle.dispatchEvent(pointerEvent("pointermove", {
+      clientX: 450,
+      pointerId: 22,
+    }));
+    harness.resizeHandle.dispatchEvent(pointerEvent("pointerup", {
+      clientX: 450,
+      pointerId: 22,
+    }));
+  });
+
+  assert.equal(harness.root.style.width, "410px");
+  assert.equal(harness.root.classList.contains("is-resizing"), false);
+  assert.equal(harness.controller.getSnapshot().resizePointerId, null);
+  assert.deepEqual(harness.saves, [{ compactPlayerWidth: 410 }]);
+});
+
 test("double-click fits compact width to rendered track text in both directions", async () => {
   const harness = await createHarness({
     rootRect: { height: 36, left: 500, top: 400, width: 360 },
@@ -1198,6 +1578,14 @@ test("content delegates layout ownership and disconnects before tearing down the
 
   assert.match(source, /createPlayerLayoutController\(\{/);
   assert.match(source, /playerLayout\.hydrate\(state\.settings\)/);
+  assert.match(
+    source,
+    /getVideoTitleLineRects: \(\) => youtubeDom\.getVideoTitleLineRects\([\s\S]*?state\.session\?\.videoId \|\| ""[\s\S]*?\)/
+  );
+  assert.match(
+    source,
+    /state\.session = session;[\s\S]*?playerLayout\.beginVideoSession\(session\.generation\)/
+  );
   assert.match(
     source,
     /playerLayout\.connect\(\{[\s\S]*?dragHandle: elements\.dragHandle,[\s\S]*?resizeHandle: elements\.resizeHandle,[\s\S]*?root: elements\.root,[\s\S]*?trackElement: elements\.trackEl/

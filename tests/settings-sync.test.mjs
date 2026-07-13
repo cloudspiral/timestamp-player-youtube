@@ -5,6 +5,7 @@ import vm from "node:vm";
 
 const DEFAULT_SETTINGS = Object.freeze({
   autoShowCompact: false,
+  avoidVideoTitleOverlap: true,
   progressColor: "red",
   progressTimeMode: "duration",
 });
@@ -95,6 +96,7 @@ test("merges post-load changes against current settings and ignores unknown keys
   harness.loadCallbacks[0]({ ...DEFAULT_SETTINGS, autoShowCompact: true });
 
   harness.dispatch({
+    avoidVideoTitleOverlap: { newValue: false },
     progressTimeMode: { newValue: "remaining" },
     privateSetting: { newValue: "ignored" },
   });
@@ -102,6 +104,7 @@ test("merges post-load changes against current settings and ignores unknown keys
   assert.deepEqual(plain(harness.getSettings()), {
     ...DEFAULT_SETTINGS,
     autoShowCompact: true,
+    avoidVideoTitleOverlap: false,
     progressTimeMode: "remaining",
   });
 });

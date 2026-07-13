@@ -5,6 +5,7 @@
   });
   const DEFAULT_SETTINGS = {
     autoShowCompact: false,
+    avoidVideoTitleOverlap: true,
     compactProgressColor: "red",
     compactProgressCustomColor: "#ff0033",
     compactProgressStyle: "subtle",
@@ -131,6 +132,9 @@
     const normalized = { ...DEFAULT_SETTINGS };
 
     normalized.autoShowCompact = settings.autoShowCompact === true;
+    if (typeof settings.avoidVideoTitleOverlap === "boolean") {
+      normalized.avoidVideoTitleOverlap = settings.avoidVideoTitleOverlap;
+    }
 
     if (Object.hasOwn(COMPACT_PROGRESS_STYLES, settings.compactProgressStyle)) {
       normalized.compactProgressStyle = settings.compactProgressStyle;
