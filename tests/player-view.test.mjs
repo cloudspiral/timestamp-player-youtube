@@ -1013,9 +1013,9 @@ test("inline compact CSS preserves the historical low-profile presentation", asy
   );
   assert.match(
     css,
-    /#timestamp-player-root\.is-inline-compact \.ts-resize-handle::before \{[^}]*opacity: 0;/
+    /#timestamp-player-root\.is-inline-compact \.ts-resize-handle::before \{[^}]*display: none;/
   );
-  assert.match(
+  assert.doesNotMatch(
     css,
     /#timestamp-player-root\.is-inline-compact \.ts-resize-handle:hover::before,[^}]*opacity: 1;/
   );

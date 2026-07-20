@@ -18,7 +18,6 @@ const COMPACT_PLAYER_MAX_FITTED_WIDTH_PX = 512;
 const COMPACT_ANCHOR_GAP_PX = 6;
 const COMPACT_TITLE_GAP_PX = 12;
 const COMPACT_LAYOUT_TOLERANCE_PX = 1.5;
-const COMPACT_GUTTER_MAX_OPACITY = 0.01;
 const COMPACT_TITLE_MIN_OPACITY = 0.99;
 const COMPACT_CONTROL_MIN_SIZE_PX = 24;
 const COMPACT_CONTROL_MAX_SIZE_PX = 48;
@@ -351,7 +350,7 @@ export function createFixtureHtml(scenario) {
           position: getComputedStyle(root).position,
           resizeHandleAriaHidden: resizeHandle.getAttribute("aria-hidden"),
           resizeHandleTabIndex: resizeHandle.tabIndex,
-          resizeGutterOpacity: Number.parseFloat(resizeGutterStyle.opacity),
+          resizeGutterDisplay: resizeGutterStyle.display,
           resizeKeysPreservedWidth,
           resizeKeysUnconsumed,
           rootIdentityPreserved: originalRoot === document.getElementById("timestamp-player-root"),
@@ -722,11 +721,7 @@ export function validateSmokeResult(result, scenario) {
       COMPACT_CONTROL_MIN_SIZE_PX,
       COMPACT_CONTROL_MAX_SIZE_PX
     )
-    || !isFiniteBetween(
-      compactLayout?.resizeGutterOpacity,
-      0,
-      COMPACT_GUTTER_MAX_OPACITY
-    )
+    || compactLayout?.resizeGutterDisplay !== "none"
     || !isFiniteBetween(compactLayout?.titleOpacity, COMPACT_TITLE_MIN_OPACITY, 1)
     || resultUrl?.protocol !== "https:"
     || resultUrl?.hostname !== scenario.hostname

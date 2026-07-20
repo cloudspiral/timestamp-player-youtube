@@ -47,9 +47,11 @@ The browser smoke is intentionally separate from the fast `npm run check`
 suite. It requires Chrome or Chromium and OpenSSL; set `CHROME_BIN` when the
 browser executable is outside the standard macOS, Linux, or Windows locations.
 The test maps both `www.youtube.com` and `music.youtube.com` to ephemeral local
-HTTPS fixtures. Each scenario starts in a fresh browser on a non-watch page,
-navigates with `history.pushState`, then hydrates the description and action row
-after separate multi-second delays. It passes only if the packaged extension
+HTTPS fixtures. Each scenario starts in a fresh browser and follows a
+post-registration redirect so Chrome cannot outrun content-script installation.
+It then enters the watch route with `history.pushState` and hydrates the
+description and action row after separate multi-second delays. It passes only
+if the packaged extension
 recognizes that origin's synthetic player/description/action markup, renders the
 three expected tracks, and inserts the Tracklist launcher in the action row
 without a reload. The same run switches into compact mode and verifies real

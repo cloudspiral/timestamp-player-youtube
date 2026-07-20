@@ -12,6 +12,8 @@ import {
   validateSmokeResult,
 } from "./chrome-smoke-scenarios.mjs";
 
+export const SMOKE_EXTENSION_READY_PATH = "/__timestamp_player_extension_ready";
+
 export function createTestCertificate(directory, { hostnames }) {
   const certificatePath = path.join(directory, "fixture-certificate.pem");
   const privateKeyPath = path.join(directory, "fixture-private-key.pem");
@@ -121,16 +123,25 @@ export async function startFixtureServer({ certificatePath, privateKeyPath }, sc
       return;
     }
 
-    if (request.method !== "GET" || request.url !== "/") {
+    if (request.method === "GET" && request.url === "/") {
+      await documentReleased;
+      response.writeHead(302, {
+        "cache-control": "no-store",
+        location: SMOKE_EXTENSION_READY_PATH,
+      });
+      response.end();
+      return;
+    }
+
+    if (request.method !== "GET" || request.url !== SMOKE_EXTENSION_READY_PATH) {
       response.writeHead(404, {
         "cache-control": "no-store",
         "content-type": "text/plain; charset=utf-8",
       });
-      response.end("The smoke fixture permits only its initial non-watch document.");
+      response.end("The smoke fixture permits only its extension-ready non-watch document.");
       return;
     }
 
-    await documentReleased;
     response.writeHead(200, {
       "cache-control": "no-store",
       "content-type": "text/html; charset=utf-8",

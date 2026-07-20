@@ -11,11 +11,13 @@ import {
 } from "../scripts/chrome-smoke-scenarios.mjs";
 import { createBrowserRunnerArgs } from "../scripts/chrome-smoke-browser.mjs";
 import {
+  SMOKE_EXTENSION_READY_PATH,
   createCertificateArgs,
   getRequestHostname,
 } from "../scripts/chrome-smoke-fixture-server.mjs";
 
 test("Chrome smoke scenarios cover distinct Watch and Music cold-route structures", () => {
+  assert.equal(SMOKE_EXTENSION_READY_PATH, "/__timestamp_player_extension_ready");
   assert.deepEqual(
     SMOKE_SCENARIOS.map(({ hostname, kind }) => ({ hostname, kind })),
     [
@@ -109,7 +111,7 @@ test("smoke result validation binds every proof to its exact scenario", () => {
         position: "absolute",
         resizeHandleAriaHidden: "true",
         resizeHandleTabIndex: -1,
-        resizeGutterOpacity: 0,
+        resizeGutterDisplay: "none",
         resizeKeysPreservedWidth: true,
         resizeKeysUnconsumed: true,
         rootIdentityPreserved: true,
@@ -209,7 +211,7 @@ test("smoke result validation binds every proof to its exact scenario", () => {
       withCompactLayout({ compactToggleHeight: 23 }),
       withCompactLayout({ compactToggleWidth: 23 }),
       withCompactLayout({ seekHitHeight: 23 }),
-      withCompactLayout({ resizeGutterOpacity: 0.1 }),
+      withCompactLayout({ resizeGutterDisplay: "block" }),
       withCompactLayout({ titleOpacity: 0.45 }),
     ]) {
       assert.throws(
