@@ -11,7 +11,7 @@ prefix_rule(
 # GitHub origin before committing or pushing, and disables Git hooks.
 prefix_rule(
     pattern = [
-        "/Users/matt/Library/Application Support/Symphony/bin/timestamp-player-git-handoff",
+        "/Users/matt/bin/timestamp-player-git-handoff",
         "commit",
     ],
     decision = "allow",
@@ -19,7 +19,7 @@ prefix_rule(
 
 prefix_rule(
     pattern = [
-        "/Users/matt/Library/Application Support/Symphony/bin/timestamp-player-git-handoff",
+        "/Users/matt/bin/timestamp-player-git-handoff",
         "push",
     ],
     decision = "allow",
