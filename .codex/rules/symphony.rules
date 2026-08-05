@@ -5,3 +5,22 @@ prefix_rule(
     pattern = ["npm", "run", "smoke:chrome"],
     decision = "allow",
 )
+
+# Git metadata and remote refs are outside the workspace sandbox. This
+# host-managed helper validates the exact GH-number worktree, issue branch, and
+# GitHub origin before committing or pushing, and disables Git hooks.
+prefix_rule(
+    pattern = [
+        "/Users/matt/Library/Application Support/Symphony/bin/timestamp-player-git-handoff",
+        "commit",
+    ],
+    decision = "allow",
+)
+
+prefix_rule(
+    pattern = [
+        "/Users/matt/Library/Application Support/Symphony/bin/timestamp-player-git-handoff",
+        "push",
+    ],
+    decision = "allow",
+)

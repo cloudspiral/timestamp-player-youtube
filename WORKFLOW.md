@@ -86,8 +86,8 @@ Maintain exactly one issue comment whose first line is `## Symphony Workpad`.
 4. Implement the smallest complete solution and add focused regression coverage.
 5. Run the most relevant targeted tests while iterating, then run the gates required by `AGENTS.md`. Record exact commands and outcomes in the workpad.
 6. Review `git diff`, `git diff --check`, and `git status`. Stage only in-scope files.
-7. Create one or more comprehensive commits describing all material changes, rationale, and validation.
-8. Push the existing `symphony/gh-{{ issue.native_ref.number }}` branch with upstream tracking.
+7. Stage only in-scope files, then create a comprehensive commit by calling `/Users/matt/Library/Application Support/Symphony/bin/timestamp-player-git-handoff commit "<message>"`. Pass exactly one message argument describing all material changes, rationale, and validation; do not invoke `git commit` directly.
+8. Publish only the validated current issue branch by calling `/Users/matt/Library/Application Support/Symphony/bin/timestamp-player-git-handoff push` with no other arguments; do not invoke `git push` directly.
 9. Open a pull request against `master` using `POST /repos/cloudspiral/timestamp-player-youtube/pulls`. Include a clear summary, exact validation, limitations, and `Closes #{{ issue.native_ref.number }}` in the body. If a pull request already exists for the branch, update and reuse it.
 10. Inspect GitHub Actions until required checks complete. If a check fails, investigate the logs, fix the issue, push, and recheck within the turn budget.
 11. Put the pull-request URL and final check state in the workpad.
