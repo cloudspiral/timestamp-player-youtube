@@ -1,0 +1,7 @@
+# The packaged Chrome smoke test launches an isolated local browser, which
+# requires permissions beyond the workspace sandbox. Keep this exception
+# limited to the exact audited npm script used by this repository.
+prefix_rule(
+    pattern = ["npm", "run", "smoke:chrome"],
+    decision = "allow",
+)
