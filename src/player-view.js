@@ -182,6 +182,7 @@
     }
 
     function bindStableEvents() {
+      addListener(elements.root, "mousedown", preventCompactButtonMouseFocus);
       addListener(elements.root, "keydown", handlers.onPlayerKeyDown);
       addListener(elements.compactButton, "click", handlers.onCompactToggle);
       addListener(elements.popoutButton, "click", handlers.onPanelModeToggle);
@@ -193,6 +194,8 @@
       addListener(elements.repeatButton, "click", handlers.onRepeatToggle);
       addListener(elements.nextButton, "click", handlers.onNextTrack);
       addListener(elements.progressSlider, "input", handlers.onProgressInput);
+      addListener(elements.progressSlider, "pointerup", releaseCompactProgressPointerFocus);
+      addListener(elements.progressSlider, "pointercancel", releaseCompactProgressPointerFocus);
       addListener(elements.progressRemainingEl, "click", handlers.onProgressTimeModeToggle);
       addListener(elements.listEl, "click", handlers.onTrackListClick);
     }
@@ -203,6 +206,28 @@
       }
       target.addEventListener(type, listener);
       listenerCleanups.push(() => target.removeEventListener(type, listener));
+    }
+
+    function preventCompactButtonMouseFocus(event) {
+      if (event.button !== 0 || !elements.root.classList.contains("is-inline-compact")) {
+        return;
+      }
+
+      const button = event.target.closest?.("button");
+      if (!button || !elements.root.contains(button)) {
+        return;
+      }
+
+      event.preventDefault();
+    }
+
+    function releaseCompactProgressPointerFocus() {
+      if (
+        elements.root.classList.contains("is-inline-compact")
+        && documentObject.activeElement === elements.progressSlider
+      ) {
+        elements.progressSlider.blur();
+      }
     }
 
     function render({

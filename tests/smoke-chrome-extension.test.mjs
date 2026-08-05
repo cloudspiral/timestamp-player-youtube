@@ -46,6 +46,8 @@ test("Chrome smoke scenarios cover distinct Watch and Music cold-route structure
     assert.match(html, /compactButton\.click\(\)/);
     assert.match(html, /getComputedStyle\(resizeHandle, "::before"\)/);
     assert.match(html, /new PointerEvent\("pointermove"/);
+    assert.match(html, /compactControlMouseFocusPrevented/);
+    assert.match(html, /compactSeekPointerFocusReleased/);
     assert.match(html, /new MouseEvent\("dblclick"/);
     assert.match(html, /resizeKeysUnconsumed/);
     assert.match(html, /automaticTitleGap/);
@@ -94,6 +96,8 @@ test("smoke result validation binds every proof to its exact scenario", () => {
         automaticTitleGap: 12,
         automaticWidth: 335,
         clearsVideoBeforeScroll: true,
+        compactControlMouseFocusPrevented: true,
+        compactSeekPointerFocusReleased: true,
         compactToggleHeight: 24,
         compactToggleWidth: 24,
         extremeTitleOverlap: 390,
@@ -195,6 +199,8 @@ test("smoke result validation binds every proof to its exact scenario", () => {
       withCompactLayout({ stickyCollisionWidthBeforeScroll: 340 }),
       withCompactLayout({ stickyCollisionWidthAfterScroll: 340 }),
       withCompactLayout({ pointerResizeAvoidedFocus: false }),
+      withCompactLayout({ compactControlMouseFocusPrevented: false }),
+      withCompactLayout({ compactSeekPointerFocusReleased: false }),
       withCompactLayout({ resizeHandleAriaHidden: null }),
       withCompactLayout({ resizeHandleTabIndex: 0 }),
       withCompactLayout({ resizeKeysPreservedWidth: false }),

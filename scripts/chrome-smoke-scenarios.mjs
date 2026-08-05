@@ -215,11 +215,19 @@ export function createFixtureHtml(scenario) {
         }
 
         const actionAnchor = actionRow.closest("#actions") || actionRow;
+        const playPauseButton = root.querySelector(".ts-play-pause");
         const progressSlider = root.querySelector(".ts-progress-slider");
         const resizeHandle = root.querySelector(".ts-resize-handle");
         const trackTitle = root.querySelector(".ts-track");
         const videoTitle = document.getElementById("smoke-video-title");
-        if (!actionAnchor || !progressSlider || !resizeHandle || !trackTitle || !videoTitle) {
+        if (
+          !actionAnchor
+          || !playPauseButton
+          || !progressSlider
+          || !resizeHandle
+          || !trackTitle
+          || !videoTitle
+        ) {
           throw new Error("Compact layout probe could not find its anchor, titles, or compact controls");
         }
 
@@ -250,6 +258,25 @@ export function createFixtureHtml(scenario) {
         });
         const resizeKeysPreservedWidth = widthBeforeResizeKeys
           === roundMetric(root.getBoundingClientRect().width);
+        const compactControlMouseDown = new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          cancelable: true
+        });
+        const compactControlMouseFocusPrevented = !playPauseButton.dispatchEvent(
+          compactControlMouseDown
+        );
+        progressSlider.focus({ preventScroll: true });
+        const compactSeekFocusedBeforePointerEnd = document.activeElement === progressSlider;
+        progressSlider.dispatchEvent(new PointerEvent("pointerup", {
+          bubbles: true,
+          button: 0,
+          buttons: 0,
+          pointerId: 16,
+          pointerType: "mouse"
+        }));
+        const compactSeekPointerFocusReleased = compactSeekFocusedBeforePointerEnd
+          && document.activeElement !== progressSlider;
 
         videoTitle.textContent = ${JSON.stringify(MODERATE_VIDEO_TITLE)};
         await waitForAnimationFrames(3);
@@ -333,6 +360,8 @@ export function createFixtureHtml(scenario) {
           automaticTitleGap: roundMetric(before.playerLeft - automaticTitleRect.right),
           automaticWidth: before.playerWidth,
           clearsVideoBeforeScroll: before.playerTop >= roundMetric(videoRect.bottom),
+          compactControlMouseFocusPrevented,
+          compactSeekPointerFocusReleased,
           compactToggleHeight: roundMetric(compactButtonRect.height),
           compactToggleWidth: roundMetric(compactButtonRect.width),
           extremeTitleOverlap: roundMetric(extremeTitleRect.right - extreme.playerLeft),
@@ -666,6 +695,8 @@ export function validateSmokeResult(result, scenario) {
       COMPACT_LAYOUT_TOLERANCE_PX
     )
     || compactLayout?.pointerResizeAvoidedFocus !== true
+    || compactLayout?.compactControlMouseFocusPrevented !== true
+    || compactLayout?.compactSeekPointerFocusReleased !== true
     || compactLayout?.resizeHandleAriaHidden !== "true"
     || compactLayout?.resizeHandleTabIndex !== -1
     || compactLayout?.resizeKeysPreservedWidth !== true

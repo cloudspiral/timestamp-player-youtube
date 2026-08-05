@@ -118,6 +118,7 @@ class FakeElement extends FakeEventTarget {
     this.parentElement = null;
     this.children = [];
     this.attributes = new Map();
+    this.blurCalls = 0;
     this.classList = new FakeClassList();
     this.style = new FakeStyle();
     this.disabled = false;
@@ -185,6 +186,13 @@ class FakeElement extends FakeEventTarget {
       child.remove();
       child.parentElement = this;
       this.children.push(child);
+    }
+  }
+
+  blur() {
+    this.blurCalls += 1;
+    if (this.documentObject.activeElement === this) {
+      this.documentObject.activeElement = null;
     }
   }
 
@@ -427,7 +435,7 @@ test("ensure constructs and binds one stable player shell", async () => {
   assert.equal(first.resizeHandle.listenerCount("pointerdown"), 0);
 });
 
-test("native controls delegate callbacks without suppressing mouse focus", async () => {
+test("native controls delegate callbacks through stable player-owned listeners", async () => {
   const called = [];
   const handlerNames = [
     "onPlayerKeyDown",
@@ -469,11 +477,101 @@ test("native controls delegate callbacks without suppressing mouse focus", async
     assert.equal(called.at(-1), expected);
   }
   assert.deepEqual(called, handlerNames);
+  assert.equal(elements.root.listenerCount("mousedown"), 1);
+  assert.equal(elements.progressSlider.listenerCount("pointerup"), 1);
+  assert.equal(elements.progressSlider.listenerCount("pointercancel"), 1);
+});
 
-  const primaryMouseDown = event("mousedown", { target: elements.playPauseButton });
+test("compact pointer controls avoid focus without changing click or keyboard activation", async () => {
+  let playPauseCalls = 0;
+  const harness = await createHarness({
+    handlers: {
+      onPlayPause: () => {
+        playPauseCalls += 1;
+      },
+    },
+  });
+  const elements = harness.controller.render({
+    anchored: true,
+    anchoredCompact: true,
+    controlsEnabled: true,
+    inlineCompact: true,
+    tracks: [{ index: 0, start: 0, title: "Opening" }],
+    tracksAvailable: true,
+    visible: true,
+  });
+  const icon = harness.documentObject.createElement("svg");
+  elements.playPauseButton.append(icon);
+
+  const primaryMouseDown = event("mousedown", { target: icon });
   elements.root.dispatchEvent(primaryMouseDown);
-  assert.equal(primaryMouseDown.defaultPrevented, false);
-  assert.equal(elements.root.listenerCount("mousedown"), 0);
+  assert.equal(primaryMouseDown.defaultPrevented, true);
+  elements.playPauseButton.dispatchEvent(event("click"));
+  assert.equal(playPauseCalls, 1, "preventing mouse focus must not suppress the click action");
+
+  const secondaryMouseDown = event("mousedown", {
+    button: 2,
+    target: elements.playPauseButton,
+  });
+  elements.root.dispatchEvent(secondaryMouseDown);
+  assert.equal(secondaryMouseDown.defaultPrevented, false);
+
+  elements.playPauseButton.focus();
+  elements.playPauseButton.dispatchEvent(event("click"));
+  assert.equal(harness.documentObject.activeElement, elements.playPauseButton);
+  assert.equal(playPauseCalls, 2, "keyboard-style activation remains focusable and actionable");
+});
+
+test("compact seeking releases pointer focus while preserving input and expanded focus", async () => {
+  let progressInputs = 0;
+  const harness = await createHarness({
+    handlers: {
+      onProgressInput: () => {
+        progressInputs += 1;
+      },
+    },
+  });
+  const elements = harness.controller.render({
+    anchored: true,
+    anchoredCompact: true,
+    controlsEnabled: true,
+    inlineCompact: true,
+    tracks: [{ index: 0, start: 0, title: "Opening" }],
+    tracksAvailable: true,
+    visible: true,
+  });
+
+  const sliderMouseDown = event("mousedown", { target: elements.progressSlider });
+  elements.root.dispatchEvent(sliderMouseDown);
+  assert.equal(sliderMouseDown.defaultPrevented, false, "native range seeking keeps its pointer default");
+  elements.progressSlider.focus();
+  elements.progressSlider.dispatchEvent(event("input"));
+  elements.progressSlider.dispatchEvent(event("pointerup"));
+  assert.equal(progressInputs, 1);
+  assert.equal(elements.progressSlider.blurCalls, 1);
+  assert.equal(harness.documentObject.activeElement, null);
+
+  elements.progressSlider.focus();
+  elements.progressSlider.dispatchEvent(event("pointercancel"));
+  assert.equal(elements.progressSlider.blurCalls, 2);
+  assert.equal(harness.documentObject.activeElement, null);
+
+  harness.controller.render({
+    anchored: true,
+    anchoredCompact: false,
+    controlsEnabled: true,
+    inlineCompact: false,
+    tracks: [{ index: 0, start: 0, title: "Opening" }],
+    tracksAvailable: true,
+    visible: true,
+  });
+  const expandedMouseDown = event("mousedown", { target: elements.playPauseButton });
+  elements.root.dispatchEvent(expandedMouseDown);
+  assert.equal(expandedMouseDown.defaultPrevented, false);
+  elements.progressSlider.focus();
+  elements.progressSlider.dispatchEvent(event("pointerup"));
+  assert.equal(elements.progressSlider.blurCalls, 2);
+  assert.equal(harness.documentObject.activeElement, elements.progressSlider);
 });
 
 test("render reflects classes, controls, current-track text, and keyed-list state", async () => {
@@ -862,10 +960,16 @@ test("keyed-list delegation and teardown keep renderer and listeners owned", asy
 
   elements.closeButton.dispatchEvent(event("click"));
   assert.equal(closes, 1);
+  assert.equal(elements.root.listenerCount("mousedown"), 1);
+  assert.equal(elements.progressSlider.listenerCount("pointerup"), 1);
+  assert.equal(elements.progressSlider.listenerCount("pointercancel"), 1);
   harness.controller.teardown();
   assert.equal(harness.rendererRecords[0].clearCalls, 1);
   assert.equal(elements.root.isConnected, false);
   assert.equal(harness.controller.getElements(), null);
+  assert.equal(elements.root.listenerCount("mousedown"), 0);
+  assert.equal(elements.progressSlider.listenerCount("pointerup"), 0);
+  assert.equal(elements.progressSlider.listenerCount("pointercancel"), 0);
   elements.closeButton.dispatchEvent(event("click"));
   assert.equal(closes, 1, "detached controls must not retain controller callbacks");
 
