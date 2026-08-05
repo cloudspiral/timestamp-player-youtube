@@ -28,11 +28,9 @@ agent:
 codex:
   command: >-
     "/Applications/ChatGPT.app/Contents/Resources/codex" --config shell_environment_policy.inherit=all app-server
-  approval_policy:
-    reject:
-      sandbox_approval: true
-      rules: true
-      mcp_elicitations: true
+  # The installed Codex app-server supports this interactive-safe policy.
+  # Any elevation request blocks for operator review instead of auto-approving.
+  approval_policy: on-request
   thread_sandbox: workspace-write
   turn_sandbox_policy:
     type: workspaceWrite
