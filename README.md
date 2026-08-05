@@ -58,8 +58,10 @@ Run checks:
 npm run check
 ```
 
-See [`TESTING.md`](TESTING.md) for the automated test layers, targeted commands,
-fixture conventions, and manual release checklist.
+Use [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) for the maintainer-facing
+clean-checkout-to-artifacts release process and evidence record. See
+[`TESTING.md`](TESTING.md) for automated test layers, targeted commands, and
+fixture conventions.
 
 Lint the Firefox package:
 
@@ -91,7 +93,10 @@ Build Chrome and Firefox upload packages:
 npm run build
 ```
 
-The final upload zips are written to `web-ext-artifacts/`. Package sources are generated in `dist/`, which is ignored and can be recreated at any time.
+The final upload zips are written to `web-ext-artifacts/`. Package sources are
+generated in `dist/`, which is ignored and can be recreated at any time. Before
+uploading, complete the artifact, checksum, and human handoff sections in the
+[`release checklist`](RELEASE_CHECKLIST.md).
 
 ## Test Videos
 

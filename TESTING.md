@@ -98,6 +98,11 @@ private data, or other captured personal information; use synthetic values.
 
 ## Manual release checks
 
+Use [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) to record the complete
+automated and manual evidence against the final Chrome and Firefox artifacts.
+This section defines the minimum real-browser coverage; the standalone
+checklist organizes it without duplicating the test catalog.
+
 Automated fixtures complement rather than replace the real-world catalog in
 `TEST_VIDEOS.md`. Before a release, exercise at least:
 
