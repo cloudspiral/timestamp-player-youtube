@@ -16,7 +16,7 @@
         </div>
       </header>
 
-      <form id="settings-form" class="settings-form">
+      <form id="settings-form" class="settings-form" aria-busy="true" inert>
         <section class="settings-section" aria-labelledby="behavior-heading">
           <div class="section-heading">
             <h2 id="behavior-heading">Behavior</h2>
@@ -28,6 +28,14 @@
               <small>Automatically start in compact player mode when timestamps are found.</small>
             </span>
             <input id="auto-show-compact" name="autoShowCompact" type="checkbox">
+          </label>
+
+          <label class="setting-row toggle-row">
+            <span>
+              <strong>Avoid covering video titles</strong>
+              <small>Automatically narrows the inline compact player when the video title needs the space.</small>
+            </span>
+            <input id="avoid-video-title-overlap" name="avoidVideoTitleOverlap" type="checkbox">
           </label>
 
           <fieldset class="setting-group">
@@ -74,7 +82,7 @@
           </fieldset>
         </section>
 
-        <p id="save-status" class="save-status" role="status" aria-live="polite"></p>
+        <p id="save-status" class="save-status" role="status" aria-live="polite" aria-atomic="true"></p>
       </form>
     </main>
 

@@ -1,0 +1,166 @@
+{
+  "onResponseReceivedEndpoints": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": [
+          {
+            "commentThreadRenderer": {
+              "commentViewModel": {
+                "commentViewModel": {
+                  "commentId": "modern-comment",
+                  "commentKey": "entity-modern-comment",
+                  "content": {
+                    "content": "0:00 Intro\n1:00 Middle\n2:00 Finale"
+                  },
+                  "pinnedText": {
+                    "content": "Pinned by Fixture Channel"
+                  },
+                  "toolbar": {
+                    "commentToolbarViewModel": {
+                      "likeCount": "6",
+                      "replyCount": "606"
+                    }
+                  }
+                }
+              }
+            },
+            "frameworkUpdates": {
+              "entityBatchUpdate": {
+                "mutations": [
+                  {
+                    "entityKey": "entity-modern-comment",
+                    "payload": {
+                      "commentEntityPayload": {
+                        "properties": {
+                          "commentId": "modern-comment",
+                          "content": {
+                            "content": "0:00 Intro\n1:00 Middle\n2:00 Finale\n3:00 Bonus"
+                          }
+                        },
+                        "author": {
+                          "displayName": "Modern Author",
+                          "channelId": "UC-modern-author",
+                          "isCreator": true
+                        },
+                        "toolbar": {
+                          "likeCountNotliked": "25",
+                          "replyCount": "999"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "commentThreadRenderer": {
+              "comment": {
+                "commentRenderer": {
+                  "commentId": "same-text-b",
+                  "contentText": {
+                    "simpleText": "The same body from the same author"
+                  },
+                  "authorText": {
+                    "simpleText": "Repeated Author"
+                  },
+                  "voteCount": {
+                    "simpleText": "2"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "commentThreadRenderer": {
+              "comment": {
+                "commentRenderer": {
+                  "contentText": {
+                    "simpleText": "An identifier-free legacy comment"
+                  },
+                  "authorText": {
+                    "simpleText": "Legacy Author"
+                  },
+                  "voteCount": {
+                    "simpleText": "9"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "commentThreadRenderer": {
+              "comment": {
+                "commentRenderer": {
+                  "commentId": "structural-renderer-comment",
+                  "contentText": {
+                    "simpleText": "0:00 Start\n1:00 Continue\n2:00 End"
+                  },
+                  "authorText": {
+                    "simpleText": "Fixture Channel"
+                  },
+                  "authorEndpoint": {
+                    "browseEndpoint": {
+                      "browseId": "UC-fixture-channel"
+                    }
+                  },
+                  "pinnedCommentBadge": {
+                    "pinnedCommentBadgeRenderer": {}
+                  },
+                  "authorIsChannelOwner": true,
+                  "voteCount": {
+                    "simpleText": "1.2K"
+                  },
+                  "accessibility": {
+                    "label": "15 replies"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "commentThreadRenderer": {
+              "commentViewModel": {
+                "commentViewModel": {
+                  "commentKey": "entity-key-only-pinned-comment",
+                  "pinnedText": {
+                    "content": "Pinned by Fixture Channel"
+                  }
+                }
+              }
+            },
+            "frameworkUpdates": {
+              "entityBatchUpdate": {
+                "mutations": [
+                  {
+                    "entityKey": "entity-key-only-pinned-comment",
+                    "payload": {
+                      "commentEntityPayload": {
+                        "properties": {
+                          "commentId": "key-only-pinned-comment",
+                          "content": {
+                            "content": "0:00 Keyed\n1:00 Entity\n2:00 Comment"
+                          }
+                        },
+                        "author": {
+                          "displayName": "Entity Author",
+                          "channelId": "UC-entity-author",
+                          "isCreator": false
+                        },
+                        "toolbar": {
+                          "likeCountLiked": "8",
+                          "likeCountNotliked": "7",
+                          "replyCount": "800"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,6 +1,11 @@
 (() => {
+  const PROGRESS_TIME_MODE_VALUES = Object.freeze({
+    DURATION: "duration",
+    REMAINING: "remaining",
+  });
   const DEFAULT_SETTINGS = {
     autoShowCompact: false,
+    avoidVideoTitleOverlap: true,
     compactProgressColor: "red",
     compactProgressCustomColor: "#ff0033",
     compactProgressStyle: "subtle",
@@ -8,7 +13,7 @@
     floatingPlayerSize: null,
     progressColor: "red",
     progressCustomColor: "#ff0033",
-    progressTimeMode: "duration",
+    progressTimeMode: PROGRESS_TIME_MODE_VALUES.DURATION,
     anchoredPlayerSize: null,
     compactPlayerWidth: null,
     trackHighlightColor: "purple",
@@ -27,14 +32,14 @@
     },
   };
 
-  const PROGRESS_TIME_MODES = {
-    duration: {
+  const PROGRESS_TIME_MODES = Object.freeze({
+    [PROGRESS_TIME_MODE_VALUES.DURATION]: Object.freeze({
       label: "Track duration",
-    },
-    remaining: {
+    }),
+    [PROGRESS_TIME_MODE_VALUES.REMAINING]: Object.freeze({
       label: "Time remaining",
-    },
-  };
+    }),
+  });
 
   const COMPACT_PROGRESS_COLORS = {
     red: {
@@ -127,6 +132,9 @@
     const normalized = { ...DEFAULT_SETTINGS };
 
     normalized.autoShowCompact = settings.autoShowCompact === true;
+    if (typeof settings.avoidVideoTitleOverlap === "boolean") {
+      normalized.avoidVideoTitleOverlap = settings.avoidVideoTitleOverlap;
+    }
 
     if (Object.hasOwn(COMPACT_PROGRESS_STYLES, settings.compactProgressStyle)) {
       normalized.compactProgressStyle = settings.compactProgressStyle;
@@ -298,6 +306,7 @@
     COMPACT_PROGRESS_COLORS,
     COMPACT_PROGRESS_STYLES,
     DEFAULT_SETTINGS,
+    PROGRESS_TIME_MODE_VALUES,
     PROGRESS_TIME_MODES,
     TRACK_HIGHLIGHT_COLORS,
     loadSettings,

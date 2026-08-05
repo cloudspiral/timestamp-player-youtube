@@ -1,0 +1,36 @@
+{
+  "config": {
+    "INNERTUBE_API_KEY": "fixture-api-key",
+    "INNERTUBE_CONTEXT": {
+      "client": {
+        "clientName": "WEB",
+        "clientVersion": "1.20260710.00.00"
+      }
+    },
+    "INNERTUBE_CONTEXT_CLIENT_NAME": 1,
+    "INNERTUBE_CONTEXT_CLIENT_VERSION": "1.20260710.00.00"
+  },
+  "initialData": {
+    "currentVideoEndpoint": {
+      "watchEndpoint": {
+        "videoId": "fixture-video"
+      }
+    },
+    "contents": {
+      "commentsSection": {
+        "continuationItemRenderer": {
+          "continuationEndpoint": {
+            "commandMetadata": {
+              "webCommandMetadata": {
+                "apiUrl": "/youtubei/v1/next"
+              }
+            },
+            "continuationCommand": {
+              "token": "comments-batch-1"
+            }
+          }
+        }
+      }
+    }
+  }
+}

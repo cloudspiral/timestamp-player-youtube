@@ -1,0 +1,108 @@
+{
+  "onResponseReceivedEndpoints": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": [
+          {
+            "commentThreadRenderer": {
+              "commentViewModel": {
+                "commentViewModel": {
+                  "commentId": "fragment-comment",
+                  "commentKey": "entity-fragment-comment",
+                  "content": {
+                    "content": "0:00 Opening\n1:20 Details"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "commentThreadRenderer": {
+              "comment": {
+                "commentRenderer": {
+                  "contentText": {
+                    "simpleText": "0:10 Same body"
+                  },
+                  "authorText": {
+                    "simpleText": "Lookalike Author"
+                  },
+                  "authorEndpoint": {
+                    "browseEndpoint": {
+                      "browseId": "UC-lookalike-author"
+                    }
+                  },
+                  "voteCount": {
+                    "simpleText": "1"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "commentThreadRenderer": {
+              "comment": {
+                "commentRenderer": {
+                  "contentText": {
+                    "simpleText": "0:10 Same body"
+                  },
+                  "authorText": {
+                    "simpleText": "Lookalike Author"
+                  },
+                  "authorEndpoint": {
+                    "browseEndpoint": {
+                      "browseId": "UC-lookalike-author"
+                    }
+                  },
+                  "voteCount": {
+                    "simpleText": "9"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "frameworkUpdates": {
+    "entityBatchUpdate": {
+      "mutations": [
+        {
+          "entityKey": "entity-fragment-comment",
+          "payload": {
+            "commentEntityPayload": {
+              "properties": {
+                "commentId": "fragment-comment"
+              },
+              "author": {
+                "displayName": "Fixture Uploader",
+                "channelId": "UC-fixture-uploader",
+                "isCreator": true
+              },
+              "toolbar": {
+                "likeCountNotliked": "37"
+              }
+            }
+          }
+        },
+        {
+          "entityKey": "entity-orphan-metadata",
+          "payload": {
+            "commentEntityPayload": {
+              "properties": {
+                "commentId": "orphan-textless-comment"
+              },
+              "author": {
+                "displayName": "Orphan Metadata",
+                "isCreator": true
+              },
+              "toolbar": {
+                "likeCount": "99"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

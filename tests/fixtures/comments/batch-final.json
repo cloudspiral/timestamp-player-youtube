@@ -1,0 +1,27 @@
+{
+  "onResponseReceivedEndpoints": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": [
+          {
+            "commentThreadRenderer": {
+              "comment": {
+                "commentRenderer": {
+                  "contentText": {
+                    "simpleText": "A second ordinary comment"
+                  },
+                  "authorText": {
+                    "simpleText": "Another Listener"
+                  },
+                  "voteCount": {
+                    "simpleText": "3"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

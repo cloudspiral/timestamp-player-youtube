@@ -1,9 +1,14 @@
 (() => {
-  const SOURCE_TRUST_SCORES = {
-    pinned: 20,
-    uploader: 14,
-    regular: 0,
-  };
+  const COMMENT_SOURCE_TYPES = Object.freeze({
+    PINNED: "pinned",
+    UPLOADER: "uploader",
+    REGULAR: "regular",
+  });
+  const SOURCE_TRUST_SCORES = Object.freeze({
+    [COMMENT_SOURCE_TYPES.PINNED]: 20,
+    [COMMENT_SOURCE_TYPES.UPLOADER]: 14,
+    [COMMENT_SOURCE_TYPES.REGULAR]: 0,
+  });
 
   const START_SCORES = [
     { maximumStart: 30, score: 35 },
@@ -43,15 +48,6 @@
       + TRACK_COUNT_SCORE_PER_TRACK * Math.min(tracks.length, TRACK_COUNT_SCORE_CAP);
   }
 
-  function compareCommentTrackSources(left, right) {
-    const scoreDifference = scoreCommentTrackSource(right) - scoreCommentTrackSource(left);
-    if (scoreDifference !== 0) {
-      return scoreDifference;
-    }
-
-    return left.order - right.order;
-  }
-
   function parseCommentLikeCount(text) {
     const normalized = (text || "")
       .replace(/,/g, "")
@@ -85,7 +81,7 @@
   }
 
   globalThis.TimestampPlayerCommentScoring = {
-    compareCommentTrackSources,
+    COMMENT_SOURCE_TYPES,
     parseCommentLikeCount,
     scoreCommentTrackSource,
   };

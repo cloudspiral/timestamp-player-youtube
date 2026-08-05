@@ -1,5 +1,7 @@
 (() => {
   const TRACKLIST_ANCHOR_SECONDS = 120;
+  const NEAR_DUPLICATE_BOUNDARY_SECONDS = 0.2;
+  const TIMESTAMP_EPSILON_SECONDS = 0.000001;
   const TITLE_LOOKAHEAD_LINE_LIMIT = 4;
   const TIMESTAMP_PATTERN = /\b\d{1,2}:\d{2}(?::\d{2})?\b/g;
   const TRACK_NUMBER_DECORATION_EDGE_PATTERN = /^[\s()[\]{}#"']+|[\s()[\]{}#"'.,:：\-–—]+$/g;
@@ -9,20 +11,56 @@
       return [];
     }
 
-    const bestRun = pickBestIncreasingCandidateRun(getFirstCandidatePerLine(candidates));
+    const validCandidates = candidates
+      .map((candidate) => normalizeCandidateStart(candidate, duration))
+      .filter(Boolean);
+    if (validCandidates.length < minTrackCount) {
+      return [];
+    }
+
+    const bestRun = pickBestIncreasingCandidateRun(getFirstCandidatePerLine(validCandidates));
     if (bestRun.length < minTrackCount) {
       return [];
     }
 
-    return bestRun.map((candidate, index) => {
+    const tracks = bestRun.map((candidate, index) => {
       const next = bestRun[index + 1];
       return {
         index,
         start: candidate.start,
-        end: next ? Math.max(candidate.start, next.start - 0.2) : duration,
+        end: next ? Math.min(duration, next.start) : duration,
         title: candidate.title,
       };
     });
+
+    return tracks.every((track) => isValidTrackInterval(track, duration)) ? tracks : [];
+  }
+
+  function normalizeCandidateStart(candidate, duration) {
+    if (!candidate || !Number.isFinite(candidate.start)) {
+      return null;
+    }
+
+    let start = candidate.start;
+    if (start < 0 && start >= -TIMESTAMP_EPSILON_SECONDS) {
+      start = 0;
+    }
+    if (Object.is(start, -0)) {
+      start = 0;
+    }
+    if (start < 0 || start >= duration - TIMESTAMP_EPSILON_SECONDS) {
+      return null;
+    }
+
+    return Object.is(start, candidate.start) ? candidate : { ...candidate, start };
+  }
+
+  function isValidTrackInterval(track, duration) {
+    return Number.isFinite(track.start)
+      && Number.isFinite(track.end)
+      && track.start >= 0
+      && track.start < track.end
+      && track.end <= duration;
   }
 
   function getFirstCandidatePerLine(candidates) {
@@ -53,10 +91,11 @@
   }
 
   function pickBestIncreasingCandidateRun(candidates) {
+    const boundaryCandidates = coalesceAdjacentNearDuplicateCandidates(candidates);
     const runs = [];
     let currentRun = [];
 
-    for (const candidate of candidates) {
+    for (const candidate of boundaryCandidates) {
       const previous = currentRun[currentRun.length - 1];
       if (!previous || candidate.start > previous.start) {
         currentRun.push(candidate);
@@ -74,11 +113,49 @@
       return anchoredRuns.sort(compareCandidateRuns)[0];
     }
 
-    if (viableRuns.length === 1 && viableRuns[0].length === candidates.length) {
+    if (viableRuns.length === 1 && runs.length === 1) {
       return viableRuns[0];
     }
 
     return [];
+  }
+
+  function coalesceAdjacentNearDuplicateCandidates(candidates) {
+    const coalesced = [];
+    let clusterMaximum = null;
+    let clusterMinimum = null;
+    for (const candidate of candidates) {
+      const previous = coalesced[coalesced.length - 1];
+      const nextClusterMinimum = previous
+        ? Math.min(clusterMinimum, candidate.start)
+        : candidate.start;
+      const nextClusterMaximum = previous
+        ? Math.max(clusterMaximum, candidate.start)
+        : candidate.start;
+      if (
+        previous
+        && nextClusterMaximum - nextClusterMinimum
+          <= NEAR_DUPLICATE_BOUNDARY_SECONDS + TIMESTAMP_EPSILON_SECONDS
+      ) {
+        const earlierCandidate = candidate.start < previous.start ? candidate : previous;
+        const richerTitle = trackTitleQuality(candidate.title) > trackTitleQuality(previous.title)
+          ? candidate.title
+          : previous.title;
+        coalesced[coalesced.length - 1] = {
+          ...earlierCandidate,
+          sourceOrder: Math.min(previous.sourceOrder, candidate.sourceOrder),
+          title: richerTitle,
+        };
+        clusterMinimum = nextClusterMinimum;
+        clusterMaximum = nextClusterMaximum;
+        continue;
+      }
+
+      coalesced.push(candidate);
+      clusterMinimum = candidate.start;
+      clusterMaximum = candidate.start;
+    }
+    return coalesced;
   }
 
   function compareCandidateRuns(left, right) {
@@ -97,7 +174,8 @@
     const candidates = [];
     const lines = (text || "").split(/\r?\n/);
     for (const [lineIndex, line] of lines.entries()) {
-      const range = timestampRangeFromLine(line);
+      const rangeResult = getTimestampRangeResult(line);
+      const { range } = rangeResult;
       if (range) {
         candidates.push({
           start: range.start,
@@ -106,6 +184,9 @@
           lineKey: `${sourceKey}:${lineIndex}:${range.normalizedLine}`,
           lineIndex,
         });
+        continue;
+      }
+      if (rangeResult.invalid) {
         continue;
       }
 
@@ -130,38 +211,47 @@
   }
 
   function parseTimeParam(value) {
-    if (!value) {
+    if (typeof value !== "string") {
       return NaN;
     }
 
-    const compact = value.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s?)?$/);
-    if (compact) {
-      const hours = parseFloat(compact[1] || "0");
-      const minutes = parseFloat(compact[2] || "0");
-      const seconds = parseFloat(compact[3] || "0");
-      return hours * 3600 + minutes * 60 + seconds;
+    const text = value.trim();
+    if (!text) {
+      return NaN;
     }
 
-    const seconds = parseFloat(value);
-    return Number.isFinite(seconds) ? seconds : NaN;
+    const compact = text.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s?)?$/);
+    if (!compact || !compact.slice(1).some(Boolean)) {
+      return NaN;
+    }
+
+    const hours = parseFloat(compact[1] || "0");
+    const minutes = parseFloat(compact[2] || "0");
+    const seconds = parseFloat(compact[3] || "0");
+    const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+    return Number.isFinite(totalSeconds) ? totalSeconds : NaN;
   }
 
   function parseTimestampText(value) {
-    const text = (value || "").trim();
+    const text = typeof value === "string" ? value.trim() : "";
     if (!/^\d{1,2}:\d{2}(?::\d{2})?$/.test(text)) {
       return NaN;
     }
 
     const parts = text.split(":").map((part) => parseInt(part, 10));
-    if (parts.length === 2) {
-      return parts[0] * 60 + parts[1];
+    const seconds = parts[parts.length - 1];
+    if (seconds >= 60 || (parts.length === 3 && parts[1] >= 60)) {
+      return NaN;
     }
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    if (parts.length === 2) {
+      return parts[0] * 60 + seconds;
+    }
+    return parts[0] * 3600 + parts[1] * 60 + seconds;
   }
 
   function lineContainingTimestamp(text, timestamp) {
     const lines = text.split(/\r?\n/);
-    return lines.find((entry) => entry.includes(timestamp)) || "";
+    return lines.find((entry) => findExactTimestampMatch(entry, timestamp)) || "";
   }
 
   function titleFromLineFragment(line, timestamp) {
@@ -171,13 +261,14 @@
     }
 
     const normalizedLine = normalizeTitleText(line);
-    const timestampIndex = normalizedLine.indexOf(timestamp);
-    if (timestampIndex === -1) {
+    const timestampMatch = findExactTimestampMatch(normalizedLine, timestamp);
+    if (!timestampMatch) {
       return "";
     }
 
+    const timestampIndex = timestampMatch.index;
     const beforeTimestamp = normalizedLine.slice(0, timestampIndex);
-    const afterTimestamp = normalizedLine.slice(timestampIndex + timestamp.length);
+    const afterTimestamp = normalizedLine.slice(timestampIndex + timestampMatch[0].length);
     const beforeTitle = stripTimestampAdjacency(beforeTimestamp, "before");
     const afterTitle = stripTimestampAdjacency(afterTimestamp, "after");
 
@@ -194,6 +285,10 @@
   }
 
   function timestampRangeFromLine(line, timestampText = "") {
+    return getTimestampRangeResult(line, timestampText).range;
+  }
+
+  function getTimestampRangeResult(line, timestampText = "") {
     const normalizedLine = normalizeTitleText(line);
     const matches = [...normalizedLine.matchAll(TIMESTAMP_PATTERN)].map((match) => {
       return {
@@ -204,35 +299,41 @@
       };
     });
 
+    let invalid = false;
     for (let index = 0; index < matches.length - 1; index += 1) {
       const startMatch = matches[index];
       const endMatch = matches[index + 1];
       if (timestampText && timestampText !== startMatch.text && timestampText !== endMatch.text) {
         continue;
       }
-      if (!Number.isFinite(startMatch.start) || !Number.isFinite(endMatch.start)) {
-        continue;
-      }
-      if (endMatch.start <= startMatch.start) {
-        continue;
-      }
-
       const separator = normalizedLine.slice(startMatch.endIndex, endMatch.index);
       if (!isTimestampRangeSeparator(separator)) {
         continue;
       }
 
+      if (
+        !Number.isFinite(startMatch.start)
+        || !Number.isFinite(endMatch.start)
+        || endMatch.start <= startMatch.start
+      ) {
+        invalid = true;
+        continue;
+      }
+
       return {
-        normalizedLine,
-        start: startMatch.start,
-        startTimestampText: startMatch.text,
-        end: endMatch.start,
-        endTimestampText: endMatch.text,
-        title: titleFromRangeFragments(normalizedLine, startMatch, endMatch),
+        invalid: false,
+        range: {
+          normalizedLine,
+          start: startMatch.start,
+          startTimestampText: startMatch.text,
+          end: endMatch.start,
+          endTimestampText: endMatch.text,
+          title: titleFromRangeFragments(normalizedLine, startMatch, endMatch),
+        },
       };
     }
 
-    return null;
+    return { invalid, range: null };
   }
 
   function isTimestampRangeSeparator(text) {
@@ -267,30 +368,18 @@
       }
     }
 
-    const patternLooksBlockBased = hasBlockTitlePattern(candidates, nextLineTitles);
     return candidates.map((candidate) => {
       const nearbyTitle = nextLineTitles.get(candidate);
       if (!nearbyTitle) {
         return candidate;
       }
 
-      if (isWeakTrackTitle(candidate.title) || patternLooksBlockBased) {
+      if (isWeakTrackTitle(candidate.title)) {
         return { ...candidate, title: nearbyTitle };
       }
 
       return candidate;
     });
-  }
-
-  function hasBlockTitlePattern(candidates, nextLineTitles) {
-    const lineCandidates = candidates.filter((candidate) => Number.isInteger(candidate.lineIndex));
-    if (lineCandidates.length < 2) {
-      return false;
-    }
-
-    const candidatesWithNearbyTitles = lineCandidates.filter((candidate) => nextLineTitles.has(candidate));
-    const weakTitleCandidates = lineCandidates.filter((candidate) => isWeakTrackTitle(candidate.title));
-    return candidatesWithNearbyTitles.length >= 2 && weakTitleCandidates.length / lineCandidates.length >= 0.6;
   }
 
   function findNearbyTitleLine(lines, timestampLineIndex) {
@@ -370,8 +459,10 @@
   function cleanTrackTitle(title) {
     const cleaned = normalizeTitleText(title)
       .replace(/\s+\/\s*(?:original|vocal|lyrics|arrange|arrangement|source)\b.*$/i, "")
-      .replace(/^[\s()[\]{}#"']*(?:track\s*)?\d{1,3}[\s.)\]:：\-–—]+/i, "")
-      .replace(/^\s*(?:track\s*)?\d{1,3}[\s.)\]-]+/i, "")
+      .replace(
+        /^[\s()[\]{}#"']*(?:track\s*)?\d{1,3}(?:(?:\.(?!\d))|[\s)\]}:：\-–—])+/i,
+        ""
+      )
       .replace(/\s*(?:\.{3}|…)\s*more$/i, "")
       .trim();
 
@@ -420,6 +511,16 @@
       .trim();
   }
 
+  function findExactTimestampMatch(line, timestamp) {
+    const timestampText = normalizeTitleText(timestamp);
+    if (!timestampText) {
+      return null;
+    }
+
+    return [...normalizeTitleText(line).matchAll(TIMESTAMP_PATTERN)]
+      .find((match) => match[0] === timestampText) || null;
+  }
+
   function trimAfterEmbeddedTimestamp(text) {
     return normalizeTitleText(text)
       .replace(/\s+\d{1,2}:\d{2}(?::\d{2})?.*$/, "")
@@ -444,13 +545,6 @@
     return `${minutes}:${paddedSeconds}`;
   }
 
-  function trackTitleScore(tracks) {
-    return tracks.reduce((score, track) => {
-      const title = (track.title || "").trim();
-      return score + (title ? 1 : 0);
-    }, 0);
-  }
-
   globalThis.TimestampPlayerTimestamps = {
     cleanTrackTitle,
     findTracks,
@@ -462,7 +556,7 @@
     normalizeTitleText,
     parseTimeParam,
     parseTimestampText,
+    trackTitleQuality,
     titleFromLineFragment,
-    trackTitleScore,
   };
 })();

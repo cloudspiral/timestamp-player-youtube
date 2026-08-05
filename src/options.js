@@ -1,4 +1,6 @@
 (() => {
+  const SAVE_FAILURE_STATUS_DURATION_MS = 6000;
+  const SAVE_SUCCESS_STATUS_DURATION_MS = 1600;
   const {
     COMPACT_PROGRESS_COLORS,
     COMPACT_PROGRESS_STYLES,
@@ -10,24 +12,28 @@
 
   const form = document.getElementById("settings-form");
   const autoShowInput = document.getElementById("auto-show-compact");
+  const avoidVideoTitleOverlapInput = document.getElementById("avoid-video-title-overlap");
   const compactProgressCustomColorInput = document.getElementById("compact-progress-custom-color");
   const progressCustomColorInput = document.getElementById("progress-custom-color");
   const customColorInputs = [
     {
       input: compactProgressCustomColorInput,
       colorSetting: "compactProgressColor",
-      customSetting: "compactProgressCustomColor",
     },
     {
       input: progressCustomColorInput,
       colorSetting: "progressColor",
-      customSetting: "progressCustomColor",
     },
   ];
   const statusEl = document.getElementById("save-status");
+  let isInitialized = false;
+  let pendingSaveRequest = null;
+  let saveGeneration = 0;
+  let saveInFlight = false;
   let saveTimer = null;
 
   function init() {
+    setFormLoading(true);
     renderSegmentedControl("progressTimeMode", PROGRESS_TIME_MODES);
     renderSegmentedControl("compactProgressStyle", COMPACT_PROGRESS_STYLES);
     renderSwatchControl("trackHighlightColor", TRACK_HIGHLIGHT_COLORS);
@@ -35,9 +41,25 @@
     renderSwatchControl("progressColor", COMPACT_PROGRESS_COLORS);
 
     loadSettings((settings) => {
+      if (isInitialized) {
+        return;
+      }
+
+      isInitialized = true;
       applySettings(settings);
       form.addEventListener("change", handleChange);
+      setFormLoading(false);
     });
+  }
+
+  function setFormLoading(isLoading) {
+    form.setAttribute("aria-busy", String(isLoading));
+    if (isLoading) {
+      form.setAttribute("inert", "");
+      return;
+    }
+
+    form.removeAttribute("inert");
   }
 
   function renderSegmentedControl(settingName, choices) {
@@ -97,6 +119,7 @@
 
   function applySettings(settings) {
     autoShowInput.checked = settings.autoShowCompact;
+    avoidVideoTitleOverlapInput.checked = settings.avoidVideoTitleOverlap;
     checkRadio("progressTimeMode", settings.progressTimeMode);
     checkRadio("compactProgressStyle", settings.compactProgressStyle);
     checkRadio("trackHighlightColor", settings.trackHighlightColor);
@@ -119,6 +142,7 @@
     const formData = new FormData(form);
     return {
       autoShowCompact: autoShowInput.checked,
+      avoidVideoTitleOverlap: avoidVideoTitleOverlapInput.checked,
       compactProgressStyle: formData.get("compactProgressStyle"),
       compactProgressColor: formData.get("compactProgressColor"),
       compactProgressCustomColor: formData.get("compactProgressCustomColor"),
@@ -130,14 +154,40 @@
   }
 
   function handleChange(event) {
+    clearStatus();
     const customColorInput = customColorInputs.find(({ input }) => input === event.target);
     if (customColorInput) {
       checkRadio(customColorInput.colorSetting, "custom");
       updateCustomColorPreview(customColorInput.colorSetting, customColorInput.input.value);
     }
 
-    saveSettings(readSettingsFromForm(), (saved) => {
-      showStatus(saved ? "Saved" : "Could not save settings");
+    const generation = saveGeneration + 1;
+    saveGeneration = generation;
+    pendingSaveRequest = {
+      generation,
+      settings: readSettingsFromForm(),
+    };
+    flushPendingSave();
+  }
+
+  function flushPendingSave() {
+    if (saveInFlight || !pendingSaveRequest) {
+      return;
+    }
+
+    const request = pendingSaveRequest;
+    pendingSaveRequest = null;
+    saveInFlight = true;
+    saveSettings(request.settings, (saved) => {
+      saveInFlight = false;
+      if (request.generation === saveGeneration && !pendingSaveRequest) {
+        showStatus(
+          saved ? "Saved" : "Could not save settings",
+          saved ? "success" : "error",
+          saved ? SAVE_SUCCESS_STATUS_DURATION_MS : SAVE_FAILURE_STATUS_DURATION_MS
+        );
+      }
+      flushPendingSave();
     });
   }
 
@@ -146,12 +196,20 @@
     customSwatch?.style.setProperty("--swatch-color", color);
   }
 
-  function showStatus(message) {
+  function showStatus(message, status, duration) {
+    clearStatus();
     statusEl.textContent = message;
-    window.clearTimeout(saveTimer);
+    statusEl.setAttribute("data-status", status);
     saveTimer = window.setTimeout(() => {
-      statusEl.textContent = "";
-    }, 1600);
+      clearStatus();
+    }, duration);
+  }
+
+  function clearStatus() {
+    window.clearTimeout(saveTimer);
+    saveTimer = null;
+    statusEl.textContent = "";
+    statusEl.removeAttribute("data-status");
   }
 
   init();

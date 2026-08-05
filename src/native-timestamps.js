@@ -1,13 +1,17 @@
 (() => {
-  const NATIVE_TIMESTAMP_CONTAINER_SELECTOR = [
+  const NATIVE_TIMESTAMP_SECTION_SELECTOR = [
     "ytd-horizontal-card-list-renderer",
     "ytd-macro-markers-list-renderer",
-    "ytd-macro-markers-list-item-renderer",
   ].join(",");
   const NATIVE_TIMESTAMP_ITEM_SELECTOR = [
     "ytd-macro-markers-list-item-renderer",
-    "ytd-horizontal-card-list-renderer",
-    "a[href*='/watch']",
+    "yt-lockup-view-model",
+    "[role='listitem']",
+    "li",
+  ].join(",");
+  const NATIVE_TIMESTAMP_CONTAINER_SELECTOR = [
+    NATIVE_TIMESTAMP_SECTION_SELECTOR,
+    "ytd-macro-markers-list-item-renderer",
   ].join(",");
   const NATIVE_LABEL_SELECTOR = [
     "#details",
@@ -25,41 +29,104 @@
     parseTimeParam,
     parseTimestampText,
   } = globalThis.TimestampPlayerTimestamps;
+  const {
+    getWatchShellVideoId,
+  } = globalThis.TimestampPlayerVideoOwnership;
 
   function getNativeTimestampCandidates(videoId, root = document) {
-    const candidates = [];
-    const seen = new Set();
-
-    for (const link of getNativeTimestampLinks(root)) {
-      const candidate = toNativeTimestampCandidate(link, videoId);
-      if (!candidate) {
-        continue;
-      }
-
-      const key = `${candidate.start}:${candidate.lineKey}`;
-      if (seen.has(key)) {
-        continue;
-      }
-
-      seen.add(key);
-      candidates.push(candidate);
-    }
-
-    return candidates;
+    return getNativeTimestampDiscovery(videoId, root).candidates;
   }
 
-  function getNativeTimestampLinks(root) {
-    const links = [];
+  function getNativeTimestampDiscovery(videoId, root = document) {
+    const candidates = [];
     const seen = new Set();
-    for (const container of root.querySelectorAll(NATIVE_TIMESTAMP_CONTAINER_SELECTOR)) {
-      for (const link of container.querySelectorAll("a[href*='/watch']")) {
-        if (!seen.has(link)) {
-          seen.add(link);
-          links.push(link);
+    let sawRelevantMismatchedVideoId = false;
+
+    for (const container of getNativeTimestampContainers(root)) {
+      if (!isVisibleContainer(container) || belongsToDifferentWatchShell(container, videoId)) {
+        continue;
+      }
+
+      const links = getUniqueTimestampLinks(container);
+      const groupCandidates = links
+        .map((link) => toNativeTimestampCandidate(link, videoId))
+        .filter(Boolean);
+      const timestampLinkCount = links.filter(hasParseableTimestamp).length;
+      const isHorizontalSection = container.matches?.("ytd-horizontal-card-list-renderer") === true;
+      if (timestampLinkCount >= 2 || !isHorizontalSection) {
+        sawRelevantMismatchedVideoId = sawRelevantMismatchedVideoId
+          || links.some((link) => hasMismatchedTimestampVideoId(link, videoId));
+      }
+      if (isHorizontalSection && groupCandidates.length < 2) {
+        continue;
+      }
+
+      for (const candidate of groupCandidates) {
+        const key = `${candidate.start}:${candidate.lineKey}`;
+        if (seen.has(key)) {
+          continue;
         }
+
+        seen.add(key);
+        candidates.push(candidate);
       }
     }
-    return links;
+
+    return {
+      candidates,
+      hasMismatchedVideoId: candidates.length === 0 && sawRelevantMismatchedVideoId,
+    };
+  }
+
+  function getNativeTimestampContainers(root) {
+    const containers = [];
+    const seen = new Set();
+    for (const container of root.querySelectorAll(NATIVE_TIMESTAMP_CONTAINER_SELECTOR)) {
+      const enclosingSection = container.closest?.(NATIVE_TIMESTAMP_SECTION_SELECTOR) || null;
+      if (enclosingSection && enclosingSection !== container) {
+        continue;
+      }
+      if (!seen.has(container)) {
+        seen.add(container);
+        containers.push(container);
+      }
+    }
+    return containers;
+  }
+
+  function getUniqueTimestampLinks(container) {
+    return [...new Set(container.querySelectorAll("a[href*='/watch']"))];
+  }
+
+  function hasParseableTimestamp(link) {
+    const url = new URL(link.href, location.href);
+    return Number.isFinite(parseTimeParam(url.searchParams.get("t")))
+      || Number.isFinite(parseTimestampText(normalizeTitleText(link.textContent)));
+  }
+
+  function hasMismatchedTimestampVideoId(link, videoId) {
+    if (!hasParseableTimestamp(link)) {
+      return false;
+    }
+    const linkedVideoId = new URL(link.href, location.href).searchParams.get("v");
+    return Boolean(linkedVideoId && linkedVideoId !== videoId);
+  }
+
+  function isVisibleContainer(container) {
+    if (typeof container.getBoundingClientRect !== "function") {
+      return true;
+    }
+    const rect = container.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function belongsToDifferentWatchShell(container, videoId) {
+    const watchShell = container.closest?.("ytd-watch-flexy") || null;
+    if (!watchShell) {
+      return false;
+    }
+    const shellVideoId = getWatchShellVideoId(watchShell);
+    return Boolean(shellVideoId && shellVideoId !== videoId);
   }
 
   function toNativeTimestampCandidate(link, videoId) {
@@ -77,24 +144,44 @@
     }
 
     const item = getNativeTimestampItem(link);
-    const rawTitle = getBestNativeLabel(link, item);
+    const rawTitle = getBestNativeLabel(link, item)
+      || (!isTimestampOnlyLine(timestampText) ? timestampText : "");
     const title = cleanNativeTitle(rawTitle, timestampText);
-    const lineKey = normalizeTitleText(item?.textContent || `${timestampText}:${title}`);
+    const itemText = getScopedItemLabel(link, item);
+    const lineKey = normalizeTitleText(itemText || `${timestampText}:${title}`);
+    const watchShell = link.closest?.("ytd-watch-flexy") || null;
+    const shellVideoId = getWatchShellVideoId(watchShell);
 
     return {
       start,
       timestampText,
       title,
       lineKey,
+      linkedVideoId: linkedVideoId || "",
+      shellVideoId,
     };
   }
 
   function getNativeTimestampItem(link) {
-    const closestItem = link.closest(NATIVE_TIMESTAMP_ITEM_SELECTOR);
-    if (!closestItem || closestItem === link) {
-      return link.parentElement || link;
+    const section = link.closest?.(NATIVE_TIMESTAMP_SECTION_SELECTOR) || null;
+    const closestItem = link.closest?.(NATIVE_TIMESTAMP_ITEM_SELECTOR) || null;
+    if (closestItem && closestItem !== link && closestItem !== section) {
+      return closestItem;
     }
-    return closestItem;
+
+    let fallback = null;
+    let current = link.parentElement || null;
+    while (current && current !== section) {
+      if (!hasCompetingTimestampLinks(current, link)) {
+        fallback ||= current;
+        if (hasLocalLabelEvidence(link, current)) {
+          return current;
+        }
+      }
+      current = current.parentElement || null;
+    }
+
+    return fallback;
   }
 
   function getBestNativeLabel(link, item) {
@@ -102,7 +189,7 @@
       ...getAttributeLabels(link),
       ...getAttributeLabels(item),
       ...getNearbyTextLabels(link, item),
-      getVisibleItemLabel(item),
+      getScopedItemLabel(link, item),
     ];
 
     return labelSources
@@ -143,8 +230,47 @@
     return labels;
   }
 
-  function getVisibleItemLabel(item) {
-    return item?.innerText || item?.textContent || "";
+  function getScopedItemLabel(link, item) {
+    if (!item || item === link || hasCompetingTimestampLinks(item, link)) {
+      return "";
+    }
+
+    return item.innerText || item.textContent || "";
+  }
+
+  function hasLocalLabelEvidence(link, item) {
+    if (getAttributeLabels(item).some((label) => cleanNativeLabelText(label))) {
+      return true;
+    }
+
+    if (getNearbyTextLabels(link, item).some((label) => cleanNativeLabelText(label))) {
+      return true;
+    }
+
+    const itemText = normalizeTitleText(item?.innerText || item?.textContent);
+    const linkText = normalizeTitleText(link.textContent);
+    return Boolean(itemText && itemText !== linkText && !isTimestampOnlyLine(itemText));
+  }
+
+  function hasCompetingTimestampLinks(item, referenceLink) {
+    if (!item?.querySelectorAll) {
+      return false;
+    }
+
+    for (const link of item.querySelectorAll("a[href*='/watch']")) {
+      if (link === referenceLink || link.href === referenceLink.href) {
+        continue;
+      }
+
+      const url = new URL(link.href, location.href);
+      const urlStart = parseTimeParam(url.searchParams.get("t"));
+      const textStart = parseTimestampText(normalizeTitleText(link.textContent));
+      if (Number.isFinite(urlStart) || Number.isFinite(textStart)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   function cleanNativeLabelText(text) {
@@ -161,8 +287,11 @@
   }
 
   function cleanNativeTitle(text, timestampText) {
-    const withoutTimestamp = normalizeTitleText(text)
-      .replace(timestampText, "")
+    let normalized = normalizeTitleText(text);
+    if (isTimestampOnlyLine(timestampText)) {
+      normalized = normalized.replace(timestampText, "");
+    }
+    const withoutTimestamp = normalized
       .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, "")
       .replace(/\s*(?:\.{3}|…)\s*more$/i, "")
       .trim();
@@ -203,11 +332,12 @@
   }
 
   function isNativeTimestampSectionElement(element) {
-    return Boolean(element.closest(NATIVE_TIMESTAMP_CONTAINER_SELECTOR));
+    return Boolean(element?.closest?.(NATIVE_TIMESTAMP_CONTAINER_SELECTOR));
   }
 
   globalThis.TimestampPlayerNativeTimestamps = {
     getNativeTimestampCandidates,
+    getNativeTimestampDiscovery,
     isNativeTimestampSectionElement,
   };
 })();
