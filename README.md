@@ -96,3 +96,27 @@ The final upload zips are written to `web-ext-artifacts/`. Package sources are g
 ## Test Videos
 
 See `TEST_VIDEOS.md` for manual test cases.
+
+## Symphony issue automation
+
+This repository includes a guarded [`WORKFLOW.md`](WORKFLOW.md) for the official
+OpenAI Symphony Elixir reference implementation. A separately managed local
+Symphony service watches this repository's open GitHub issues; it does not run
+as a GitHub Action.
+
+The issue lifecycle is intentionally explicit:
+
+1. A maintainer writes acceptance criteria and adds the `symphony-ready` label.
+2. Symphony creates an isolated workspace and `symphony/gh-<number>` branch,
+   runs Codex, validates the change, pushes it, and opens a pull request.
+3. When the pull request is green, Symphony adds `human-review` and removes
+   `symphony-ready` so it stops working on the issue.
+4. A human reviews and merges. Symphony never merges or publishes extensions.
+
+If external access blocks the run, Symphony adds `symphony-blocked`, records the
+reason in its single `## Symphony Workpad` issue comment, and removes
+`symphony-ready`. Re-adding `symphony-ready` resumes the preserved workspace.
+
+The workflow expects `GITHUB_TOKEN` and `SYMPHONY_WORKSPACE_ROOT` in the host
+service environment. Secrets must remain host-side; do not commit tokens to
+this repository.
