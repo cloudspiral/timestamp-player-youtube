@@ -1,6 +1,8 @@
 # Test Videos
 
 Use this list for manual testing while developing Timestamp Player for YouTube.
+For a release, record the selected cases and final-artifact evidence in
+[`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md#5-capture-real-browser-evidence).
 
 ## Timestamped Albums
 
