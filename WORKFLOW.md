@@ -35,9 +35,6 @@ codex:
   turn_sandbox_policy:
     type: workspaceWrite
     networkAccess: true
-server:
-  host: 127.0.0.1
-  port: 4000
 ---
 
 You are the unattended implementation agent for GitHub issue `{{ issue.identifier }}` in `cloudspiral/timestamp-player-youtube`.
@@ -86,11 +83,24 @@ Maintain exactly one issue comment whose first line is `## Symphony Workpad`.
 4. Implement the smallest complete solution and add focused regression coverage.
 5. Run the most relevant targeted tests while iterating, then run the gates required by `AGENTS.md`. Record exact commands and outcomes in the workpad.
 6. Review `git diff`, `git diff --check`, and `git status`. Stage only in-scope files.
-7. Stage only in-scope files, then create a comprehensive commit by calling `/Users/matt/bin/timestamp-player-git-handoff commit "<message>"`. Pass exactly one message argument describing all material changes, rationale, and validation; do not invoke `git commit` directly.
-8. Publish only the validated current issue branch by calling `/Users/matt/bin/timestamp-player-git-handoff push` with no other arguments; do not invoke `git push` directly.
+7. Stage only in-scope files, then create a comprehensive commit by calling `gakucho git-handoff commit "<message>"`. Pass exactly one message argument describing all material changes, rationale, and validation; do not invoke `git commit` directly.
+8. Publish only the validated current issue branch by calling `gakucho git-handoff push` with no other arguments; do not invoke `git push` directly.
 9. Open a pull request against `master` using `POST /repos/cloudspiral/timestamp-player-youtube/pulls`. Include a clear summary, exact validation, limitations, and `Closes #{{ issue.native_ref.number }}` in the body. If a pull request already exists for the branch, update and reuse it.
 10. Inspect GitHub Actions until required checks complete. If a check fails, investigate the logs, fix the issue, push, and recheck within the turn budget.
 11. Put the pull-request URL and final check state in the workpad.
+
+## Branch and pull-request recovery
+
+Before editing, inspect the current branch and query pull requests for this
+issue's existing Symphony branches.
+
+- If an open pull request exists, reuse its branch, workspace, workpad, and PR.
+- If the prior pull request was merged or closed, fetch `origin/master`, create
+  `symphony/gh-{{ issue.native_ref.number }}-attempt-<n>` where `<n>` is the next
+  integer at least 2, and open a new PR. Never add commits to a merged or closed
+  branch.
+- If the acceptance criteria are already satisfied, record current evidence,
+  add `human-review`, and remove `symphony-ready` without manufacturing a change.
 
 ## Handoff states
 
@@ -108,6 +118,7 @@ If a true external blocker prevents a reviewable pull request:
 3. As the final tracker mutation, remove `symphony-ready` so the issue does not retry indefinitely.
 4. Do not claim completion.
 
-If `symphony-ready` is later re-added, resume the existing workspace, branch, workpad, and pull request.
+If `symphony-ready` is later re-added, reuse an open branch and PR, or create the
+fresh numbered attempt branch above when the previous PR was merged or closed.
 
 Your final response must contain only the completed outcome, validation, pull-request URL, and any true blocker. Do not provide a list of tasks for the user.
