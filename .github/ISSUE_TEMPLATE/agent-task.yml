@@ -1,0 +1,31 @@
+name: Agent task
+description: Authorize Codex Cloud to implement a ready, bounded task
+title: ""
+labels: ["gakucho-cloud"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What outcome should the agent produce?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List the observable conditions that define completion.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Required verification
+      description: Which tests or checks must pass?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Optional constraints, references, or non-goals.

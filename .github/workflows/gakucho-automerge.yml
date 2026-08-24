@@ -1,0 +1,100 @@
+name: Gakucho auto-merge governor
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, labeled, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: gakucho-automerge-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  govern:
+    runs-on: ubuntu-latest
+    steps:
+      - id: dependabot
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+      - uses: actions/github-script@v8
+        env:
+          MODE: ${{ vars.GAKUCHO_AUTOMERGE_MODE || 'shadow' }}
+          DEPENDENCY_UPDATE_TYPE: ${{ steps.dependabot.outputs.update-type }}
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const mode = process.env.MODE || "shadow";
+            if (mode === "off") {
+              core.notice("Gakucho auto-merge is off.");
+              return;
+            }
+
+            const reasons = [];
+            if (pr.base.ref !== "master") reasons.push("PR does not target master");
+            if (pr.head.repo.full_name !== context.payload.repository.full_name) reasons.push("fork PRs are denied");
+            if (pr.draft) reasons.push("draft PRs are denied");
+
+            const files = await github.paginate(github.rest.pulls.listFiles, { owner: context.repo.owner, repo: context.repo.repo, pull_number: pr.number, per_page: 100 });
+            const sensitive = new RegExp("(^|\\/)(\\.github\\/workflows|CODEOWNERS|[^/]*(secret|credential|\\.env|\\.pem|\\.key)[^/]*)($|\\/)|(^|\\/)(auth|authentication|payments?|billing|migrations?|schema|deploy|deployment|infrastructure|infra|terraform|pulumi|k8s|helm)(\\/|$)", "i");
+            const deniedFile = files.find((file) => sensitive.test(file.filename));
+            if (deniedFile) reasons.push("sensitive path: " + deniedFile.filename);
+
+            const dependabot = pr.user.login === "dependabot[bot]";
+            const updateType = process.env.DEPENDENCY_UPDATE_TYPE || "";
+            let authorized = dependabot && ["version-update:semver-patch", "version-update:semver-minor"].includes(updateType);
+            if (dependabot && !authorized) reasons.push("Dependabot update is not patch/minor: " + (updateType || "unknown"));
+
+            if (!dependabot) {
+              const data = await github.graphql("query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { closingIssuesReferences(first:20) { nodes { number labels(first:50) { nodes { name } } } } } } }", { owner: context.repo.owner, repo: context.repo.repo, number: pr.number });
+              const linked = data.repository.pullRequest.closingIssuesReferences.nodes;
+              const hasAuthorization = linked.some((issue) => issue.labels.nodes.some((label) => label.name === "gakucho-automerge"));
+              const agentBranch = /^(codex|symphony)\//.test(pr.head.ref) || /codex/i.test(pr.user.login);
+              authorized = hasAuthorization && agentBranch;
+              if (!hasAuthorization) reasons.push("no linked issue with gakucho-automerge authorization");
+              if (!agentBranch) reasons.push("PR is not from an agent branch");
+            }
+
+            const branchRules = await github.request("GET /repos/{owner}/{repo}/rules/branches/{branch}", { owner: context.repo.owner, repo: context.repo.repo, branch: pr.base.ref, per_page: 100 });
+            const requiredContexts = branchRules.data
+              .filter((rule) => rule.type === "required_status_checks")
+              .flatMap((rule) => rule.parameters?.required_status_checks?.map((check) => check.context) || []);
+            const hasCI = requiredContexts.some((name) => /(^|\/)(ci|check)(\s|$|\/)/i.test(name));
+            const hasCodeQLAnalysis = requiredContexts.some((name) => /analyze/i.test(name));
+            const hasCodeQLResult = requiredContexts.some((name) => /^codeql$/i.test(name));
+            if (!hasCI || !hasCodeQLAnalysis || !hasCodeQLResult) reasons.push("default branch does not require CI, CodeQL analysis, and the final CodeQL security result");
+
+            const checkRuns = await github.rest.checks.listForRef({ owner: context.repo.owner, repo: context.repo.repo, ref: pr.head.sha, per_page: 100 });
+            const failedConclusions = new Set(["failure", "cancelled", "timed_out", "action_required", "startup_failure"]);
+            if (checkRuns.data.check_runs.some((check) => check.conclusion && failedConclusions.has(check.conclusion))) reasons.push("one or more checks have failed");
+            if (!authorized) reasons.push("PR is not an authorized candidate");
+
+            const uniqueReasons = [...new Set(reasons)];
+            const eligible = uniqueReasons.length === 0;
+            const candidateLabel = "gakucho-automerge";
+            const hasCandidateLabel = pr.labels.some((label) => label.name === candidateLabel);
+            if (eligible && !hasCandidateLabel) {
+              await github.rest.issues.addLabels({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number, labels: [candidateLabel] });
+            } else if (!eligible && hasCandidateLabel) {
+              await github.rest.issues.removeLabel({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number, name: candidateLabel });
+            }
+            const result = eligible
+              ? mode === "active" ? "eligible; queued for privileged native auto-merge handoff" : "eligible in shadow mode; no merge requested"
+              : "denied: " + uniqueReasons.join("; ");
+            const markerPrefix = "<!-- gakucho-automerge-governor";
+            const marker = markerPrefix + ":" + pr.head.sha + " -->";
+            const body = marker + "\n**Gakucho governor (" + mode + "):** " + result;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number, per_page: 100 });
+            const prior = comments.find((comment) => comment.user?.type === "Bot" && comment.body?.includes(markerPrefix));
+            if (prior) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: prior.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.number, body });
+            }
+            await core.summary.addHeading("Gakucho auto-merge governor").addRaw(result).write();

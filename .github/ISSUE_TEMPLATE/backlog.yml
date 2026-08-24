@@ -1,0 +1,17 @@
+name: Backlog
+description: Record an idea without authorizing an autonomous run
+title: ""
+labels: []
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea or problem
+      description: What should be explored or considered?
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Optional context, links, or open questions.
