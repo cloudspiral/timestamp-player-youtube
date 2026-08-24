@@ -14,13 +14,13 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify and lint extension
+    name: check
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Use Node.js from .nvmrc
         uses: actions/setup-node@v4

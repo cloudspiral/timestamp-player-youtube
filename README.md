@@ -102,26 +102,34 @@ uploading, complete the artifact, checksum, and human handoff sections in the
 
 See `TEST_VIDEOS.md` for manual test cases.
 
-## Symphony issue automation
+## Agent and recurring factory automation
 
-This repository includes a guarded [`WORKFLOW.md`](WORKFLOW.md) for the official
-OpenAI Symphony Elixir reference implementation. A separately managed local
-Symphony service watches this repository's open GitHub issues; it does not run
-as a GitHub Action.
+GitHub is the durable control plane for this repository. New **Agent task**
+issues route to Codex Cloud by default so work can continue while a maintainer's
+Mac is offline. The guarded [`WORKFLOW.md`](WORKFLOW.md) remains available for
+explicit `symphony-ready` tasks that need the separately managed local Symphony
+service.
 
-The issue lifecycle is intentionally explicit:
+The recurring factory is visible in GitHub Actions, Issues, Pull requests, and
+Security. Dependabot runs weekly, CodeQL runs on pull requests, `master`, and a
+staggered weekly schedule, monthly hygiene work is queued on the first Monday,
+and quarterly security audits are report-only. Scheduled tasks deduplicate and
+remain visibly queued unless the accepted Codex Cloud bot trigger is enabled.
 
-1. A maintainer writes acceptance criteria and adds the `symphony-ready` label.
-2. Symphony creates an isolated workspace and `symphony/gh-<number>` branch,
-   runs Codex, validates the change, pushes it, and opens a pull request.
-3. When the pull request is green, Symphony adds `human-review` and removes
-   `symphony-ready` so it stops working on the issue.
-4. A human reviews and merges. Symphony never merges or publishes extensions.
+The task lifecycle is intentionally explicit:
+
+1. A maintainer writes acceptance criteria and selects cloud or local routing.
+2. The chosen runner implements and validates the bounded task on an agent branch.
+3. Substantive work remains for review. Low-risk work can receive explicit
+   `gakucho-automerge` authorization on its linked issue.
+4. The metadata-only governor denies sensitive paths and enables GitHub-native
+   auto-merge only after required CI, CodeQL analysis, and final CodeQL security
+   checks are enforced. It never publishes the extension.
 
 If external access blocks the run, Symphony adds `symphony-blocked`, records the
 reason in its single `## Symphony Workpad` issue comment, and removes
 `symphony-ready`. Re-adding `symphony-ready` resumes the preserved workspace.
 
-The workflow expects `GITHUB_TOKEN` and `SYMPHONY_WORKSPACE_ROOT` in the host
-service environment. Secrets must remain host-side; do not commit tokens to
-this repository.
+The local workflow expects `GITHUB_TOKEN` and `SYMPHONY_WORKSPACE_ROOT` in the
+host service environment. Secrets must remain host-side; do not commit tokens
+to this repository or its Codex Cloud environment.

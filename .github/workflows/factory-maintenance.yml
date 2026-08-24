@@ -1,0 +1,90 @@
+name: Gakucho factory maintenance
+
+on:
+  schedule:
+    - cron: "11 16 * * 1"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Factory job to queue
+        required: true
+        type: choice
+        options: [hygiene, security]
+        default: hygiene
+      launch_cloud:
+        description: Post an @codex launch comment after creating the issue
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: gakucho-factory-maintenance
+  cancel-in-progress: false
+
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    env:
+      BOT_TRIGGER: ${{ vars.GAKUCHO_CLOUD_BOT_TRIGGER }}
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const scheduled = context.eventName === "schedule";
+            const now = new Date();
+            if (scheduled && now.getUTCDate() > 7) {
+              core.notice("Not the first Monday; no factory work is due.");
+              return;
+            }
+
+            const requested = scheduled ? undefined : context.payload.inputs?.job;
+            const quarterStart = [0, 3, 6, 9].includes(now.getUTCMonth());
+            const jobs = requested ? [requested] : quarterStart ? ["hygiene", "security"] : ["hygiene"];
+            const launchCloud = (!scheduled && String(context.payload.inputs?.launch_cloud) === "true") ||
+              (scheduled && process.env.BOT_TRIGGER === "enabled");
+
+            for (const kind of jobs) {
+              const marker = "<!-- gakucho-factory:" + kind + " -->";
+              const open = await github.paginate(github.rest.issues.listForRepo, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: "open",
+                labels: "gakucho-scheduled",
+                per_page: 100,
+              });
+              const duplicate = open.find((issue) => !issue.pull_request && issue.body?.includes(marker));
+              if (duplicate) {
+                core.notice("Skipped duplicate " + kind + " task: #" + duplicate.number);
+                continue;
+              }
+
+              const hygiene = kind === "hygiene";
+              const body = hygiene
+                ? [marker, "", "## Contract", "", "Perform one minimal, high-confidence hygiene and test-maintenance pass. You may make multiple related edits only when they form one coherent small change. Run the repository's complete checks and open a PR if a worthwhile change qualifies. If nothing qualifies, document the evidence and close this issue as a no-op.", "", "Do not change workflows, permissions, secrets, authentication, payments, schemas or migrations, deployments, or infrastructure. This issue explicitly authorizes governed auto-merge only if every repository policy check passes."].join("\n")
+                : [marker, "", "## Report-only security audit", "", "Inspect dependencies and code for credible security risks. Do not modify code, open a remediation PR, or authorize auto-merge. Document checked surfaces and evidence here. Create separate reviewable issues for concrete findings; remediation requires separate authorization."].join("\n");
+
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: hygiene ? "Scheduled monthly hygiene pass" : "Scheduled quarterly security audit",
+                body,
+                labels: hygiene
+                  ? ["gakucho-scheduled", "gakucho-cloud", "gakucho-automerge"]
+                  : ["gakucho-scheduled", "gakucho-cloud"],
+              });
+              core.notice("Created " + kind + " task #" + created.data.number);
+              if (launchCloud) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: created.data.number,
+                  body: "@codex execute this scheduled contract. Validate the result and follow its PR or report-only handoff requirements.",
+                });
+              } else {
+                core.notice("Task #" + created.data.number + " is visibly queued for a user-authored @codex launch.");
+              }
+            }
