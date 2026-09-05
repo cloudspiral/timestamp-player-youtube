@@ -4,7 +4,17 @@ YouTube has lots of videos with timestamps, but it doesn't have playback control
 
 Timestamp Player makes it easy to navigate tracks, seek within the current track, and even repeat and shuffle tracks in any video that has timestamps.
 
-It checks for timestamps in both the video description and comments, and intelligently parses the best set that it can find.
+It reads YouTube chapters, description timestamps, and comment tracklists. It
+chooses confirmed creator chapters first, then description timestamps, complete
+automatic or unclassified chapters, the best comment tracklist, and finally
+sparse YouTube Key Moments. Pinned and uploader comments receive a scoring
+advantage among comments; they do not override a complete chapter list.
+
+Chapter discovery reads the player timeline metadata before structured chapter
+panels and rendered chapter links. It works without opening YouTube's chapter
+panel and refreshes page data when navigating between videos. Unknown chapter
+provenance is never treated as creator-authored. Later chapter discoveries can
+replace a comment fallback without seeking or interrupting playback.
 
 Open and close the player by clicking the new "Tracklist" button located next to the Share button.
 

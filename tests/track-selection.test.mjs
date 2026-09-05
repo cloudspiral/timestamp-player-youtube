@@ -25,6 +25,7 @@ function tracks(starts, titles = [], duration = 600) {
 
 function result(api, {
   channel,
+  chapterKind,
   duration = 600,
   generation = 1,
   kind,
@@ -39,6 +40,7 @@ function result(api, {
 } = {}) {
   return api.createTrackSourceResult({
     channel: channel || `${kind}-fixture`,
+    chapterKind,
     duration,
     generation,
     kind,
@@ -86,6 +88,91 @@ test("deterministic source tiers upgrade native to comments to description", asy
     titles: ["A", "B", "C", "D", "E"],
   }));
   assert.equal(selection.current.source.kind, api.TRACK_SOURCE_KINDS.DESCRIPTION);
+});
+
+test("manual chapters beat description; complete automatic and unknown chapters beat every comment", async () => {
+  const api = await loadTrackSelection();
+  for (const chapterKind of ["automatic", "unknown"]) {
+    const selection = api.createTrackSelectionState();
+    const comment = result(api, {
+      kind: api.TRACK_SOURCE_KINDS.COMMENT,
+      starts: [120, 240, 360],
+      titles: ["A reaction", "Another reaction", "Random observation"],
+      sourceScore: 10000,
+    });
+    consider(api, selection, comment);
+    const chapter = result(api, {
+      kind: "chapter", chapterKind, channel: "chapter-markers",
+      starts: [0, 100, 300], titles: ["Intro", "Part one", "Part two"],
+    });
+    consider(api, selection, chapter);
+    assert.equal(selection.current.source.kind, "chapter");
+    assert.equal(api.shouldConsiderNativeSource(selection), true);
+    consider(api, selection, comment);
+    assert.equal(selection.current.source.kind, "chapter");
+    consider(api, selection, result(api, { kind: "description" }));
+    assert.equal(selection.current.source.kind, "description");
+    consider(api, selection, result(api, {
+      kind: "chapter", chapterKind: "manual", channel: "chapter-panel",
+    }));
+    assert.equal(selection.current.source.chapterKind, "manual");
+  }
+});
+
+test("chapter classification wins before marker, structured-panel and DOM detection precedence", async () => {
+  const api = await loadTrackSelection();
+  const selection = api.createTrackSelectionState();
+  for (const channel of ["chapter-dom", "chapter-panel", "chapter-markers"]) {
+    consider(api, selection, result(api, {
+      kind: "chapter", chapterKind: "automatic", channel,
+      sourceId: channel, titles: [channel, "Ending"],
+    }));
+    assert.equal(selection.current.source.channel, channel);
+  }
+  consider(api, selection, result(api, {
+    kind: "chapter", chapterKind: "unknown", channel: "chapter-dom",
+    sourceId: "longer-dom", starts: [0, 10, 20, 30],
+  }));
+  assert.equal(selection.current.source.channel, "chapter-markers");
+  consider(api, selection, result(api, {
+    kind: "chapter", chapterKind: "manual", channel: "chapter-dom", sourceId: "creator",
+  }));
+  assert.equal(selection.current.source.id, "creator");
+});
+
+test("chapter source ties remain stable and a same-source prefix expansion stays coherent", async () => {
+  const api = await loadTrackSelection();
+  const selection = api.createTrackSelectionState();
+  const make = (sourceId, starts) => result(api, {
+    kind: "chapter", chapterKind: "automatic", channel: "chapter-markers", sourceId, starts,
+    titles: starts.map((start) => `Section ${start}`),
+  });
+  consider(api, selection, make("first", [0, 60]));
+  consider(api, selection, make("second", [0, 60]));
+  assert.equal(selection.current.source.id, "first");
+  consider(api, selection, make("first", [0, 60, 120]));
+  assert.deepEqual(Array.from(selection.current.tracks, (track) => track.start), [0, 60, 120]);
+  consider(api, selection, make("first", [0, 60]));
+  assert.equal(selection.current.tracks.length, 3);
+});
+
+test("comment and cached title donors cannot rewrite nonempty authoritative chapter labels", async () => {
+  const api = await loadTrackSelection();
+  const selection = api.createTrackSelectionState();
+  const chapter = result(api, {
+    kind: "chapter", chapterKind: "manual", channel: "chapter-markers",
+    starts: [0, 60, 120], titles: ["1984 / Live...", "", "The Finale..."],
+  });
+  const comment = result(api, {
+    kind: "comment", starts: [0, 60, 120], titles: ["Wrong first title", "Missing title", "Wrong finale"],
+  });
+  consider(api, selection, chapter);
+  consider(api, selection, comment);
+  assert.deepEqual(Array.from(selection.current.tracks, (track) => track.title), ["1984 / Live...", "Missing title", "The Finale..."]);
+  const cached = api.createTrackTitleCacheEntry(comment);
+  const enriched = api.enrichTrackSourceFromCache(chapter, cached);
+  assert.equal(enriched.tracks[0].title, "1984 / Live...");
+  assert.equal(enriched.tracks[2].title, "The Finale...");
 });
 
 test("same-tier same-prefix observations expand but never shrink the selected run", async () => {
@@ -159,7 +246,7 @@ test("exact-start title enrichment preserves timing provenance and playback orde
   const enrichment = consider(api, selection, comment);
 
   assert.equal(selection.current.source.kind, api.TRACK_SOURCE_KINDS.DESCRIPTION);
-  assert.deepEqual(selection.current.tracks.map(({ title }) => title), ["Opening", "Middle", "Finale"]);
+  assert.deepEqual(selection.current.tracks.map(({ title }) => title), ["Opening", "Middle", "Finale..."]);
   assert.equal(selection.current.tracks[1].titleSource.kind, api.TRACK_SOURCE_KINDS.COMMENT);
   assert.equal(enrichment.timingsChanged, false);
   assert.equal(enrichment.titlesChanged, true);
@@ -259,7 +346,7 @@ test("a provisional native fallback is reconsidered so it can settle", async () 
     sourceId: "comment",
     titles: ["One", "Two"],
   }));
-  assert.equal(api.shouldConsiderNativeSource(selection), false);
+  assert.equal(api.shouldConsiderNativeSource(selection), true);
 });
 
 test("wrong videos, stale generations, and malformed timing sets are ineligible", async () => {
@@ -432,7 +519,7 @@ test("native ownership is bound to each candidate's link or enclosing watch shel
   assert.equal(structural.confidence, api.OWNERSHIP_CONFIDENCE.WEAK);
 });
 
-test("missing or truncated titles keep lower-tier enrichment discovery active", async () => {
+test("missing titles permit enrichment while chapter discovery stays active", async () => {
   const api = await loadTrackSelection();
   const selection = api.createTrackSelectionState();
 
@@ -450,7 +537,7 @@ test("missing or truncated titles keep lower-tier enrichment discovery active", 
   }));
   assert.deepEqual(selection.current.tracks.map(({ title }) => title), ["Complete", "Filled title"]);
   assert.equal(api.trackSourceNeedsTitleEnrichment(selection.current), false);
-  assert.equal(api.shouldConsiderNativeSource(selection), false);
+  assert.equal(api.shouldConsiderNativeSource(selection), true);
 });
 
 test("separate source runs compete without being flattened into a fabricated list", async () => {

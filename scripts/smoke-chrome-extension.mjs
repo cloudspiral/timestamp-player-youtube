@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CHAPTER_SMOKE_SCENARIOS } from "./chrome-smoke-chapters.mjs";
 
 import {
   assertBrowserPrerequisites,
@@ -35,7 +36,7 @@ async function main() {
   try {
     const certificate = createTestCertificate(temporaryDirectory, { hostnames: SMOKE_HOSTNAMES });
     const scenarioErrors = [];
-    for (const scenario of SMOKE_SCENARIOS) {
+    for (const scenario of [...SMOKE_SCENARIOS, ...CHAPTER_SMOKE_SCENARIOS]) {
       try {
         await runSmokeScenario({ certificate, chromeBinary, scenario });
       } catch (error) {
@@ -51,7 +52,7 @@ async function main() {
     if (scenarioErrors.length) {
       throw new AggregateError(
         scenarioErrors,
-        `${scenarioErrors.length} of ${SMOKE_SCENARIOS.length} Chrome smoke scenarios failed`
+        `${scenarioErrors.length} of ${SMOKE_SCENARIOS.length + CHAPTER_SMOKE_SCENARIOS.length} Chrome smoke scenarios failed`
       );
     }
   } catch (error) {
@@ -96,7 +97,7 @@ async function runSmokeScenario({ certificate, chromeBinary, scenario }) {
     }
 
     console.log(
-      `${formatScenarioName(scenario)} Chrome smoke passed: ${result.href} rendered ${JSON.stringify(result.launcherText)} without a reload.`
+      `${formatScenarioName(scenario)} Chrome smoke passed: ${result.href} rendered ${JSON.stringify(result.launcherText)}.`
     );
   } catch (error) {
     runError = error;
