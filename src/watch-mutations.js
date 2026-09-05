@@ -77,9 +77,9 @@
     }
 
     return {
-      [WATCH_MUTATION_DOMAINS.COMMENTS]: sourceKind !== "description" || needsTitleEnrichment,
+      [WATCH_MUTATION_DOMAINS.COMMENTS]: !["description", "chapter"].includes(sourceKind) || needsTitleEnrichment,
       [WATCH_MUTATION_DOMAINS.DESCRIPTION]: true,
-      [WATCH_MUTATION_DOMAINS.NATIVE]: sourceKind === "native" || needsTitleEnrichment,
+      [WATCH_MUTATION_DOMAINS.NATIVE]: true,
       // Player ownership and ad state remain live after track discovery settles.
       // Keeping this narrow domain active lets content re-resolve media without
       // re-running description/comment discovery for every player mutation.

@@ -44,7 +44,8 @@
     "lint:firefox": "npm run prepare:packages && NO_UPDATE_NOTIFIER=1 web-ext lint --source-dir dist/firefox",
     "build:chrome": "npm run prepare:packages && NO_UPDATE_NOTIFIER=1 web-ext build --source-dir dist/chrome --artifacts-dir web-ext-artifacts --overwrite-dest --filename timestamp-player-youtube-chrome-{version}.zip",
     "build:firefox": "npm run prepare:packages && NO_UPDATE_NOTIFIER=1 web-ext build --source-dir dist/firefox --artifacts-dir web-ext-artifacts --overwrite-dest --filename timestamp-player-youtube-firefox-{version}.zip",
-    "build": "npm run check && npm run verify:packages && npm run lint:firefox && npm run build:chrome && npm run build:firefox"
+    "build": "npm run check && npm run verify:packages && npm run lint:firefox && npm run build:chrome && npm run build:firefox",
+    "test:chapters": "node --test tests/chapter-data.test.mjs tests/chapter-discovery.test.mjs tests/youtube-page-data.test.mjs"
   },
   "devDependencies": {
     "web-ext": "^10.6.0"
