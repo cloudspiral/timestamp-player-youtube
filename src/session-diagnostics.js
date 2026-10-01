@@ -121,6 +121,7 @@
           ...sharedFields,
           sourceChannel: result?.source?.channel,
           sourceKind: result?.source?.kind,
+          chapterKind: result?.source?.chapterKind,
           trackCount: Array.isArray(result?.tracks) ? result.tracks.length : 0,
           ownershipConfidence: result?.ownership?.confidence,
           settled: result?.status === "settled",
@@ -140,6 +141,7 @@
         ...fields,
         sourceChannel: result?.source?.channel,
         sourceKind: result?.source?.kind,
+        chapterKind: result?.source?.chapterKind,
         trackCount: Array.isArray(result?.tracks) ? result.tracks.length : 0,
       });
     }

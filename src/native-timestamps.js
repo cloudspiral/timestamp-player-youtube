@@ -39,6 +39,7 @@
 
   function getNativeTimestampDiscovery(videoId, root = document) {
     const candidates = [];
+    const groups = [];
     const seen = new Set();
     let sawRelevantMismatchedVideoId = false;
 
@@ -61,6 +62,15 @@
         continue;
       }
 
+      const panel = container.closest?.("ytd-engagement-panel-section-list-renderer");
+      const panelId = panel?.getAttribute?.("target-id") || panel?.getAttribute?.("panel-identifier") || "";
+      groups.push({
+        candidates: groupCandidates,
+        panelId,
+        incomplete: timestampLinkCount > groupCandidates.length
+          || Boolean(container.querySelector?.("ytd-continuation-item-renderer")),
+      });
+
       for (const candidate of groupCandidates) {
         const key = `${candidate.start}:${candidate.lineKey}`;
         if (seen.has(key)) {
@@ -74,6 +84,7 @@
 
     return {
       candidates,
+      groups,
       hasMismatchedVideoId: candidates.length === 0 && sawRelevantMismatchedVideoId,
     };
   }

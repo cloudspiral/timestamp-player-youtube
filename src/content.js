@@ -204,6 +204,7 @@
     bindWatchPageObserver();
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("yt-page-data-updated", handlePageDataUpdated);
     beginWatchSession(videoId, previousUrl ? SCAN_DELAY_MS : 0);
   }
 
@@ -234,6 +235,12 @@
     });
   }
 
+  function handlePageDataUpdated() {
+    if (isCurrentSession(state.session)) {
+      scheduleScan(state.session);
+    }
+  }
+
   function deactivateWatchPage() {
     if (!state.watchPageActive) {
       return;
@@ -247,6 +254,7 @@
     endWatchSession("left-watch-route");
     document.removeEventListener("fullscreenchange", handleFullscreenChange);
     document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.removeEventListener("yt-page-data-updated", handlePageDataUpdated);
     removeWatchPageUi();
   }
 
@@ -612,6 +620,12 @@
     const observation = beginTrackSelectionObservation(session.trackSelection);
     let awaitingSourceConfirmation = false;
     let descriptionDiscoveryPending = false;
+    const chapterDiscovery = trackDiscovery.getChapterSourceDiscovery(session, duration, observation);
+    awaitingSourceConfirmation = considerTrackSourceResults(session, chapterDiscovery.results, {
+      candidateCount: chapterDiscovery.candidateCount,
+      sourceChannel: "chapter-markers",
+      sourceKind: TRACK_SOURCE_KINDS.CHAPTER,
+    });
     const quietDescriptionReadable = trackDiscovery.canReadQuietDescription(videoId);
     const descriptionDiscovery = trackDiscovery.getDescriptionSourceResults(
       session,
@@ -632,6 +646,7 @@
 
     const descriptionNeedsHydration = (
       !descriptionSelected
+      && session.trackSelection.current?.source.chapterKind !== "manual"
       && descriptionDiscovery.results.length === 0
       && !quietDescriptionReadable
     );
@@ -642,7 +657,7 @@
       }
     }
 
-    const shouldDiscoverAlternativeSources = !descriptionSelected
+    const shouldDiscoverAlternativeSources = ![TRACK_SOURCE_KINDS.DESCRIPTION, TRACK_SOURCE_KINDS.CHAPTER].includes(selectedSourceKind(session))
       || trackSourceNeedsTitleEnrichment(session.trackSelection.current);
     if (shouldDiscoverAlternativeSources) {
       const commentStatus = session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.DONE
@@ -687,7 +702,7 @@
       );
       awaitingSourceConfirmation = considerTrackSourceResults(
         session,
-        nativeDiscovery.result ? [nativeDiscovery.result] : [],
+        nativeDiscovery.results || [],
         {
           candidateCount: nativeDiscovery.candidateCount,
           sourceChannel: "native-dom",
@@ -721,6 +736,7 @@
     const discoveryTarget = deriveDiscoveryTarget({
       awaitingSourceConfirmation,
       commentDiscoveryPending: trackDiscovery.isCommentDiscoveryPending(session),
+      chapterDiscoveryPending: trackDiscovery.isChapterDiscoveryPending(session),
       descriptionDiscoveryPending,
       hasSelectedSource: Boolean(selectedResult),
       selectedSourceSettled: selectedResult?.status === TRACK_SOURCE_STATUSES.SETTLED,

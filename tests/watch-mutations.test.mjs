@@ -298,7 +298,7 @@ test("settled source interests preserve higher-tier and title upgrades", async (
   });
   assert.equal(completeDescription[domains.DESCRIPTION], true);
   assert.equal(completeDescription[domains.COMMENTS], false);
-  assert.equal(completeDescription[domains.NATIVE], false);
+  assert.equal(completeDescription[domains.NATIVE], true);
   assert.equal(completeDescription[domains.PLAYER], true);
 
   const incompleteDescription = mutations.getTrackMutationInterests({
@@ -315,7 +315,7 @@ test("settled source interests preserve higher-tier and title upgrades", async (
   });
   assert.equal(completeComment[domains.DESCRIPTION], true, "higher-tier descriptions remain observable");
   assert.equal(completeComment[domains.COMMENTS], true, "same-tier comment upgrades remain observable");
-  assert.equal(completeComment[domains.NATIVE], false);
+  assert.equal(completeComment[domains.NATIVE], true);
 });
 
 test("new relevant roots are detected without treating their unrelated parent as relevant", async () => {

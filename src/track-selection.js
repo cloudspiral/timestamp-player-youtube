@@ -3,6 +3,7 @@
     trackTitleQuality,
   } = globalThis.TimestampPlayerTimestamps;
   const TRACK_SOURCE_KINDS = Object.freeze({
+    CHAPTER: "chapter",
     DESCRIPTION: "description",
     COMMENT: "comment",
     NATIVE: "native",
@@ -12,6 +13,7 @@
     SETTLED: "settled",
   });
   const TRACK_SOURCE_TIERS = Object.freeze({
+    [TRACK_SOURCE_KINDS.CHAPTER]: 250,
     [TRACK_SOURCE_KINDS.DESCRIPTION]: 300,
     [TRACK_SOURCE_KINDS.COMMENT]: 200,
     [TRACK_SOURCE_KINDS.NATIVE]: 100,
@@ -109,6 +111,7 @@
 
   function createTrackSourceResult({
     channel,
+    chapterKind = "unknown",
     generation,
     kind,
     observation = 0,
@@ -127,11 +130,14 @@
       throw new TypeError("Track source results require a videoId, generation, and sourceId");
     }
 
+    const isChapter = kind === TRACK_SOURCE_KINDS.CHAPTER;
+    const normalizedChapterKind = ["manual", "automatic"].includes(chapterKind) ? chapterKind : "unknown";
     const source = Object.freeze({
       channel: channel || kind,
       id: String(sourceId),
       kind,
-      tier: TRACK_SOURCE_TIERS[kind],
+      ...(isChapter ? { chapterKind: normalizedChapterKind } : {}),
+      tier: isChapter && normalizedChapterKind === "manual" ? 400 : TRACK_SOURCE_TIERS[kind],
     });
     const normalizedTracks = tracks.map((track, index) => {
       const title = String(track?.title || "").trim();
@@ -261,15 +267,17 @@
   }
 
   function shouldConsiderNativeSource(selection) {
-    return !selection.current
-      || selection.current.source.kind === TRACK_SOURCE_KINDS.NATIVE
-      || trackSourceNeedsTitleEnrichment(selection.current);
+    // Native panels can arrive late, including creator chapters above a settled
+    // description. Title quality must never suppress chapter discovery.
+    return !selection.current || selection.current.source.kind !== TRACK_SOURCE_KINDS.CHAPTER
+      || selection.current.source.channel !== "chapter-markers"
+      || selection.current.source.chapterKind !== "manual";
   }
 
   function trackSourceNeedsTitleEnrichment(result) {
     return Boolean(
       result
-      && result.quality.titleScore < result.quality.trackCount * 100
+      && result.tracks.some((track) => !track.title)
     );
   }
 
@@ -304,6 +312,14 @@
   function chooseTimingSource(incumbent, candidate) {
     if (candidate.source.tier !== incumbent.source.tier) {
       return candidate.source.tier > incumbent.source.tier ? candidate : incumbent;
+    }
+
+    if (candidate.source.kind === TRACK_SOURCE_KINDS.CHAPTER) {
+      const ranks = { "chapter-markers": 3, "chapter-panel": 2, "chapter-dom": 1 };
+      const difference = (ranks[candidate.source.channel] || 0) - (ranks[incumbent.source.channel] || 0);
+      if (difference) {
+        return difference > 0 ? candidate : incumbent;
+      }
     }
 
     const sameSource = getTrackSourceKey(candidate) === getTrackSourceKey(incumbent);
@@ -352,7 +368,7 @@
     let changed = false;
     const tracks = primary.tracks.map((track) => {
       const alternate = secondaryTracksByStart.get(track.start);
-      if (!alternate || trackTitleQuality(alternate.title) <= trackTitleQuality(track.title)) {
+      if (!alternate || track.title || !alternate.title) {
         return track;
       }
 

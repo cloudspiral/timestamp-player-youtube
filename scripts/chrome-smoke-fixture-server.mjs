@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:https";
 import path from "node:path";
+import { createChapterFixtureHtml, validateChapterSmokeResult } from "./chrome-smoke-chapters.mjs";
 
 import {
   SMOKE_FAILURE_PATH,
@@ -110,7 +111,11 @@ export async function startFixtureServer({ certificatePath, privateKeyPath }, sc
           if (request.url === SMOKE_FAILURE_PATH) {
             throw new Error(`Smoke fixture did not become ready: ${JSON.stringify(result)}`);
           }
-          validateSmokeResult(result, scenario);
+          if (scenario.chapterMode) {
+            validateChapterSmokeResult(result, scenario);
+          } else {
+            validateSmokeResult(result, scenario);
+          }
           response.writeHead(204, { "cache-control": "no-store" });
           response.end();
           resolveResult(result);
@@ -127,13 +132,14 @@ export async function startFixtureServer({ certificatePath, privateKeyPath }, sc
       await documentReleased;
       response.writeHead(302, {
         "cache-control": "no-store",
-        location: SMOKE_EXTENSION_READY_PATH,
+        location: scenario.chapterMode === "direct" ? `/watch?v=${scenario.videoId}` : SMOKE_EXTENSION_READY_PATH,
       });
       response.end();
       return;
     }
 
-    if (request.method !== "GET" || request.url !== SMOKE_EXTENSION_READY_PATH) {
+    const documentPath = scenario.chapterMode === "direct" ? `/watch?v=${scenario.videoId}` : SMOKE_EXTENSION_READY_PATH;
+    if (request.method !== "GET" || request.url !== documentPath) {
       response.writeHead(404, {
         "cache-control": "no-store",
         "content-type": "text/plain; charset=utf-8",
@@ -146,7 +152,7 @@ export async function startFixtureServer({ certificatePath, privateKeyPath }, sc
       "cache-control": "no-store",
       "content-type": "text/html; charset=utf-8",
     });
-    response.end(createFixtureHtml(scenario));
+    response.end(scenario.chapterMode ? createChapterFixtureHtml(scenario) : createFixtureHtml(scenario));
   });
   await new Promise((resolve, reject) => {
     const handleStartupError = (error) => {
