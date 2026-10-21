@@ -2,6 +2,8 @@
   const COMMENT_MIN_TRACKS = 3;
   const COMMENT_FETCH_BATCH_LIMIT = 3;
   const REGULAR_COMMENT_SCAN_LIMIT = 30;
+  const { buildChapterTracks, chapterKindFromKey, extractChapterSets, isChapterPanelId } = globalThis.TimestampPlayerChapterData;
+  const { createPageDataLoader } = globalThis.TimestampPlayerYouTubePageData;
   const {
     COMMENT_SOURCE_TYPES,
     scoreCommentTrackSource,
@@ -89,7 +91,78 @@
         }));
       }
 
-      return { candidateCount, results };
+    return { candidateCount, results };
+    }
+
+    function getPageDataLoader(session) {
+      session.pageDataLoader ||= createPageDataLoader(session.videoId, session.abortController.signal);
+      return session.pageDataLoader;
+    }
+
+    function getChapterSourceDiscovery(session, duration, observation) {
+      const discovery = session.chapterDiscovery;
+      const loader = getPageDataLoader(session);
+      const localSets = extractChapterSets(loader.readDocument()?.initialData, session.videoId);
+      const hasComplete = localSets.some((set) => set.complete && buildChapterTracks(set.candidates, duration).length >= 2);
+      if (discovery.status === "idle") {
+        if (hasComplete) {
+          discovery.status = "done";
+        } else {
+          startChapterFetch(session);
+        }
+      }
+      const results = [];
+      for (const [transport, sets] of [["document", localSets], ["fetch", discovery.sets]]) {
+        for (const set of sets) {
+          const tracks = buildChapterTracks(set.candidates, duration, { requireZero: set.complete });
+          if (tracks.length < 2) {
+            continue;
+          }
+          results.push(createTrackSourceResult({
+            channel: set.complete ? set.channel : "native-panel",
+            chapterKind: set.chapterKind,
+            kind: set.complete ? TRACK_SOURCE_KINDS.CHAPTER : TRACK_SOURCE_KINDS.NATIVE,
+            sourceId: `${transport}:${set.sourceId}`,
+            duration, generation: session.generation, observation, videoId: session.videoId,
+            ownership: { confidence: "strong", evidence: "page-video-id" },
+            status: set.complete || (discovery.status === "done" && session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.DONE)
+              ? TRACK_SOURCE_STATUSES.SETTLED : TRACK_SOURCE_STATUSES.PROVISIONAL,
+            tracks,
+          }));
+        }
+      }
+      return { results, candidateCount: [...localSets, ...discovery.sets].reduce((sum, set) => sum + set.candidates.length, 0) };
+    }
+
+    function startChapterFetch(session) {
+      const discovery = session.chapterDiscovery;
+      discovery.status = "pending";
+      getPageDataLoader(session).fetchPage().then((page) => {
+        if (isCurrentSession(session)) {
+          discovery.sets = extractChapterSets(page.initialData, session.videoId);
+          discovery.status = "done";
+        }
+      }, (error) => {
+        if (!isCurrentSession(session)) {
+          return;
+        }
+        const retryable = error?.kind === "transient" && error?.reason !== "aborted";
+        const retryScheduled = retryable && scheduleTrackedSessionRetry(session, "chapterFetch", () => {
+          if (isCurrentSession(session)) {
+            getPageDataLoader(session).retryTransient();
+            startChapterFetch(session);
+          }
+        });
+        discovery.status = retryScheduled ? "retry-wait" : "done";
+      }).finally(() => {
+        if (isCurrentSession(session)) {
+          scheduleScan(session);
+        }
+      });
+    }
+
+    function isChapterDiscoveryPending(session) {
+      return ["pending", "retry-wait"].includes(session.chapterDiscovery.status);
     }
 
     function getNativeSourceDiscovery(session, duration, observation) {
@@ -99,36 +172,38 @@
         return { candidateCount, result: null };
       }
 
-      const tracks = findTracks(duration, discovery.candidates);
-      if (tracks.length < 2) {
-        return { candidateCount, result: null };
-      }
-
-      const ownership = classifyNativeTrackSourceOwnership(
-        discovery.candidates,
-        session.videoId
-      );
-      if (!ownership) {
-        return { candidateCount, result: null };
-      }
-
-      return {
-        candidateCount,
-        result: createTrackSourceResult({
-          channel: "native-dom",
+      const results = [];
+      const groups = discovery.groups || [{ candidates: discovery.candidates }];
+      for (const [index, group] of groups.entries()) {
+        const chapterPanel = isChapterPanelId(group.panelId);
+        if (group.incomplete) {
+          continue;
+        }
+        const complete = chapterPanel && group.candidates[0]?.start === 0;
+        const tracks = chapterPanel
+          ? buildChapterTracks(group.candidates, duration, { requireZero: complete })
+          : findTracks(duration, group.candidates);
+        const ownership = classifyNativeTrackSourceOwnership(group.candidates, session.videoId);
+        if (!ownership || tracks.length < 2) {
+          continue;
+        }
+        results.push(createTrackSourceResult({
+          channel: complete ? "chapter-dom" : "native-dom",
+          chapterKind: chapterKindFromKey(group.panelId),
           duration,
           generation: session.generation,
-          kind: TRACK_SOURCE_KINDS.NATIVE,
+          kind: complete ? TRACK_SOURCE_KINDS.CHAPTER : TRACK_SOURCE_KINDS.NATIVE,
           observation,
           ownership,
-          sourceId: "native-page",
-          status: session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.DONE
+          sourceId: `native-page:${index}`,
+          status: complete || session.commentDiscovery.status === COMMENT_DISCOVERY_STATUSES.DONE
             ? TRACK_SOURCE_STATUSES.SETTLED
             : TRACK_SOURCE_STATUSES.PROVISIONAL,
           tracks,
           videoId: session.videoId,
-        }),
-      };
+        }));
+      }
+      return { candidateCount, results, result: results[0] || null };
     }
 
     function getDomCommentSourceResults(session, duration, observation, status) {
@@ -259,6 +334,7 @@
 
       discovery.status = COMMENT_DISCOVERY_STATUSES.PENDING;
       fetchCommentRecords({
+        loadPageData: () => getPageDataLoader(session).load(),
         maxBatches: COMMENT_FETCH_BATCH_LIMIT,
         signal: session.abortController.signal,
         videoId,
@@ -346,10 +422,12 @@
     return Object.freeze({
       canReadQuietDescription,
       getDescriptionSourceResults,
+      getChapterSourceDiscovery,
       getDomCommentSourceResults,
       getFetchedCommentDiscoveryForSession,
       getNativeSourceDiscovery,
       isCommentDiscoveryPending,
+      isChapterDiscoveryPending,
     });
   }
 

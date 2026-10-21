@@ -31,6 +31,10 @@
       delays: Object.freeze([1000]),
       maxElapsedMs: 5000,
     }),
+    chapterFetch: Object.freeze({
+      delays: Object.freeze([1000]),
+      maxElapsedMs: 25000,
+    }),
   });
 
   function setGlobalTimeout(callback, delay) {
@@ -62,6 +66,7 @@
         sourceDiscovery: createRetryState(),
         launcher: createRetryState(),
         commentFetch: createRetryState(),
+        chapterFetch: createRetryState(),
       },
       description: {
         fallbackReadyAt: 0,
@@ -82,6 +87,8 @@
         seeds: [],
         status: COMMENT_DISCOVERY_STATUSES.IDLE,
       },
+      pageDataLoader: null,
+      chapterDiscovery: { status: "idle", sets: [] },
       trackSelection: createTrackSelectionState(),
       autoOpenedCompact: false,
       userClosedPanel: false,

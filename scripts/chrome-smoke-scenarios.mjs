@@ -786,6 +786,7 @@ function isWithinTolerance(value, expected, tolerance) {
 }
 
 export function formatScenarioName(scenario) {
+  if (scenario.chapterMode) return `YouTube chapters (${scenario.chapterMode})`;
   return scenario.kind === "music" ? "YouTube Music" : "YouTube Watch";
 }
 

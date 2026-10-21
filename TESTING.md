@@ -11,6 +11,7 @@ npm run check
 npm run verify:packages
 npm run lint:firefox
 npm run smoke:chrome
+npm run test:chapters
 ```
 
 - `npm test` uses Node's native discovery to run every `*.test.mjs` file.
@@ -21,7 +22,13 @@ npm run smoke:chrome
   runtime file coverage, and copied bytes match the source tree.
 - `npm run smoke:chrome` loads the generated Chrome extension and exercises
   independent standard YouTube Watch and YouTube Music cold-SPA transitions
-  without document reloads.
+  without document reloads. Additional chapter scenarios verify direct loading
+  and a late structured-data upgrade from a reaction comment, without a visible
+  chapter panel or a change in playback position/pause state.
+- `npm run test:chapters` covers structured chapter parsing, current-video page
+  data, shared requests, timeout/abort/retry behavior, DOM provenance, and late
+  discovery. `npm run test:track-selection` covers source priority and title
+  preservation.
 
 Every major area also has a targeted script, such as `npm run test:timestamps`,
 `npm run test:watch-session`, or `npm run test:settings`. Targeted scripts are
@@ -74,8 +81,10 @@ sessionStorage.setItem("timestamp-player:debug", "1");
 
 Filter the console for `[TimestampPlayer]`. The events report the current video
 ID, session generation, media/source decisions, bounded retries, comment-fetch
-outcomes, and launcher attachment. They never include comment or description
-text, track titles, author identities, continuation tokens, request URLs,
+outcomes, and launcher attachment. Chapter source events additionally report
+`chapterKind` and the detection channel (`chapter-markers`, `chapter-panel`, or
+`chapter-dom`). They never include comment or description text, track titles,
+author identities, continuation tokens, request URLs,
 headers, response bodies, or raw errors.
 
 Disable diagnostics for the tab with:

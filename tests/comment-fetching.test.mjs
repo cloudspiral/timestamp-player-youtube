@@ -38,6 +38,7 @@ async function loadCommentFetching({ fetchImpl, locationFixture, pageFixture } =
   });
   vm.runInContext(commentScoringSource, context);
   vm.runInContext(commentDataSource, context);
+  vm.runInContext(await readFile(new URL("../src/youtube-page-data.js", import.meta.url), "utf8"), context);
   vm.runInContext(commentFetchingSource, context);
   return context.TimestampPlayerCommentFetching;
 }

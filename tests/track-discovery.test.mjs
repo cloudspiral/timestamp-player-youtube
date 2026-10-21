@@ -57,6 +57,8 @@ async function loadTrackDiscovery({
   vm.runInContext(timestampSource, context);
   vm.runInContext(selectionSource, context);
   vm.runInContext(fetchedSource, context);
+  vm.runInContext(await readFile(new URL("../src/chapter-data.js", import.meta.url), "utf8"), context);
+  context.TimestampPlayerYouTubePageData = { createPageDataLoader: () => ({ load: () => null }) };
   vm.runInContext(discoverySource, context);
   return {
     api: context.TimestampPlayerTrackDiscovery,
@@ -76,6 +78,7 @@ function timestampCandidates(sourceId = "fixture") {
 function createSession(selection, { commentStatus = "idle" } = {}) {
   return {
     abortController: new AbortController(),
+    chapterDiscovery: { status: "idle", sets: [] },
     commentDiscovery: {
       attempt: 0,
       attemptStartedAt: null,

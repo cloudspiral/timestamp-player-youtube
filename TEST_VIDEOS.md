@@ -23,10 +23,16 @@ For a release, record the selected cases and final-artifact evidence in
 
 ## YouTube Chapters
 
+- https://www.youtube.com/watch?v=vBv5-xa_hgQ
+  - Regression: 19 automatic player chapters should replace the three reaction
+    timestamps in a comment, even with YouTube's chapter panel closed.
+  - Public metadata verified 2026-09-05: `AUTO_CHAPTERS`, Intro at 0:00,
+    Sora at 0:17, and Hayner, Pence & Olette at 39:47.
 - https://www.youtube.com/watch?v=ojSGwZbfVS8
   - Has timestamps in the video description.
   - Exposes YouTube chapters in the playback bar.
-  - Unknown whether the chapters are manual or automatic.
+  - Public metadata verified 2026-09-05: eight creator chapters marked
+    `DESCRIPTION_CHAPTERS`; prefer their timeline above description parsing.
 - https://www.youtube.com/watch?v=w6He_2X-06c
   - Has timestamps in the video description.
   - Exposes YouTube chapters in the playback bar.
@@ -37,8 +43,9 @@ For a release, record the selected cases and final-artifact evidence in
   - Unknown whether the chapters are manual or automatic.
 - https://www.youtube.com/watch?v=CdubbHK2XDQ
   - Has a normal description timestamp list and YouTube-rendered chapters.
-  - Regression case: description titles should not be overwritten by duplicate
-    native chapter/card text.
+  - Regression case: preserve the winning source's nonempty titles. Creator
+    chapter metadata wins if available; generic native card text must not
+    overwrite description titles.
 
 ## Native Key Moments Fallback
 
@@ -64,6 +71,8 @@ For a release, record the selected cases and final-artifact evidence in
   - Has good timestamp lists in comments.
   - Also exposes YouTube-generated Key Moments; comments should win over native
     Key Moments when the description does not contain a real timestamp list.
+  - Public metadata verified 2026-09-05: six sparse automatic panel entries
+    beginning at 3:27, with no complete player chapter timeline.
 
 ## Messy Timestamp Formats
 

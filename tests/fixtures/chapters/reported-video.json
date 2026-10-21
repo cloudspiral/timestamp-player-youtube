@@ -1,0 +1,180 @@
+{
+  "currentVideoEndpoint": {
+    "watchEndpoint": {
+      "videoId": "vBv5-xa_hgQ"
+    }
+  },
+  "playerOverlays": {
+    "playerOverlayRenderer": {
+      "decoratedPlayerBarRenderer": {
+        "decoratedPlayerBarRenderer": {
+          "playerBar": {
+            "multiMarkersPlayerBarRenderer": {
+              "markersMap": [
+                {
+                  "key": "AUTO_CHAPTERS",
+                  "value": {
+                    "chapters": [
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Intro"
+                          },
+                          "timeRangeStartMillis": 0
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Sora"
+                          },
+                          "timeRangeStartMillis": 17000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Kairi"
+                          },
+                          "timeRangeStartMillis": 294000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Roxas"
+                          },
+                          "timeRangeStartMillis": 444000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Axel"
+                          },
+                          "timeRangeStartMillis": 523000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Aqua"
+                          },
+                          "timeRangeStartMillis": 676000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Ventus"
+                          },
+                          "timeRangeStartMillis": 835000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Ansem Seeker of Darkness Terra-Xehanort"
+                          },
+                          "timeRangeStartMillis": 1033000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Master Xehanort"
+                          },
+                          "timeRangeStartMillis": 1217000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Young Xehanort"
+                          },
+                          "timeRangeStartMillis": 1311000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Replica Riku"
+                          },
+                          "timeRangeStartMillis": 1483000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Vanitas"
+                          },
+                          "timeRangeStartMillis": 1559000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Vexen"
+                          },
+                          "timeRangeStartMillis": 1632000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Luxord"
+                          },
+                          "timeRangeStartMillis": 1773000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Marluxia"
+                          },
+                          "timeRangeStartMillis": 1850000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Larxene"
+                          },
+                          "timeRangeStartMillis": 1931000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Zexion (lenzo)"
+                          },
+                          "timeRangeStartMillis": 2088000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Ansem The Wise"
+                          },
+                          "timeRangeStartMillis": 2165000
+                        }
+                      },
+                      {
+                        "chapterRenderer": {
+                          "title": {
+                            "simpleText": "Hayner, Pence & Olette"
+                          },
+                          "timeRangeStartMillis": 2387000
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

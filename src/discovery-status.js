@@ -17,6 +17,7 @@
     STARTING: "starting",
     VERIFYING_SOURCE: "verifying-source",
     WAITING_FOR_COMMENT_FETCH: "waiting-for-comment-fetch",
+    WAITING_FOR_CHAPTER_FETCH: "waiting-for-chapter-fetch",
     WAITING_FOR_DESCRIPTION: "waiting-for-description",
     WAITING_FOR_DURATION: "waiting-for-duration",
     WAITING_FOR_VIDEO: "waiting-for-video",
@@ -41,6 +42,7 @@
       DISCOVERY_REASONS.STARTING,
       DISCOVERY_REASONS.VERIFYING_SOURCE,
       DISCOVERY_REASONS.WAITING_FOR_COMMENT_FETCH,
+      DISCOVERY_REASONS.WAITING_FOR_CHAPTER_FETCH,
       DISCOVERY_REASONS.WAITING_FOR_DESCRIPTION,
       DISCOVERY_REASONS.WAITING_FOR_DURATION,
       DISCOVERY_REASONS.WAITING_FOR_VIDEO,
@@ -91,6 +93,7 @@
     adPlaying = false,
     awaitingSourceConfirmation = false,
     commentDiscoveryPending = false,
+    chapterDiscoveryPending = false,
     descriptionDiscoveryPending = false,
     hasSelectedSource = false,
     sourceDiscoveryExhausted = false,
@@ -142,6 +145,9 @@
       );
     }
 
+    if (chapterDiscoveryPending) {
+      return createTarget(DISCOVERY_STATUSES.PENDING, DISCOVERY_REASONS.WAITING_FOR_CHAPTER_FETCH);
+    }
     if (descriptionDiscoveryPending) {
       return createTarget(
         DISCOVERY_STATUSES.PENDING,
